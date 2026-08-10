@@ -477,40 +477,40 @@ button { color: inherit; }
 @media (max-width: 560px) { .metric-card, .compact-metric, .panel, .department-panel { border-radius: 28px; }.metric-card h2, .compact-metric h2 { font-size: 36px; }.section-heading h2, .table-toolbar h2, .detail-card-heading h2, .panel-header h2 { font-size: 20px; }.organization-card { padding: 18px; } }
 
 /* Expanded curvature */
-.sidebar { border-radius: 48px; }
-.brand-mark { border-radius: 18px; }
-.nav-item, .settings-button { border-radius: 18px; }
-.nav-icon { border-radius: 13px; }
-.eyebrow { border-radius: 16px; }
-.primary-button, .outline-button, .icon-button { border-radius: 18px; }
-.panel { border-radius: 48px; }
-.metric-card, .compact-metric { border-radius: 46px; }
-.metric-icon { border-radius: 16px; }
-.section-heading button, .table-toolbar button, .table-footer button, .directory-toolbar button { border-radius: 18px; }
-.date-strip button { border-radius: 18px; }
-.department-panel { border-radius: 48px; }
-.organization-leader-badge, .status-pill { border-radius: 16px; }
-.profile-hero { border-radius: 48px; }
-.profile-avatar { border-radius: 24px; }
-.profile-actions button { border-radius: 18px; }
-.detail-form input, .detail-form select, .settings-form input, .form-grid input, .form-grid select, .form-note textarea, .organization-card select, .organization-add-form input, .catalog-panel form input, .organization-edit-form input, .organization-edit-form textarea { border-radius: 18px; }
-.organization-card { border-radius: 38px; }
-.organization-card-heading > span { border-radius: 16px; }
-.organization-card-heading em, .organization-edit-button { border-radius: 16px; }
-.organization-member { border-radius: 22px; }
-.organization-edit-actions button, .catalog-panel form button { border-radius: 18px; }
-.catalog-list > div { border-radius: 20px; }
-.catalog-list span { border-radius: 14px; }
-.employee-modal, .applicant-detail-modal { border-radius: 48px; }
-.resume-drop { border-radius: 28px; }
-.resume-icon { border-radius: 16px; }
-.toast { border-radius: 22px; }
+.sidebar { border-radius: 60px; }
+.brand-mark { border-radius: 22px; }
+.nav-item, .settings-button { border-radius: 22px; }
+.nav-icon { border-radius: 16px; }
+.eyebrow { border-radius: 20px; }
+.primary-button, .outline-button, .icon-button { border-radius: 22px; }
+.panel { border-radius: 58px; }
+.metric-card, .compact-metric { border-radius: 56px; }
+.metric-icon { border-radius: 20px; }
+.section-heading button, .table-toolbar button, .table-footer button, .directory-toolbar button { border-radius: 22px; }
+.date-strip button { border-radius: 22px; }
+.department-panel { border-radius: 58px; }
+.organization-leader-badge, .status-pill { border-radius: 20px; }
+.profile-hero { border-radius: 60px; }
+.profile-avatar { border-radius: 30px; }
+.profile-actions button { border-radius: 22px; }
+.detail-form input, .detail-form select, .settings-form input, .form-grid input, .form-grid select, .form-note textarea, .organization-card select, .organization-add-form input, .catalog-panel form input, .organization-edit-form input, .organization-edit-form textarea { border-radius: 22px; }
+.organization-card { border-radius: 48px; }
+.organization-card-heading > span { border-radius: 20px; }
+.organization-card-heading em, .organization-edit-button { border-radius: 20px; }
+.organization-member { border-radius: 28px; }
+.organization-edit-actions button, .catalog-panel form button { border-radius: 22px; }
+.catalog-list > div { border-radius: 26px; }
+.catalog-list span { border-radius: 18px; }
+.employee-modal, .applicant-detail-modal { border-radius: 60px; }
+.resume-drop { border-radius: 36px; }
+.resume-icon { border-radius: 20px; }
+.toast { border-radius: 28px; }
 @media (max-width: 840px) {
-  .sidebar { border-radius: 0 0 38px 38px; }
+  .sidebar { border-radius: 0 0 46px 46px; }
 }
 @media (max-width: 560px) {
-  .metric-card, .compact-metric, .panel, .department-panel { border-radius: 36px; }
-  .organization-card { border-radius: 30px; }
+  .metric-card, .compact-metric, .panel, .department-panel { border-radius: 44px; }
+  .organization-card { border-radius: 38px; }
 }
 
 /* Visual QA: alignment and readable type */

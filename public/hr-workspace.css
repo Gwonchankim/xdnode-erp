@@ -512,3 +512,67 @@ button { color: inherit; }
   .metric-card, .compact-metric, .panel, .department-panel { border-radius: 36px; }
   .organization-card { border-radius: 30px; }
 }
+
+/* Visual QA: alignment and readable type */
+.welcome-row { gap: 28px; }
+.welcome-row h1, .module-hero h1 { font-size: clamp(46px, 4.8vw, 56px); line-height: 1.1; }
+.welcome-row > div:first-child, .module-hero > div:first-child { min-width: 0; }
+.brand span { font-size: 10.5px; }
+.nav-group > p { font-size: 11px; }
+.nav-item, .settings-button { font-size: 14.5px; }
+.nav-icon, .nav-item em { font-size: 11px; }
+.eyebrow { font-size: 11px; }
+.metric-top em { font-size: 10.5px; }
+.metric-card > small, .compact-metric small { font-size: 11px; line-height: 1.4; }
+.compact-metric p { font-size: 12px; }
+.section-heading button, .table-toolbar button, .table-footer button { font-size: 12px; }
+.task-copy strong { font-size: 12.5px; }.task-copy small { font-size: 11px; }
+.owner-chip, .queue-footer { font-size: 10.5px; }
+.date-strip button span { font-size: 10px; }
+.agenda-list time, .agenda-list em { font-size: 10.5px; }
+.agenda-list strong { font-size: 12px; }.agenda-list small { font-size: 10.5px; }
+.directory-toolbar button { font-size: 11px; }
+.department-heading div small, .department-heading > em { font-size: 10.5px; }
+.data-table th { font-size: 11px; }
+.data-table td { font-size: 12.5px; }
+.name-link > span, .organization-leader-badge { font-size: 10px; }
+.profile-copy > p { font-size: 11px; }.profile-copy > div { font-size: 12px; }.profile-actions button { font-size: 11px; }
+.detail-card-heading > span { font-size: 11px; }
+.detail-form label > span, .settings-form label > span { font-size: 11px; }
+.detail-form input, .detail-form select, .settings-form input { font-size: 12.5px; }
+.history-item strong { font-size: 12px; }.history-item p { font-size: 11.5px; }.history-item small { font-size: 10px; }
+.payroll-summary span { font-size: 11px; }.payroll-summary small { font-size: 10px; }
+.row-actions button { font-size: 10px; }
+.resume-drop strong { font-size: 12px; }.resume-drop small, .resume-drop em { font-size: 10px; }
+.applicant-profile p { font-size: 11.5px; }.applicant-facts span { font-size: 10.5px; }.applicant-facts strong { font-size: 12px; }
+.resume-summary > span { font-size: 11px; }.resume-summary p { font-size: 11.5px; }.resume-summary em { font-size: 10px; }
+.candidate-banner strong { font-size: 12px; }.candidate-banner small, .candidate-banner em { font-size: 10.5px; }
+.settings-nav button { font-size: 12px; }
+.setting-toggle > div strong, .permission-list strong, .data-settings strong { font-size: 12px; }
+.setting-toggle > div span, .permission-list small, .data-settings span { font-size: 10.5px; }
+.permission-list em, .data-settings button { font-size: 10px; }
+.action-type-help strong, .retirement-fields label > span { font-size: 11.5px; }
+.action-type-help span, .personnel-note-required small { font-size: 10.5px; }
+.retirement-fields input, .retirement-fields textarea { font-size: 12.5px; }
+.retirement-progress span, .retirement-progress strong { font-size: 11px; }.retirement-progress small { font-size: 10px; }
+.checklist-group-heading p, .checklist-group-heading > span { font-size: 10px; }
+.retirement-task-list strong { font-size: 11px; }
+.organization-card-heading p { font-size: 10.5px; }
+.organization-card-heading em, .organization-edit-button { font-size: 10px; }
+.organization-card > label > span, .organization-members-heading strong, .organization-edit-form label > span, .organization-add-form label span { font-size: 11px; }
+.organization-card select, .organization-edit-form input, .organization-edit-form textarea, .organization-add-form input { font-size: 12.5px; }
+.organization-members-heading span { font-size: 10px; }
+.organization-member > span { font-size: 10px; }
+.organization-member strong { font-size: 11.5px; }.organization-member small { font-size: 10px; }
+.organization-empty-members, .organization-edit-heading span { font-size: 10.5px; }
+.organization-edit-actions button { font-size: 10.5px; }
+.catalog-panel > div:first-child p { font-size: 11px; }
+.catalog-list span { font-size: 10px; }.catalog-list strong { font-size: 11.5px; }
+.catalog-panel form input { font-size: 12px; }.catalog-panel form button { font-size: 10.5px; }
+@media (max-width: 1180px) {
+  .welcome-row h1, .module-hero h1 { font-size: clamp(44px, 5vw, 54px); }
+}
+@media (max-width: 840px) {
+  .welcome-row h1, .module-hero h1 { font-size: clamp(40px, 10vw, 50px); }
+  .nav-item, .settings-button { font-size: 13.5px; }
+}

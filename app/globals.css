@@ -610,3 +610,38 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .module-hero { border-radius: 38px; }
   .metric-card, .panel { border-radius: 36px; }
 }
+
+/* Visual QA: alignment and readable type */
+.erp-top-nav { height: 88px; }
+.erp-top-brand small, .erp-module-tab small { font-size: 11px; line-height: 1.2; }
+.erp-sync-state strong, .erp-user-card strong { font-size: 12px; }
+.erp-sync-state small, .erp-user-card small { font-size: 11px; }
+.search-box kbd { font-size: 10px; }
+.eyebrow { font-size: 11px; }
+.attention-strip strong { font-size: 14px; }
+.attention-strip span:not(.attention-icon), .attention-strip button { font-size: 12px; }
+.metric-card small, .metric-card p { font-size: 11.5px; line-height: 1.4; }
+.panel-header p { font-size: 11px; }
+.panel-header button { font-size: 12px; }
+.chart-summary span, .chart-summary em, .chart-labels { font-size: 10.5px; }
+.progress-ring small { font-size: 9px; }
+.task-row strong, .deadline-item strong, .rule-item strong { font-size: 12px; }
+.task-row small, .deadline-item small, .rule-item small { font-size: 10.5px; line-height: 1.4; }
+.deadline-item > span { font-size: 9px; }
+.data-row, .deal-row, .incentive-row, .person-row { min-height: 58px; font-size: 12px; }
+.table-head { min-height: 40px; font-size: 10.5px; }
+.bank-icon, .person-name i { font-size: 10px; }
+.data-row em, .deal-row .stage, .status { font-size: 10px; }
+.calc-form label, .quick-modal label { font-size: 11px; }
+.calc-form input, .calc-form select, .quick-modal input, .quick-modal textarea { font-size: 13px; }
+.calc-result > span { font-size: 11px; }.calc-result small, .calc-result p { font-size: 10px; }.calc-result b { font-size: 11px; }
+.donut small, .legend-list p { font-size: 10px; }
+.approval-item strong, .compliance-item strong { font-size: 11.5px; }
+.approval-item small, .compliance-item small { font-size: 10px; }
+.approval-item em, .approval-item button { font-size: 9.5px; }
+.toast { font-size: 12px; }
+@media (max-width: 760px) {
+  .erp-top-nav { height: 66px; }
+  .erp-module-tab strong { font-size: 11px; }
+  .metric-card small, .metric-card p { font-size: 11px; }
+}

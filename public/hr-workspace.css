@@ -598,3 +598,25 @@ button { color: inherit; }
   .organization-card { border-radius: 40px; }
   .employee-modal, .applicant-detail-modal { border-radius: 48px; }
 }
+
+/* Balanced HR curvature */
+.sidebar { border-radius: 36px; }
+.panel { border-radius: 36px; }
+.metric-card, .compact-metric { border-radius: 32px; }
+.department-panel { border-radius: 36px; }
+.profile-hero { border-radius: 40px; }
+.organization-card { border-radius: 32px; }
+.organization-member { border-radius: 18px; }
+.catalog-list > div { border-radius: 18px; }
+.employee-modal, .applicant-detail-modal { border-radius: 40px; }
+.resume-drop { border-radius: 24px; }
+@media (max-width: 840px) {
+  .sidebar { border-radius: 0 0 32px 32px; }
+}
+@media (max-width: 560px) {
+  .metric-card, .compact-metric { border-radius: 28px; }
+  .panel, .department-panel { border-radius: 32px; }
+  .profile-hero { border-radius: 32px; }
+  .organization-card { border-radius: 28px; }
+  .employee-modal, .applicant-detail-modal { border-radius: 32px; }
+}

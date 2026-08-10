@@ -206,8 +206,8 @@ button { color: inherit; }
   --color-smoke: #979797;
   --color-slate: #444444;
   --color-graphite: #2f2f2f;
-  --color-mint-chip: #d1ffca;
-  --color-voltage-yellow: #fff100;
+  --color-mint-chip: #c8d7ea;
+  --color-voltage-yellow: #d8c2b0;
   --ink: var(--color-carbon-black);
   --ink-soft: var(--color-slate);
   --paper: var(--color-warm-canvas);

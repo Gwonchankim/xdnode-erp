@@ -210,13 +210,36 @@ button { color: inherit; }
 .organization-card-heading h3 { margin: 0 0 4px; font-size: 12px; }
 .organization-card-heading p { overflow: hidden; margin: 0; color: #858e9f; font-size: 8.5px; white-space: nowrap; text-overflow: ellipsis; }
 .organization-card-heading em { padding: 5px 8px; border-radius: 12px; color: var(--navy); background: #e7edf9; font-size: 8px; font-style: normal; font-weight: 800; }
+.organization-edit-button { height: 28px; padding: 0 9px; border: 1px solid #d8dfeb; border-radius: 6px; color: #52617c; background: #fff; font-size: 8.5px; font-weight: 700; cursor: pointer; }
+.organization-edit-button:hover { color: var(--navy); border-color: #aebbd4; background: #f5f8fe; }
 .organization-card > label { display: block; margin-top: 14px; }
 .organization-card > label > span { display: block; margin-bottom: 6px; color: #687287; font-size: 9px; font-weight: 700; }
 .organization-card select { width: 100%; height: 38px; padding: 0 10px; border: 1px solid #d9dfe9; border-radius: 7px; color: #3e485c; outline: 0; background: #fff; font-size: 10px; }
 .organization-card select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #edf2fd; }
-.organization-member-preview { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 11px; padding-top: 11px; border-top: 1px solid #e7eaf0; }
-.organization-member-preview strong { color: var(--navy); font-size: 8.5px; }
-.organization-member-preview span { overflow: hidden; color: #929aaa; font-size: 8px; white-space: nowrap; text-overflow: ellipsis; }
+.organization-members { margin-top: 14px; padding-top: 13px; border-top: 1px solid #e4e8ef; }
+.organization-members-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
+.organization-members-heading strong { color: #4a556c; font-size: 9px; }
+.organization-members-heading span { color: #8b94a5; font-size: 8px; }
+.organization-member-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.organization-member { min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 43px; padding: 6px 8px; border: 1px solid #e5e9f0; border-radius: 8px; background: #fff; }
+.organization-member > span { width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: var(--navy); background: #e4ebfa; font-size: 8px; font-weight: 800; }
+.organization-member > div { min-width: 0; }
+.organization-member strong, .organization-member small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.organization-member strong { margin-bottom: 3px; color: #33415e; font-size: 9px; }
+.organization-member small { color: #8b94a5; font-size: 7.5px; }
+.organization-empty-members { margin: 0; padding: 14px; border: 1px dashed #dce2eb; border-radius: 8px; color: #929aaa; background: #fff; text-align: center; font-size: 8.5px; }
+.organization-edit-form { display: grid; gap: 12px; }
+.organization-edit-heading strong, .organization-edit-heading span { display: block; }
+.organization-edit-heading strong { margin-bottom: 4px; color: var(--navy); font-size: 12px; }
+.organization-edit-heading span { color: #8b94a5; font-size: 8px; }
+.organization-edit-form label > span { display: block; margin-bottom: 6px; color: #687287; font-size: 9px; font-weight: 700; }
+.organization-edit-form input, .organization-edit-form textarea { width: 100%; padding: 0 10px; border: 1px solid #cfd8e7; border-radius: 7px; outline: 0; background: #fff; font-size: 10px; }
+.organization-edit-form input { height: 38px; }
+.organization-edit-form textarea { min-height: 70px; padding-top: 10px; resize: vertical; }
+.organization-edit-form input:focus, .organization-edit-form textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #edf2fd; }
+.organization-edit-actions { display: flex; justify-content: flex-end; gap: 6px; }
+.organization-edit-actions button { height: 32px; padding: 0 11px; border: 1px solid #d7deea; border-radius: 7px; color: #59657b; background: #fff; font-size: 8.5px; font-weight: 700; cursor: pointer; }
+.organization-edit-actions button[type="submit"] { color: #fff; border-color: var(--navy); background: var(--navy); }
 .organization-add-form { display: flex; align-items: flex-end; gap: 12px; padding: 16px 18px 18px; border-top: 1px solid var(--line); background: #fafbfc; }
 .organization-add-form > div { display: grid; grid-template-columns: minmax(170px, .7fr) minmax(240px, 1.3fr); gap: 10px; flex: 1; }
 .organization-add-form label span { display: block; margin-bottom: 6px; color: #687287; font-size: 9px; font-weight: 700; }
@@ -245,7 +268,7 @@ button { color: inherit; }
   .retirement-modal { max-height: 96vh; }
 }
 @media (max-width: 560px) {
-  .metric-grid { grid-template-columns: 1fr; }.top-actions { width: 100%; }.search-box { flex: 1; }.top-actions .primary-button { padding: 0 10px; }.icon-button { width: 48px; }.welcome-row h1, .module-hero h1 { font-size: 22px; }.dashboard-grid { grid-template-columns: minmax(0,1fr); }.donut-wrap { gap: 18px; }.donut { width: 100px; height: 100px; }.donut::before { width: 68px; height: 68px; }.payroll-summary { grid-template-columns: 1fr; }.detail-form, .settings-form, .applicant-facts { grid-template-columns: 1fr; }.detail-form label.wide, .settings-form label.wide { grid-column: auto; }.profile-actions { flex-wrap: wrap; }.data-settings > div { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.row-actions { min-width: 140px; }.organization-add-form { align-items: stretch; flex-direction: column; }.organization-add-form > div { grid-template-columns: 1fr; }
+  .metric-grid { grid-template-columns: 1fr; }.top-actions { width: 100%; }.search-box { flex: 1; }.top-actions .primary-button { padding: 0 10px; }.icon-button { width: 48px; }.welcome-row h1, .module-hero h1 { font-size: 22px; }.dashboard-grid { grid-template-columns: minmax(0,1fr); }.donut-wrap { gap: 18px; }.donut { width: 100px; height: 100px; }.donut::before { width: 68px; height: 68px; }.payroll-summary { grid-template-columns: 1fr; }.detail-form, .settings-form, .applicant-facts { grid-template-columns: 1fr; }.detail-form label.wide, .settings-form label.wide { grid-column: auto; }.profile-actions { flex-wrap: wrap; }.data-settings > div { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.row-actions { min-width: 140px; }.organization-add-form { align-items: stretch; flex-direction: column; }.organization-add-form > div, .organization-member-list { grid-template-columns: 1fr; }.organization-card-heading { flex-wrap: wrap; }.organization-card-heading > div { min-width: 150px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

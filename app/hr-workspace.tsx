@@ -527,6 +527,21 @@ function XdnodeHrApp() {
     showToast(`${trimmed} 조직을 추가했습니다.`);
   }
 
+  function updateOrganization(organizationId: string, name: string, description: string) {
+    const trimmedName = name.trim();
+    const current = organizations.find((organization) => organization.id === organizationId);
+    if (!current || !trimmedName || organizations.some((organization) => organization.id !== organizationId && organization.name === trimmedName)) {
+      showToast("조직명은 비어 있거나 다른 조직과 같을 수 없습니다.");
+      return false;
+    }
+    setOrganizations((items) => items.map((organization) => organization.id === organizationId ? { ...organization, name: trimmedName, description: description.trim() || "조직 설명 미입력" } : organization));
+    if (current.name !== trimmedName) {
+      setEmployees((items) => items.map((employee) => employee.department === current.name ? { ...employee, department: trimmedName } : employee));
+    }
+    showToast(`${trimmedName} 조직 정보를 수정했습니다.`);
+    return true;
+  }
+
   function addRank(value: string) {
     const trimmed = value.trim();
     if (!trimmed || ranks.includes(trimmed)) return showToast("새 직급명을 확인해 주세요.");
@@ -618,7 +633,7 @@ function XdnodeHrApp() {
       <main className="main-content">
         {active === "dashboard" && <Dashboard employeeCount={employeeCount} onNavigate={navigate} />}
         {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} employees={employees} organizations={organizations} ranks={ranks} jobTitles={jobTitles} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} organizations={organizations} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
-        {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
+        {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onUpdateOrganization={updateOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && <RecruitmentView applicants={applicants} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onInterview={setInterviewTarget} onReject={(id) => { setApplicants((value) => value.map((applicant) => applicant.id === id ? { ...applicant, stage: "서류 탈락" } : applicant)); showToast("서류 탈락 처리했습니다."); }} />}
         {active === "interviews" && <InterviewManagement interviews={interviews} />}
@@ -669,7 +684,7 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
   </div>;
 }
 
-function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
+function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onUpdateOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onUpdateOrganization: (organizationId: string, name: string, description: string) => boolean; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
   const [newOrganization, setNewOrganization] = useState({ name: "", description: "" });
   const [newRank, setNewRank] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
@@ -686,8 +701,7 @@ function OrganizationManagement({ organizations, employees, ranks, jobTitles, on
         <div className="table-toolbar"><div><h2>회사 조직 구성</h2><span>조직장을 지정하면 인사기록카드에 즉시 반영됩니다.</span></div></div>
         <div className="organization-list">{organizations.map((organization) => {
           const members = employees.filter((employee) => employee.department === organization.name);
-          const leader = employees.find((employee) => employee.id === organization.leaderEmployeeId);
-          return <article className="organization-card" key={organization.id}><div className="organization-card-heading"><span>{organization.name.slice(0, 1)}</span><div><h3>{organization.name}</h3><p>{organization.description}</p></div><em>{members.length}명</em></div><label><span>조직장</span><select value={organization.leaderEmployeeId ?? ""} onChange={(event) => onLeaderChange(organization.id, event.target.value)}><option value="">미지정</option>{members.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.position}</option>)}</select></label><div className="organization-member-preview"><strong>{leader ? `${leader.name} 조직장` : "조직장 미지정"}</strong><span>{members.slice(0, 4).map((employee) => employee.name).join(" · ") || "소속 구성원 없음"}{members.length > 4 ? ` 외 ${members.length - 4}명` : ""}</span></div></article>;
+          return <OrganizationCard key={organization.id} organization={organization} members={members} onLeaderChange={onLeaderChange} onUpdate={onUpdateOrganization} />;
         })}</div>
         <form className="organization-add-form" onSubmit={(event) => { event.preventDefault(); onAddOrganization(newOrganization.name, newOrganization.description); setNewOrganization({ name: "", description: "" }); }}><div><label><span>새 조직명</span><input required value={newOrganization.name} onChange={(event) => setNewOrganization({ ...newOrganization, name: event.target.value })} placeholder="예: 사업전략팀" /></label><label><span>조직 설명</span><input value={newOrganization.description} onChange={(event) => setNewOrganization({ ...newOrganization, description: event.target.value })} placeholder="조직의 주요 역할" /></label></div><button type="submit" className="primary-button">+ 조직 추가</button></form>
       </section>
@@ -697,6 +711,25 @@ function OrganizationManagement({ organizations, employees, ranks, jobTitles, on
       </aside>
     </div>
   </div>;
+}
+
+function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: { organization: Organization; members: Employee[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onUpdate: (organizationId: string, name: string, description: string) => boolean }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ name: organization.name, description: organization.description });
+
+  function cancelEdit() {
+    setDraft({ name: organization.name, description: organization.description });
+    setEditing(false);
+  }
+
+  function saveEdit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (onUpdate(organization.id, draft.name, draft.description)) setEditing(false);
+  }
+
+  return <article className={`organization-card ${editing ? "editing" : ""}`}>
+    {editing ? <form className="organization-edit-form" onSubmit={saveEdit}><div className="organization-edit-heading"><strong>조직 정보 수정</strong><span>조직명 변경 시 소속 인사기록에도 함께 반영됩니다.</span></div><label><span>조직명</span><input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>조직 설명</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label><div className="organization-edit-actions"><button type="button" onClick={cancelEdit}>취소</button><button type="submit">수정 저장</button></div></form> : <><div className="organization-card-heading"><span>{organization.name.slice(0, 1)}</span><div><h3>{organization.name}</h3><p>{organization.description}</p></div><em>{members.length}명</em><button type="button" className="organization-edit-button" onClick={() => setEditing(true)}>조직 수정</button></div><label><span>조직장</span><select value={organization.leaderEmployeeId ?? ""} onChange={(event) => onLeaderChange(organization.id, event.target.value)}><option value="">미지정</option>{members.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.position}</option>)}</select></label><div className="organization-members"><div className="organization-members-heading"><strong>소속 조직원</strong><span>{members.length}명</span></div>{members.length > 0 ? <div className="organization-member-list">{members.map((employee) => <div className="organization-member" key={employee.id}><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.position} · {employee.id === organization.leaderEmployeeId ? "조직장" : employee.jobTitle ?? "팀원"}</small></div></div>)}</div> : <p className="organization-empty-members">소속 조직원이 없습니다.</p>}</div></>}
+  </article>;
 }
 
 function CatalogManager({ title, description, items, value, onValue, onAdd, onRemove, placeholder }: { title: string; description: string; items: string[]; value: string; onValue: (value: string) => void; onAdd: () => void; onRemove: (value: string) => void; placeholder: string }) {

@@ -82,6 +82,49 @@ function formatWon(value: number) {
   }).format(Math.max(0, value));
 }
 
+function ERPTopNavigation({ active, onChange }: { active: ModuleKey; onChange: (module: ModuleKey) => void }) {
+  return (
+    <header className="erp-top-nav">
+      <div className="erp-top-brand">
+        <span className="brand-mark">XD</span>
+        <div>
+          <strong>XD NODE</strong>
+          <small>OPERATIONS</small>
+        </div>
+      </div>
+
+      <nav className="erp-module-tabs" aria-label="ERP 모듈">
+        {modules.map((module) => (
+          <button
+            type="button"
+            className={active === module.key ? "erp-module-tab active" : "erp-module-tab"}
+            key={module.key}
+            aria-current={active === module.key ? "page" : undefined}
+            onClick={() => onChange(module.key)}
+          >
+            <span className="module-glyph">{module.glyph}</span>
+            <span>
+              <strong>{module.label}</strong>
+              <small>{module.eyebrow}</small>
+            </span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="erp-nav-spacer" />
+      <div className="erp-sync-state">
+        <span className="status-dot" />
+        <div><strong>마감 데이터 동기화</strong><small>방금 전 완료</small></div>
+      </div>
+      <div className="erp-user-card">
+        <span className="avatar">GK</span>
+        <div><strong>김경건</strong><small>경영지원 팀장</small></div>
+        <button type="button" aria-label="프로필 메뉴">•••</button>
+      </div>
+    </header>
+  );
+}
+
 export default function Home() {
   const [active, setActive] = useState<ModuleKey>("finance");
   const [search, setSearch] = useState("");
@@ -109,58 +152,17 @@ export default function Home() {
   }
 
   if (active === "hr") {
-    return <HRWorkspace onModuleChange={setActive} />;
+    return (
+      <div className="hr-module-shell">
+        <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} />
+        <HRWorkspace />
+      </div>
+    );
   }
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="brand">
-          <span className="brand-mark">XD</span>
-          <div>
-            <strong>XD NODE</strong>
-            <small>OPERATIONS</small>
-          </div>
-        </div>
-
-        <nav className="module-nav" aria-label="ERP 모듈">
-          <p className="nav-label">WORKSPACE</p>
-          {modules.map((module) => (
-            <button
-              className={active === module.key ? "module-button active" : "module-button"}
-              key={module.key}
-              onClick={() => {
-                setActive(module.key);
-                setSearch("");
-              }}
-            >
-              <span className="module-glyph">{module.glyph}</span>
-              <span>
-                <strong>{module.label}</strong>
-                <small>{module.eyebrow}</small>
-              </span>
-              <span className="nav-arrow">›</span>
-            </button>
-          ))}
-        </nav>
-
-        <div className="sidebar-spacer" />
-        <div className="system-status">
-          <span className="status-dot" />
-          <div>
-            <strong>마감 데이터 동기화</strong>
-            <small>방금 전 완료</small>
-          </div>
-        </div>
-        <div className="profile-card">
-          <span className="avatar">GK</span>
-          <div>
-            <strong>김경건</strong>
-            <small>경영지원 팀장</small>
-          </div>
-          <button aria-label="프로필 메뉴">•••</button>
-        </div>
-      </aside>
+      <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} />
 
       <main className="main">
         <header className="topbar">
@@ -180,14 +182,6 @@ export default function Home() {
             <button className="icon-button" aria-label="알림">●<span className="notification-ping" /></button>
           </div>
         </header>
-
-        <div className="mobile-modules" aria-label="모바일 ERP 모듈">
-          {modules.map((module) => (
-            <button key={module.key} className={active === module.key ? "active" : ""} onClick={() => setActive(module.key)}>
-              {module.label}
-            </button>
-          ))}
-        </div>
 
         <section className={`module-hero ${active}`}>
           <div>

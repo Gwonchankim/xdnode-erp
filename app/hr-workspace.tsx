@@ -3,9 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-type ERPModule = "finance" | "sales" | "hr";
-
-export default function HRWorkspace({ onModuleChange }: { onModuleChange: (module: ERPModule) => void }) {
+export default function HRWorkspace() {
   const hostRef = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
 
@@ -19,7 +17,7 @@ export default function HRWorkspace({ onModuleChange }: { onModuleChange: (modul
       {root && createPortal(
         <>
           <link rel="stylesheet" href="/hr-workspace.css" />
-          <PeopleFlowApp onModuleChange={onModuleChange} />
+          <PeopleFlowApp />
         </>,
         root,
       )}
@@ -361,7 +359,7 @@ function StatusPill({ value }: { value: string }) {
   return <span className={`status-pill ${kind}`}>{value}</span>;
 }
 
-function PeopleFlowApp({ onModuleChange }: { onModuleChange: (module: ERPModule) => void }) {
+function PeopleFlowApp() {
   const [active, setActive] = useState("dashboard");
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
@@ -506,11 +504,6 @@ function PeopleFlowApp({ onModuleChange }: { onModuleChange: (module: ERPModule)
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brand-mark">P</div><div><strong>PEOPLEFLOW</strong><span>HR WORKSPACE</span></div></div>
-        <div className="erp-switcher" role="tablist" aria-label="ERP 모듈">
-          <button type="button" role="tab" aria-selected="false" onClick={() => onModuleChange("finance")}><span>₩</span>재무</button>
-          <button type="button" role="tab" aria-selected="false" onClick={() => onModuleChange("sales")}><span>↗</span>영업</button>
-          <button type="button" role="tab" aria-selected="true" className="active"><span>◎</span>HR</button>
-        </div>
         <nav className="main-nav" aria-label="주요 메뉴">
           {navGroups.map((group) => <div className="nav-group" key={group.title}><p>{group.title}</p>{group.items.map((item) => (
             <button type="button" key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => navigate(item.id)}><span className="nav-icon">{item.icon}</span><span>{item.label}</span>{item.badge && <em>{item.badge}</em>}</button>

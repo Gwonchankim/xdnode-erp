@@ -2,10 +2,11 @@
 
 .peopleflow-host {
   display: block;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--erp-nav-height));
 }
 
 :root {
+  --erp-nav-height: 76px;
   --ink: #102a2c;
   --ink-soft: #526566;
   --paper: #f3f5ef;
@@ -26,7 +27,28 @@ body { margin: 0; color: var(--ink); background: var(--paper); font-family: Pret
 button, input, select, textarea { font: inherit; }
 button { color: inherit; }
 
-.app-shell { min-height: 100vh; }
+.app-shell, .hr-module-shell { min-height: 100vh; padding-top: var(--erp-nav-height); }
+.erp-top-nav { position: fixed; inset: 0 0 auto 0; z-index: 45; height: var(--erp-nav-height); display: flex; align-items: center; gap: 20px; padding: 0 24px; color: #eaf4ef; background: #132f31; border-bottom: 1px solid rgba(255,255,255,.08); box-shadow: 0 8px 28px rgba(10,35,36,.14); }
+.erp-top-brand { min-width: 176px; display: flex; align-items: center; gap: 11px; }
+.erp-top-brand strong, .erp-top-brand small { display: block; }
+.erp-top-brand strong { font-size: 14px; letter-spacing: .04em; }
+.erp-top-brand small { margin-top: 2px; color: #8eadab; font-size: 8px; letter-spacing: .18em; }
+.erp-module-tabs { align-self: stretch; display: flex; align-items: center; gap: 6px; }
+.erp-module-tab { min-width: 132px; height: 54px; display: grid; grid-template-columns: 32px 1fr; align-items: center; gap: 9px; padding: 0 13px; border: 1px solid transparent; border-radius: 11px; color: #a9c1bd; background: transparent; text-align: left; cursor: pointer; transition: .18s ease; }
+.erp-module-tab:hover { color: #fff; background: rgba(255,255,255,.05); }
+.erp-module-tab.active { color: #fff; border-color: rgba(220,233,133,.18); background: #214647; }
+.erp-module-tab .module-glyph { width: 32px; height: 32px; border-radius: 9px; font-size: 15px; }
+.erp-module-tab.active .module-glyph { color: #183438; background: var(--lime); }
+.erp-module-tab strong, .erp-module-tab small { display: block; }
+.erp-module-tab strong { font-size: 12px; }
+.erp-module-tab small { margin-top: 2px; color: #71918e; font-size: 8px; letter-spacing: .05em; }
+.erp-nav-spacer { flex: 1; }
+.erp-sync-state { display: flex; align-items: center; gap: 9px; padding-right: 18px; border-right: 1px solid rgba(255,255,255,.1); }
+.erp-sync-state strong, .erp-sync-state small, .erp-user-card strong, .erp-user-card small { display: block; }
+.erp-sync-state strong, .erp-user-card strong { font-size: 9px; }
+.erp-sync-state small, .erp-user-card small { margin-top: 2px; color: #71908d; font-size: 8px; }
+.erp-user-card { display: grid; grid-template-columns: 34px auto 20px; align-items: center; gap: 8px; }
+.erp-user-card button { border: 0; color: #75918e; background: transparent; cursor: pointer; }
 .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; width: 236px; padding: 26px 18px 20px; color: #eaf4ef; background: #132f31; display: flex; flex-direction: column; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 30px; }
 .brand-mark { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; color: #123033; background: var(--lime); font-weight: 900; letter-spacing: -1px; }
@@ -57,8 +79,8 @@ button { color: inherit; }
 .profile-card small { margin-top: 2px; color: #71908d; font-size: 9px; }
 .profile-card button { border: 0; color: #75918e; background: transparent; cursor: pointer; }
 
-.main { min-height: 100vh; margin-left: 236px; }
-.topbar { height: 74px; padding: 0 34px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(243,245,239,.92); backdrop-filter: blur(14px); position: sticky; top: 0; z-index: 10; }
+.main { min-height: calc(100vh - var(--erp-nav-height)); margin-left: 0; }
+.topbar { height: 74px; padding: 0 34px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; background: rgba(243,245,239,.92); backdrop-filter: blur(14px); position: sticky; top: var(--erp-nav-height); z-index: 10; }
 .mobile-brand, .mobile-modules { display: none; }
 .search-box { width: min(460px, 48vw); height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; color: #80908d; background: #e9ede6; border: 1px solid transparent; border-radius: 10px; }
 .search-box:focus-within { border-color: #9eb5ad; background: #fff; }
@@ -147,4 +169,28 @@ button { color: inherit; }
 
 @media (max-width: 430px) {
   .kpi-grid { grid-template-columns: 1fr; }.module-hero h1 { font-size: 28px; }.secondary-button { display: none; }.attendance-visual { flex-direction: column; }.legend-list { width: 100%; }.accounts-table .data-row { grid-template-columns: 34px 1fr auto; }.accounts-table .data-row em, .accounts-table .data-row button { display: none; }
+}
+
+@media (max-width: 1120px) {
+  .main { margin-left: 0; }
+  .erp-sync-state { display: none; }
+  .erp-top-brand { min-width: 150px; }
+  .erp-module-tab { min-width: 116px; }
+}
+
+@media (max-width: 760px) {
+  :root { --erp-nav-height: 66px; }
+  .erp-top-nav { gap: 8px; padding: 0 10px; overflow: hidden; }
+  .erp-top-brand { min-width: auto; }
+  .erp-top-brand .brand-mark { width: 36px; height: 36px; border-radius: 10px; }
+  .erp-top-brand > div { display: none; }
+  .erp-module-tabs { flex: 1; min-width: 0; justify-content: stretch; }
+  .erp-module-tab { min-width: 0; width: 33.333%; height: 46px; display: flex; justify-content: center; gap: 0; padding: 0 8px; text-align: center; }
+  .erp-module-tab .module-glyph, .erp-module-tab small { display: none; }
+  .erp-module-tab strong { font-size: 10px; white-space: nowrap; }
+  .erp-user-card { display: block; }
+  .erp-user-card > div, .erp-user-card button { display: none; }
+  .erp-user-card .avatar { width: 32px; height: 32px; }
+  .topbar { top: var(--erp-nav-height); }
+  .mobile-brand { display: none; }
 }

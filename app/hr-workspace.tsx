@@ -17,7 +17,7 @@ export default function HRWorkspace() {
       {root && createPortal(
         <>
           <link rel="stylesheet" href="/hr-workspace.css" />
-          <PeopleFlowApp />
+          <XdnodeHrApp />
         </>,
         root,
       )}
@@ -74,13 +74,6 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { id: "reports", label: "통계·리포트", icon: "분" },
     ],
   },
-];
-
-const notifications = [
-  { type: "평가", text: "상반기 목표 중간점검 미제출자가 7명입니다.", time: "10분 전", urgent: true },
-  { type: "교육", text: "개인정보보호 교육 이수 마감이 3일 남았습니다.", time: "1시간 전", urgent: true },
-  { type: "입사", text: "김민준 님의 입사 서류가 모두 확인되었습니다.", time: "2시간 전" },
-  { type: "급여", text: "7월 급여대장 검토가 완료되었습니다.", time: "어제" },
 ];
 
 const moduleConfigs: Record<string, ModuleConfig> = {
@@ -359,9 +352,8 @@ function StatusPill({ value }: { value: string }) {
   return <span className={`status-pill ${kind}`}>{value}</span>;
 }
 
-function PeopleFlowApp() {
+function XdnodeHrApp() {
   const [active, setActive] = useState("dashboard");
-  const [notificationOpen, setNotificationOpen] = useState(false);
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [applicantModalOpen, setApplicantModalOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -380,8 +372,6 @@ function PeopleFlowApp() {
 
   const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId) ?? null;
   const selectedApplicant = applicants.find((applicant) => applicant.id === selectedApplicantId) ?? null;
-  const navLabel = navGroups.flatMap((group) => group.items).find((item) => item.id === active)?.label;
-  const activeLabel = active === "settings" ? "환경설정" : navLabel ?? "통합 대시보드";
   const moduleConfig = moduleConfigs[active];
 
   const filteredRows = useMemo(() => {
@@ -400,22 +390,6 @@ function PeopleFlowApp() {
     setSelectedEmployeeId(null);
     setSelectedPayrollMonth(null);
     setSelectedApplicantId(null);
-  }
-
-  function exportExcel() {
-    let rows: string[][];
-    if (active === "employees") rows = [["사번", "이름", "부서", "직급", "고용형태", "입사일", "상태"], ...employees.map((employee) => [employee.id, employee.name, employee.department, employee.position, employee.type, employee.joinDate, employee.status])];
-    else if (active === "recruitment") rows = [["지원자", "지원 직무", "지원일", "담당자", "단계"], ...applicants.map((applicant) => [applicant.name, applicant.role, applicant.applied, applicant.owner, applicant.stage])];
-    else if (active === "payroll" && selectedPayrollMonth) rows = [["사번", "이름", "부서", "기본급", "수당", "공제", "실지급액"], ...payrollPeople];
-    else rows = moduleConfig ? [moduleConfig.columns, ...filteredRows] : [["항목", "값"], ["재직 인원", String(employeeCount)], ["입사 예정", "4"], ["면접 예정", String(interviews.length)]];
-    const csv = "\ufeff" + rows.map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${activeLabel}_${new Date().toISOString().slice(0, 10)}.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    showToast("현재 화면의 데이터를 내보냈습니다.");
   }
 
   function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
@@ -492,18 +466,10 @@ function PeopleFlowApp() {
     showToast(`${row.name} 님의 면접 일정이 등록되었습니다.`);
   }
 
-  function topPrimaryAction() {
-    if (active === "employees") setEmployeeModalOpen(true);
-    else if (active === "recruitment") setApplicantModalOpen(true);
-    else showToast("새 업무 등록 화면을 열었습니다.");
-  }
-
-  const topPrimaryLabel = active === "recruitment" ? "지원자 등록" : active === "employees" ? "직원 등록" : "업무 등록";
-
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div className="brand"><div className="brand-mark">P</div><div><strong>PEOPLEFLOW</strong><span>HR WORKSPACE</span></div></div>
+        <div className="brand"><div className="brand-mark">HR</div><div><strong>XDNODE HR</strong><span>PEOPLE OPERATIONS</span></div></div>
         <nav className="main-nav" aria-label="주요 메뉴">
           {navGroups.map((group) => <div className="nav-group" key={group.title}><p>{group.title}</p>{group.items.map((item) => (
             <button type="button" key={item.id} className={`nav-item ${active === item.id ? "active" : ""}`} onClick={() => navigate(item.id)}><span className="nav-icon">{item.icon}</span><span>{item.label}</span>{item.badge && <em>{item.badge}</em>}</button>
@@ -516,16 +482,6 @@ function PeopleFlowApp() {
       </aside>
 
       <main className="main-content">
-        <header className="topbar">
-          <div className="breadcrumbs"><span>XD NODE ERP</span><b>/</b><span>HR</span><b>/</b><strong>{activeLabel}</strong></div>
-          <div className="top-actions">
-            <label className="search-box"><span>⌕</span><input aria-label="통합 검색" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="직원, 지원자, 업무 검색" /><kbd>Ctrl K</kbd></label>
-            <button type="button" className="icon-button" aria-label="알림센터 열기" onClick={() => setNotificationOpen((value) => !value)}><span>알림</span><i>{notifications.filter((item) => item.urgent).length}</i></button>
-            <button type="button" className="outline-button" onClick={exportExcel}>엑셀 내보내기</button>
-            <button type="button" className="primary-button" onClick={topPrimaryAction}>+ {topPrimaryLabel}</button>
-          </div>
-        </header>
-
         {active === "dashboard" && <Dashboard employeeCount={employeeCount} onNavigate={navigate} />}
         {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={setPersonnelAction} /> : <EmployeeDirectory employees={employees} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
@@ -534,8 +490,6 @@ function PeopleFlowApp() {
         {active === "settings" && <SettingsView onSave={() => showToast("환경설정을 저장했습니다.")} />}
         {!["dashboard", "employees", "payroll", "recruitment", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
-
-      {notificationOpen && <div className="notification-panel"><div className="panel-header"><div><p>NOTIFICATIONS</p><h2>알림센터</h2></div><button type="button" onClick={() => setNotificationOpen(false)} aria-label="닫기">×</button></div><div className="panel-filter"><button className="selected">전체 4</button><button>미처리 2</button><button>업무 알림</button></div><div className="notification-list">{notifications.map((item) => <button type="button" key={item.text} className="notification-item" onClick={() => showToast("관련 업무 화면으로 이동합니다.")}><span className={`notice-dot ${item.urgent ? "urgent" : ""}`}></span><div><b>{item.type}</b><p>{item.text}</p><small>{item.time}</small></div></button>)}</div><button type="button" className="panel-bottom" onClick={() => showToast("모든 알림을 읽음 처리했습니다.")}>모두 읽음으로 표시</button></div>}
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="PF-2026-129" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 *</span><select required name="department" defaultValue=""><option value="" disabled>부서 선택</option><option>제품개발팀</option><option>영업1팀</option><option>브랜드팀</option><option>경영지원팀</option></select></label><label><span>고용형태 *</span><select required name="type"><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position"><option>사원</option><option>선임</option><option>책임</option><option>매니저</option><option>팀장</option></select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
 
@@ -621,7 +575,7 @@ function PersonnelActionModal({ employee, action, onClose, onSubmit }: { employe
 
 function SettingsView({ onSave }: { onSave: () => void }) {
   const [section, setSection] = useState("company");
-  return <div className="page-wrap settings-page"><section className="module-hero"><div><p className="eyebrow">WORKSPACE SETTINGS</p><h1>환경설정</h1><p>회사 정보, 인사 기준, 알림과 접근 권한을 설정합니다.</p></div><button type="button" className="primary-button" onClick={onSave}>변경사항 저장</button></section><div className="settings-layout"><aside className="panel settings-nav">{[["company", "회사·조직 정보"], ["hr", "인사 기준정보"], ["notifications", "알림 설정"], ["permissions", "사용자·권한"], ["data", "데이터·백업"]].map(([id, label]) => <button type="button" className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)}>{label}<span>›</span></button>)}</aside><section className="panel settings-content"><div className="detail-card-heading"><div><p className="eyebrow">{section.toUpperCase()}</p><h2>{section === "company" ? "회사·조직 정보" : section === "hr" ? "인사 기준정보" : section === "notifications" ? "알림 설정" : section === "permissions" ? "사용자·권한" : "데이터·백업"}</h2></div></div>{section === "company" && <div className="settings-form"><label><span>회사명</span><input defaultValue="피플플로우 주식회사" /></label><label><span>대표자</span><input defaultValue="이정민" /></label><label><span>사업자등록번호</span><input defaultValue="123-45-67890" /></label><label><span>기본 근무지</span><input defaultValue="서울 본사" /></label><label className="wide"><span>회사 주소</span><input defaultValue="서울특별시 성동구 아차산로 00" /></label></div>}{section === "hr" && <div className="setting-list"><SettingToggle title="사번 자동 발급" description="입사연도와 순번으로 사번을 자동 생성합니다." checked /><SettingToggle title="수습기간 종료 알림" description="종료 14일 전에 담당자와 부서장에게 알립니다." checked /><SettingToggle title="급여 마감 후 수정 제한" description="마감된 급여는 급여관리자만 다시 열 수 있습니다." checked /></div>}{section === "notifications" && <div className="setting-list"><SettingToggle title="시스템 알림" description="업무 마감과 승인 요청을 알림센터에서 받습니다." checked /><SettingToggle title="이메일 알림" description="중요 HR 일정을 이메일로도 받습니다." checked /><SettingToggle title="미처리 업무 재알림" description="기한이 지난 업무를 매일 오전 다시 알립니다." checked={false} /></div>}{section === "permissions" && <div className="permission-list"><div><span className="owner-chip">김</span><p><strong>김지수</strong><small>HR 매니저 · 전체 인사정보</small></p><em>관리자</em></div><div><span className="owner-chip">이</span><p><strong>이수민</strong><small>채용담당자 · 지원자/면접</small></p><em>편집자</em></div><div><span className="owner-chip">박</span><p><strong>박서준</strong><small>교육담당자 · 교육정보</small></p><em>편집자</em></div></div>}{section === "data" && <div className="data-settings"><div><strong>마지막 자동 백업</strong><span>오늘 03:00 · 정상 완료</span><button type="button" onClick={onSave}>지금 백업</button></div><div><strong>개인정보 보유기간</strong><span>퇴사 후 3년 · 관리자 확인 필요</span><button type="button">정책 관리</button></div><div><strong>엑셀 데이터 가져오기</strong><span>직원·급여·교육 표준양식 지원</span><button type="button">가져오기</button></div></div>}</section></div></div>;
+  return <div className="page-wrap settings-page"><section className="module-hero"><div><p className="eyebrow">WORKSPACE SETTINGS</p><h1>환경설정</h1><p>회사 정보, 인사 기준, 알림과 접근 권한을 설정합니다.</p></div><button type="button" className="primary-button" onClick={onSave}>변경사항 저장</button></section><div className="settings-layout"><aside className="panel settings-nav">{[["company", "회사·조직 정보"], ["hr", "인사 기준정보"], ["notifications", "알림 설정"], ["permissions", "사용자·권한"], ["data", "데이터·백업"]].map(([id, label]) => <button type="button" className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)}>{label}<span>›</span></button>)}</aside><section className="panel settings-content"><div className="detail-card-heading"><div><p className="eyebrow">{section.toUpperCase()}</p><h2>{section === "company" ? "회사·조직 정보" : section === "hr" ? "인사 기준정보" : section === "notifications" ? "알림 설정" : section === "permissions" ? "사용자·권한" : "데이터·백업"}</h2></div></div>{section === "company" && <div className="settings-form"><label><span>회사명</span><input defaultValue="XD NODE" /></label><label><span>대표자</span><input defaultValue="이정민" /></label><label><span>사업자등록번호</span><input defaultValue="123-45-67890" /></label><label><span>기본 근무지</span><input defaultValue="서울 본사" /></label><label className="wide"><span>회사 주소</span><input defaultValue="서울특별시 성동구 아차산로 00" /></label></div>}{section === "hr" && <div className="setting-list"><SettingToggle title="사번 자동 발급" description="입사연도와 순번으로 사번을 자동 생성합니다." checked /><SettingToggle title="수습기간 종료 알림" description="종료 14일 전에 담당자와 부서장에게 알립니다." checked /><SettingToggle title="급여 마감 후 수정 제한" description="마감된 급여는 급여관리자만 다시 열 수 있습니다." checked /></div>}{section === "notifications" && <div className="setting-list"><SettingToggle title="시스템 알림" description="업무 마감과 승인 요청을 알림센터에서 받습니다." checked /><SettingToggle title="이메일 알림" description="중요 HR 일정을 이메일로도 받습니다." checked /><SettingToggle title="미처리 업무 재알림" description="기한이 지난 업무를 매일 오전 다시 알립니다." checked={false} /></div>}{section === "permissions" && <div className="permission-list"><div><span className="owner-chip">김</span><p><strong>김지수</strong><small>HR 매니저 · 전체 인사정보</small></p><em>관리자</em></div><div><span className="owner-chip">이</span><p><strong>이수민</strong><small>채용담당자 · 지원자/면접</small></p><em>편집자</em></div><div><span className="owner-chip">박</span><p><strong>박서준</strong><small>교육담당자 · 교육정보</small></p><em>편집자</em></div></div>}{section === "data" && <div className="data-settings"><div><strong>마지막 자동 백업</strong><span>오늘 03:00 · 정상 완료</span><button type="button" onClick={onSave}>지금 백업</button></div><div><strong>개인정보 보유기간</strong><span>퇴사 후 3년 · 관리자 확인 필요</span><button type="button">정책 관리</button></div><div><strong>엑셀 데이터 가져오기</strong><span>직원·급여·교육 표준양식 지원</span><button type="button">가져오기</button></div></div>}</section></div></div>;
 }
 
 function SettingToggle({ title, description, checked }: { title: string; description: string; checked: boolean }) {

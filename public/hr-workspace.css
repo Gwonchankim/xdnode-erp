@@ -220,8 +220,12 @@ button { color: inherit; }
 .organization-members-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 9px; }
 .organization-members-heading strong { color: #4a556c; font-size: 9px; }
 .organization-members-heading span { color: #8b94a5; font-size: 8px; }
-.organization-member-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.organization-member-list { display: grid; gap: 6px; }
+.organization-member-list.columns-1 { grid-template-columns: minmax(0, 1fr); }
+.organization-member-list.columns-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.organization-member-list.columns-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .organization-member { min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 43px; padding: 6px 8px; border: 1px solid #e5e9f0; border-radius: 8px; background: #fff; }
+.organization-member.leader { border-color: #b8c8e8; background: #f1f5fd; box-shadow: inset 3px 0 0 var(--navy); }
 .organization-member > span { width: 25px; height: 25px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: var(--navy); background: #e4ebfa; font-size: 8px; font-weight: 800; }
 .organization-member > div { min-width: 0; }
 .organization-member strong, .organization-member small { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
@@ -268,7 +272,7 @@ button { color: inherit; }
   .retirement-modal { max-height: 96vh; }
 }
 @media (max-width: 560px) {
-  .metric-grid { grid-template-columns: 1fr; }.top-actions { width: 100%; }.search-box { flex: 1; }.top-actions .primary-button { padding: 0 10px; }.icon-button { width: 48px; }.welcome-row h1, .module-hero h1 { font-size: 22px; }.dashboard-grid { grid-template-columns: minmax(0,1fr); }.donut-wrap { gap: 18px; }.donut { width: 100px; height: 100px; }.donut::before { width: 68px; height: 68px; }.payroll-summary { grid-template-columns: 1fr; }.detail-form, .settings-form, .applicant-facts { grid-template-columns: 1fr; }.detail-form label.wide, .settings-form label.wide { grid-column: auto; }.profile-actions { flex-wrap: wrap; }.data-settings > div { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.row-actions { min-width: 140px; }.organization-add-form { align-items: stretch; flex-direction: column; }.organization-add-form > div, .organization-member-list { grid-template-columns: 1fr; }.organization-card-heading { flex-wrap: wrap; }.organization-card-heading > div { min-width: 150px; }
+  .metric-grid { grid-template-columns: 1fr; }.top-actions { width: 100%; }.search-box { flex: 1; }.top-actions .primary-button { padding: 0 10px; }.icon-button { width: 48px; }.welcome-row h1, .module-hero h1 { font-size: 22px; }.dashboard-grid { grid-template-columns: minmax(0,1fr); }.donut-wrap { gap: 18px; }.donut { width: 100px; height: 100px; }.donut::before { width: 68px; height: 68px; }.payroll-summary { grid-template-columns: 1fr; }.detail-form, .settings-form, .applicant-facts { grid-template-columns: 1fr; }.detail-form label.wide, .settings-form label.wide { grid-column: auto; }.profile-actions { flex-wrap: wrap; }.data-settings > div { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.row-actions { min-width: 140px; }.organization-add-form { align-items: stretch; flex-direction: column; }.organization-add-form > div { grid-template-columns: 1fr; }.organization-card-heading { flex-wrap: wrap; }.organization-card-heading > div { min-width: 150px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

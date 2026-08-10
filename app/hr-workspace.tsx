@@ -477,7 +477,6 @@ function XdnodeHrApp() {
         </nav>
         <div className="sidebar-footer">
           <button type="button" className={`settings-button ${active === "settings" ? "active" : ""}`} onClick={() => navigate("settings")}><span className="nav-icon">설</span>환경설정</button>
-          <div className="user-card"><div className="avatar">김</div><div><strong>김지수</strong><span>HR 매니저</span></div><button type="button" aria-label="사용자 메뉴">•••</button></div>
         </div>
       </aside>
 

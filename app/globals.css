@@ -583,3 +583,30 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .erp-top-nav { min-height: 66px; height: 66px; padding: 0 10px; }.erp-module-tabs { height: auto; border-radius: 14px; }.erp-module-tab { height: 46px; border-radius: 10px; }
   .module-hero { min-height: 230px; margin: 20px 14px 16px; padding: 28px 24px; border-radius: 28px; }.module-hero h1 { font-size: clamp(38px,12vw,52px); }.attention-strip { width: calc(100% - 28px); margin-bottom: 16px; }.dashboard-stack { width: calc(100% - 28px); padding-bottom: 56px; }.metric-card, .panel { border-radius: 28px; }
 }
+
+/* Expanded curvature */
+.erp-top-brand .brand-mark { border-radius: 18px; }
+.erp-module-tabs { border-radius: 24px; }
+.erp-module-tab { border-radius: 19px; }
+.erp-module-tab .module-glyph { border-radius: 13px; }
+.search-box, .period-button, .icon-button { border-radius: 18px; }
+.search-box kbd { border-radius: 11px; }
+.module-hero { border-radius: 52px; }
+.eyebrow { border-radius: 16px; }
+.primary-button, .secondary-button { border-radius: 18px; }
+.attention-strip { border-radius: 30px; }
+.attention-icon { border-radius: 15px; }
+.metric-card { border-radius: 46px; }
+.panel { border-radius: 48px; }
+.stage, .status, .approval-item em { border-radius: 18px !important; }
+.bank-icon, .person-name i, .deadline-item > span, .rule-item > span, .compliance-item > span { border-radius: 16px; }
+.calc-form input, .calc-form select, .quick-modal input, .quick-modal textarea { border-radius: 18px; }
+.calc-result { border-radius: 32px; }
+.quick-modal { border-radius: 48px; }
+.toast { border-radius: 22px; }
+@media (max-width: 760px) {
+  .erp-module-tabs { border-radius: 18px; }
+  .erp-module-tab { border-radius: 14px; }
+  .module-hero { border-radius: 38px; }
+  .metric-card, .panel { border-radius: 36px; }
+}

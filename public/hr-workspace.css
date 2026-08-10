@@ -164,12 +164,47 @@ button { color: inherit; }
 .personnel-note-required > span { color: #a84f57; }
 .personnel-note-required textarea { border-color: #e4bdc1; background: #fffafb; }
 .personnel-note-required small { display: block; margin-top: 7px; color: #a65a61; font-size: 8.5px; line-height: 1.45; }
+.personnel-actions-stack { display: grid; grid-template-columns: 1fr; min-width: 108px; }
+.profile-actions .retirement-action { color: #a54e55; border-color: #ebcdd0; background: #fff8f8; }
+.profile-actions .retirement-action:hover { color: #8e3d44; border-color: #dca8ad; background: #fff2f3; }
+.retirement-modal { width: min(880px, 100%); max-height: 92vh; overflow-y: auto; }
+.retirement-fields { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; padding: 20px 24px 14px; }
+.retirement-fields label > span { display: block; margin-bottom: 7px; color: #626b7d; font-size: 10px; font-weight: 700; }
+.retirement-fields input, .retirement-fields textarea { width: 100%; border: 1px solid #dce1e9; border-radius: 7px; outline: 0; background: #fff; font-size: 10.5px; }
+.retirement-fields input { height: 42px; padding: 0 11px; }
+.retirement-fields textarea { min-height: 74px; padding: 10px 11px; resize: vertical; }
+.retirement-fields input:focus, .retirement-fields textarea:focus { border-color: var(--blue); box-shadow: 0 0 0 3px #eef2fd; }
+.retirement-progress { margin: 0 24px 16px; padding: 14px 16px; border-radius: 10px; background: #f3f6fb; }
+.retirement-progress > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.retirement-progress span { color: #667187; font-size: 9.5px; font-weight: 700; }
+.retirement-progress strong { color: var(--navy); font-size: 10px; }
+.retirement-progress-track { height: 6px; overflow: hidden; margin: 10px 0 7px; border-radius: 5px; background: #dde3ed; }
+.retirement-progress-track i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--green)); transition: width .2s ease; }
+.retirement-progress small { color: #818a9b; font-size: 8.5px; }
+.retirement-checklist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; padding: 0 24px 22px; }
+.retirement-checklist-group { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: #fff; }
+.checklist-group-heading { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: #fafbfc; }
+.checklist-group-heading p { margin: 0 0 4px; color: #939baa; font-size: 8px; font-weight: 800; letter-spacing: .13em; }
+.checklist-group-heading h3 { margin: 0; font-size: 12px; }
+.checklist-group-heading > span { min-width: 34px; padding: 5px 7px; border-radius: 12px; color: var(--navy); background: #e7ecf8; text-align: center; font-size: 8.5px; font-weight: 800; }
+.retirement-task-list { padding: 5px 14px 10px; }
+.retirement-task-list label { min-height: 48px; display: grid; grid-template-columns: 22px 1fr; align-items: center; gap: 9px; border-bottom: 1px solid #edf0f4; cursor: pointer; }
+.retirement-task-list label:last-child { border-bottom: 0; }
+.retirement-task-list input { position: absolute; opacity: 0; pointer-events: none; }
+.task-check { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #d5dae3; border-radius: 6px; color: transparent; background: #fff; font-size: 10px; font-weight: 900; transition: .16s ease; }
+.retirement-task-list strong { color: #596377; font-size: 9.5px; line-height: 1.45; }
+.retirement-task-list label.checked .task-check { color: #fff; border-color: var(--green); background: var(--green); }
+.retirement-task-list label.checked strong { color: #8b93a2; text-decoration: line-through; }
 
 @media (max-width: 1180px) {
   .sidebar { width: 210px; }.main-content { margin-left: 210px; }.search-box { width: 190px; }.dashboard-grid { grid-template-columns: 1fr; }.schedule-panel { grid-row: auto; }.metric-grid { grid-template-columns: repeat(2, 1fr); }.detail-grid { grid-template-columns: 1fr; }.payroll-summary { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 840px) {
   .sidebar { position: static; width: 100%; height: auto; }.brand { height: 62px; }.main-nav { display: flex; overflow-x: auto; padding: 8px; }.nav-group { display: contents; }.nav-group > p, .sidebar-footer { display: none; }.nav-item { width: auto; min-width: max-content; }.main-content { margin-left: 0; }.topbar { top: var(--erp-nav-height, 66px); height: auto; min-height: 62px; padding: 10px 14px; }.breadcrumbs, .search-box kbd, .top-actions .outline-button { display: none; }.search-box { width: min(42vw, 260px); }.page-wrap { padding: 22px 14px 36px; }.welcome-row, .module-hero { align-items: flex-start; flex-direction: column; }.metric-grid { grid-template-columns: 1fr 1fr; }.notification-panel { top: calc(var(--erp-nav-height, 66px) + 62px); width: min(390px, 100%); }.form-grid { grid-template-columns: 1fr; max-height: 55vh; overflow-y: auto; }.profile-hero { align-items: flex-start; flex-wrap: wrap; }.profile-actions { width: 100%; }.settings-layout { grid-template-columns: 1fr; }.settings-nav { display: flex; overflow-x: auto; }.settings-nav button { min-width: max-content; }.department-heading { grid-template-columns: 22px 1fr 50px; }.department-heading .dept-progress { display: none; }
+}
+@media (max-width: 680px) {
+  .retirement-fields, .retirement-checklist-grid { grid-template-columns: 1fr; }
+  .retirement-modal { max-height: 96vh; }
 }
 @media (max-width: 560px) {
   .metric-grid { grid-template-columns: 1fr; }.top-actions { width: 100%; }.search-box { flex: 1; }.top-actions .primary-button { padding: 0 10px; }.icon-button { width: 48px; }.welcome-row h1, .module-hero h1 { font-size: 22px; }.dashboard-grid { grid-template-columns: minmax(0,1fr); }.donut-wrap { gap: 18px; }.donut { width: 100px; height: 100px; }.donut::before { width: 68px; height: 68px; }.payroll-summary { grid-template-columns: 1fr; }.detail-form, .settings-form, .applicant-facts { grid-template-columns: 1fr; }.detail-form label.wide, .settings-form label.wide { grid-column: auto; }.profile-actions { flex-wrap: wrap; }.data-settings > div { grid-template-columns: 1fr; gap: 6px; padding: 12px 0; }.row-actions { min-width: 140px; }

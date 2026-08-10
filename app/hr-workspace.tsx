@@ -271,6 +271,12 @@ const moduleConfigs: Record<string, ModuleConfig> = {
   },
 };
 
+type RetirementRecord = {
+  date: string;
+  reason: string;
+  completedTaskIds: string[];
+};
+
 type Employee = {
   id: string;
   name: string;
@@ -285,6 +291,7 @@ type Employee = {
   manager: string;
   birth: string;
   history: { date: string; type: string; detail: string }[];
+  retirement?: RetirementRecord;
 };
 
 type Applicant = {
@@ -312,6 +319,23 @@ type InterviewRow = {
 };
 
 type PersonnelActionType = "인사이동(전보)" | "승진" | "강등";
+
+const retirementChecklist = {
+  hr: [
+    { id: "hr-approval", label: "퇴직 승인 및 퇴직 인사발령 등록" },
+    { id: "hr-settlement", label: "급여·퇴직금·미사용 연차 정산" },
+    { id: "hr-insurance", label: "4대보험 상실 신고와 퇴직 관련 행정 처리" },
+    { id: "hr-access", label: "시스템 계정·출입 권한 회수 요청" },
+    { id: "hr-documents", label: "퇴직 서류와 경력증명서 발급" },
+  ],
+  employee: [
+    { id: "employee-form", label: "퇴직원 및 필수 서류 제출" },
+    { id: "employee-handover", label: "업무 인수인계서 작성과 후임자 확인" },
+    { id: "employee-assets", label: "노트북·출입증 등 회사 자산 반납" },
+    { id: "employee-expense", label: "법인카드·미결 비용 최종 정산" },
+    { id: "employee-security", label: "보안 및 비밀유지 의무 확인" },
+  ],
+};
 
 const initialEmployees: Employee[] = [
   { id: "PF-2026-128", name: "김민준", department: "제품개발팀", position: "선임", type: "정규직", joinDate: "2026.08.03", status: "재직", email: "minjun.kim@peopleflow.co.kr", phone: "010-2451-8842", address: "서울특별시 성동구", manager: "최도영", birth: "1993.04.18", history: [{ date: "2026.08.03", type: "입사", detail: "제품개발팀 선임 입사" }] },
@@ -369,6 +393,7 @@ function XdnodeHrApp() {
   const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
   const [interviewTarget, setInterviewTarget] = useState<Applicant | null>(null);
   const [personnelAction, setPersonnelAction] = useState<string | null>(null);
+  const [retirementOpen, setRetirementOpen] = useState(false);
   const [resumeStatus, setResumeStatus] = useState<"idle" | "analyzing" | "done">("idle");
   const [applicantDraft, setApplicantDraft] = useState({ name: "", role: "", email: "", phone: "", experience: "", source: "직접 등록", summary: "" });
 
@@ -459,6 +484,21 @@ function XdnodeHrApp() {
     showToast(`${actionType} 인사 발령을 등록했습니다.`);
   }
 
+  function saveRetirement(record: RetirementRecord) {
+    if (!selectedEmployee) return;
+    const totalTasks = retirementChecklist.hr.length + retirementChecklist.employee.length;
+    const completed = record.completedTaskIds.length;
+    const historyDetail = `${record.date.replaceAll("-", ".")} 퇴직 예정 · ${record.reason} · 체크리스트 ${completed}/${totalTasks}`;
+    setEmployees((value) => value.map((employee) => employee.id === selectedEmployee.id ? {
+      ...employee,
+      status: "퇴직 예정",
+      retirement: record,
+      history: [{ date: new Date().toISOString().slice(0, 10).replaceAll("-", "."), type: "퇴직 절차", detail: historyDetail }, ...employee.history.filter((item) => item.type !== "퇴직 절차")],
+    } : employee));
+    setRetirementOpen(false);
+    showToast(completed === totalTasks ? "퇴직 절차 체크리스트를 모두 완료했습니다." : `퇴직 절차를 저장했습니다. 미완료 업무 ${totalTasks - completed}건`);
+  }
+
   function parseResume(file: File | undefined) {
     if (!file) return;
     setResumeStatus("analyzing");
@@ -508,7 +548,7 @@ function XdnodeHrApp() {
 
       <main className="main-content">
         {active === "dashboard" && <Dashboard employeeCount={employeeCount} onNavigate={navigate} />}
-        {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} /> : <EmployeeDirectory employees={employees} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
+        {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && <RecruitmentView applicants={applicants} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onInterview={setInterviewTarget} onReject={(id) => { setApplicants((value) => value.map((applicant) => applicant.id === id ? { ...applicant, stage: "서류 탈락" } : applicant)); showToast("서류 탈락 처리했습니다."); }} />}
         {active === "interviews" && <InterviewManagement interviews={interviews} />}
@@ -523,6 +563,7 @@ function XdnodeHrApp() {
       {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} onClose={() => setSelectedApplicantId(null)} onInterview={() => { setSelectedApplicantId(null); setInterviewTarget(selectedApplicant); }} />}
       {interviewTarget && <InterviewScheduleModal applicant={interviewTarget} onClose={() => setInterviewTarget(null)} onSubmit={scheduleInterview} />}
       {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
+      {retirementOpen && selectedEmployee && <RetirementModal employee={selectedEmployee} onClose={() => setRetirementOpen(false)} onSubmit={saveRetirement} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   );
@@ -553,7 +594,7 @@ function EmployeeDirectory({ employees, query, onSelect, onAdd }: { employees: E
   </div>;
 }
 
-function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction }: { employee: Employee; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: () => void }) {
+function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction, onRetirement }: { employee: Employee; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: () => void; onRetirement: () => void }) {
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -561,7 +602,7 @@ function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction }: { emp
   }
   return <div className="page-wrap detail-page">
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
-    <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button></div></section>
+    <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
       <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>직속 리더</span><input name="manager" defaultValue={employee.manager} /></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>현재 소속</span><input value={employee.department} disabled /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
@@ -609,6 +650,32 @@ function PersonnelActionModal({ employee, onClose, onSubmit }: { employee: Emplo
       : "현재보다 낮은 직급으로 변경하며 정당한 사유가 반드시 필요합니다.";
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal personnel-modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>PERSONNEL ACTION</p><h2>인사 발령 등록</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div><div className="form-grid"><label><span>시행일 *</span><input required name="effectiveDate" type="date" defaultValue="2026-09-01" /></label><label><span>발령 구분 *</span><select required name="actionType" value={actionType} onChange={(event) => setActionType(event.target.value as PersonnelActionType)}><option>인사이동(전보)</option><option>승진</option><option>강등</option></select></label><div className="action-type-help wide"><strong>{actionType}</strong><span>{actionHelp}</span></div>{actionType === "인사이동(전보)" ? <label className="wide"><span>이동할 부서 *</span><select required name="targetDepartment" defaultValue=""><option value="" disabled>부서 선택</option>{departments.filter((department) => department !== employee.department).map((department) => <option key={department}>{department}</option>)}</select><input type="hidden" name="targetPosition" value={employee.position} /></label> : <label className="wide"><span>변경 직급 *</span><select required name="targetPosition" defaultValue=""><option value="" disabled>직급 선택</option>{availableRanks.map((rank) => <option key={rank}>{rank}</option>)}</select><input type="hidden" name="targetDepartment" value={employee.department} /></label>}</div><label className={`form-note ${actionType === "강등" ? "personnel-note-required" : ""}`}><span>{actionType === "강등" ? "강등 사유 *" : "발령 사유 및 내용"}</span><textarea required={actionType === "강등"} name="note" placeholder={actionType === "강등" ? "강등의 정당한 사유와 근거를 구체적으로 입력하세요." : "발령 배경이나 전달사항을 입력하세요."}></textarea>{actionType === "강등" && <small>강등은 정당한 사유와 객관적인 근거가 확인되어야 등록할 수 있습니다.</small>}</label><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">인사 발령 등록</button></div></form></div>;
+}
+
+function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; onClose: () => void; onSubmit: (record: RetirementRecord) => void }) {
+  const [date, setDate] = useState(employee.retirement?.date ?? "2026-09-30");
+  const [reason, setReason] = useState(employee.retirement?.reason ?? "");
+  const [completedTaskIds, setCompletedTaskIds] = useState<string[]>(employee.retirement?.completedTaskIds ?? []);
+  const totalTasks = retirementChecklist.hr.length + retirementChecklist.employee.length;
+  const progress = Math.round((completedTaskIds.length / totalTasks) * 100);
+
+  function toggleTask(id: string) {
+    setCompletedTaskIds((value) => value.includes(id) ? value.filter((taskId) => taskId !== id) : [...value, id]);
+  }
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit({ date, reason: reason.trim(), completedTaskIds });
+  }
+
+  const ChecklistGroup = ({ title, owner, tasks }: { title: string; owner: string; tasks: { id: string; label: string }[] }) => (
+    <section className="retirement-checklist-group">
+      <div className="checklist-group-heading"><div><p>{owner}</p><h3>{title}</h3></div><span>{tasks.filter((task) => completedTaskIds.includes(task.id)).length}/{tasks.length}</span></div>
+      <div className="retirement-task-list">{tasks.map((task) => <label key={task.id} className={completedTaskIds.includes(task.id) ? "checked" : ""}><input type="checkbox" checked={completedTaskIds.includes(task.id)} onChange={() => toggleTask(task.id)} /><span className="task-check">✓</span><strong>{task.label}</strong></label>)}</div>
+    </section>
+  );
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal retirement-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>RETIREMENT PROCESS</p><h2>퇴직 절차 관리</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div><div className="retirement-fields"><label><span>퇴직일 *</span><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label><span>퇴직사유 *</span><textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="퇴직 사유와 참고사항을 입력하세요."></textarea></label></div><div className="retirement-progress"><div><span>퇴직 절차 체크리스트</span><strong>{completedTaskIds.length}/{totalTasks} 완료</strong></div><div className="retirement-progress-track"><i style={{ width: `${progress}%` }}></i></div><small>{progress === 100 ? "모든 퇴직 절차를 완료했습니다." : `미완료 업무 ${totalTasks - completedTaskIds.length}건이 남아 있습니다.`}</small></div><div className="retirement-checklist-grid"><ChecklistGroup title="인사담당자 수행 업무" owner="HR OWNER" tasks={retirementChecklist.hr} /><ChecklistGroup title="퇴직자 수행 업무" owner="EMPLOYEE" tasks={retirementChecklist.employee} /></div><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">퇴직 절차 저장</button></div></form></div>;
 }
 
 function SettingsView({ onSave }: { onSave: () => void }) {

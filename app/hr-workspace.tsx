@@ -54,6 +54,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     title: "인사 운영",
     items: [
       { id: "employees", label: "인사기록카드", icon: "인" },
+      { id: "organization", label: "조직관리", icon: "조" },
       { id: "payroll", label: "급여관리", icon: "급" },
       { id: "onboarding", label: "입·퇴사 관리", icon: "온", badge: "4" },
       { id: "workforce", label: "인력계획·정원", icon: "계" },
@@ -282,6 +283,7 @@ type Employee = {
   name: string;
   department: string;
   position: string;
+  jobTitle?: string;
   type: string;
   joinDate: string;
   status: string;
@@ -320,6 +322,13 @@ type InterviewRow = {
 
 type PersonnelActionType = "인사이동(전보)" | "승진" | "강등";
 
+type Organization = {
+  id: string;
+  name: string;
+  leaderEmployeeId: string | null;
+  description: string;
+};
+
 const retirementChecklist = {
   hr: [
     { id: "hr-approval", label: "퇴직 승인 및 퇴직 인사발령 등록" },
@@ -336,6 +345,16 @@ const retirementChecklist = {
     { id: "employee-security", label: "보안 및 비밀유지 의무 확인" },
   ],
 };
+
+const initialOrganizations: Organization[] = [
+  { id: "org-product", name: "제품개발팀", leaderEmployeeId: "PF-2024-092", description: "제품·서비스 개발과 기술 운영" },
+  { id: "org-sales", name: "영업1팀", leaderEmployeeId: "PF-2022-041", description: "B2B 영업과 고객 관계 관리" },
+  { id: "org-brand", name: "브랜드팀", leaderEmployeeId: "PF-2024-101", description: "브랜드·콘텐츠·마케팅 운영" },
+  { id: "org-support", name: "경영지원팀", leaderEmployeeId: "PF-2021-022", description: "재무·인사·총무 운영 지원" },
+];
+
+const initialRanks = ["사원", "선임", "책임", "매니저", "팀장"];
+const initialJobTitles = ["팀원", "파트 리더", "프로젝트 리더", "조직장"];
 
 const initialEmployees: Employee[] = [
   { id: "PF-2026-128", name: "김민준", department: "제품개발팀", position: "선임", type: "정규직", joinDate: "2026.08.03", status: "재직", email: "minjun.kim@peopleflow.co.kr", phone: "010-2451-8842", address: "서울특별시 성동구", manager: "최도영", birth: "1993.04.18", history: [{ date: "2026.08.03", type: "입사", detail: "제품개발팀 선임 입사" }] },
@@ -386,6 +405,9 @@ function XdnodeHrApp() {
   const [query, setQuery] = useState("");
   const [employeeCount, setEmployeeCount] = useState(128);
   const [employees, setEmployees] = useState(initialEmployees);
+  const [organizations, setOrganizations] = useState(initialOrganizations);
+  const [ranks, setRanks] = useState(initialRanks);
+  const [jobTitles, setJobTitles] = useState(initialJobTitles);
   const [applicants, setApplicants] = useState(initialApplicants);
   const [interviews, setInterviews] = useState(initialInterviews);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
@@ -422,10 +444,13 @@ function XdnodeHrApp() {
   function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const department = String(data.get("department"));
+    const organization = organizations.find((item) => item.name === department);
+    const organizationLeader = employees.find((employee) => employee.id === organization?.leaderEmployeeId);
     const newEmployee: Employee = {
       id: String(data.get("employeeId")), name: String(data.get("name")), email: String(data.get("email")), phone: String(data.get("phone")),
-      department: String(data.get("department")), type: String(data.get("type")), joinDate: String(data.get("joinDate")).replaceAll("-", "."), position: String(data.get("position")),
-      status: "재직", address: "미입력", manager: "미지정", birth: "미입력", history: [{ date: String(data.get("joinDate")).replaceAll("-", "."), type: "입사", detail: `${String(data.get("department"))} ${String(data.get("position"))} 입사` }],
+      department, type: String(data.get("type")), joinDate: String(data.get("joinDate")).replaceAll("-", "."), position: String(data.get("position")),
+      jobTitle: String(data.get("jobTitle")), status: "재직", address: "미입력", manager: organizationLeader?.name ?? "", birth: "미입력", history: [{ date: String(data.get("joinDate")).replaceAll("-", "."), type: "입사", detail: `${department} ${String(data.get("position"))} 입사` }],
     };
     setEmployees((value) => [...value, newEmployee]);
     setEmployeeCount((value) => value + 1);
@@ -447,7 +472,6 @@ function XdnodeHrApp() {
     const department = String(data.get("targetDepartment"));
     const position = String(data.get("targetPosition"));
     const note = String(data.get("note")).trim();
-    const ranks = ["사원", "선임", "책임", "매니저", "팀장"];
     const currentRank = ranks.indexOf(selectedEmployee.position);
     const targetRank = ranks.indexOf(position);
 
@@ -482,6 +506,51 @@ function XdnodeHrApp() {
     }));
     setPersonnelAction(null);
     showToast(`${actionType} 인사 발령을 등록했습니다.`);
+  }
+
+  function updateOrganizationLeader(organizationId: string, leaderEmployeeId: string) {
+    const previousLeaderId = organizations.find((organization) => organization.id === organizationId)?.leaderEmployeeId;
+    setOrganizations((value) => value.map((organization) => organization.id === organizationId ? { ...organization, leaderEmployeeId: leaderEmployeeId || null } : organization));
+    setEmployees((value) => value.map((employee) => employee.id === leaderEmployeeId
+      ? { ...employee, jobTitle: "조직장" }
+      : employee.id === previousLeaderId && employee.jobTitle === "조직장" ? { ...employee, jobTitle: "팀원" } : employee));
+    showToast("조직장을 변경했습니다. 인사기록카드에도 즉시 반영됩니다.");
+  }
+
+  function addOrganization(name: string, description: string) {
+    const trimmed = name.trim();
+    if (!trimmed || organizations.some((organization) => organization.name === trimmed)) {
+      showToast("새 조직명을 확인해 주세요.");
+      return;
+    }
+    setOrganizations((value) => [...value, { id: `org-${Date.now()}`, name: trimmed, leaderEmployeeId: null, description: description.trim() || "조직 설명 미입력" }]);
+    showToast(`${trimmed} 조직을 추가했습니다.`);
+  }
+
+  function addRank(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed || ranks.includes(trimmed)) return showToast("새 직급명을 확인해 주세요.");
+    setRanks((items) => [...items, trimmed]);
+    showToast(`${trimmed} 직급을 추가했습니다.`);
+  }
+
+  function removeRank(value: string) {
+    if (employees.some((employee) => employee.position === value)) return showToast("사용 중인 직급은 삭제할 수 없습니다.");
+    setRanks((items) => items.filter((item) => item !== value));
+    showToast(`${value} 직급을 삭제했습니다.`);
+  }
+
+  function addJobTitle(value: string) {
+    const trimmed = value.trim();
+    if (!trimmed || jobTitles.includes(trimmed)) return showToast("새 직책명을 확인해 주세요.");
+    setJobTitles((items) => [...items, trimmed]);
+    showToast(`${trimmed} 직책을 추가했습니다.`);
+  }
+
+  function removeJobTitle(value: string) {
+    if (value === "조직장" || employees.some((employee) => employee.jobTitle === value)) return showToast("사용 중이거나 필수인 직책은 삭제할 수 없습니다.");
+    setJobTitles((items) => items.filter((item) => item !== value));
+    showToast(`${value} 직책을 삭제했습니다.`);
   }
 
   function saveRetirement(record: RetirementRecord) {
@@ -548,63 +617,109 @@ function XdnodeHrApp() {
 
       <main className="main-content">
         {active === "dashboard" && <Dashboard employeeCount={employeeCount} onNavigate={navigate} />}
-        {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
+        {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} employees={employees} organizations={organizations} ranks={ranks} jobTitles={jobTitles} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} organizations={organizations} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
+        {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && <RecruitmentView applicants={applicants} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onInterview={setInterviewTarget} onReject={(id) => { setApplicants((value) => value.map((applicant) => applicant.id === id ? { ...applicant, stage: "서류 탈락" } : applicant)); showToast("서류 탈락 처리했습니다."); }} />}
         {active === "interviews" && <InterviewManagement interviews={interviews} />}
         {active === "settings" && <SettingsView onSave={() => showToast("환경설정을 저장했습니다.")} />}
-        {!["dashboard", "employees", "payroll", "recruitment", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
+        {!["dashboard", "employees", "organization", "payroll", "recruitment", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
-      {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="PF-2026-129" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 *</span><select required name="department" defaultValue=""><option value="" disabled>부서 선택</option><option>제품개발팀</option><option>영업1팀</option><option>브랜드팀</option><option>경영지원팀</option></select></label><label><span>고용형태 *</span><select required name="type"><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position"><option>사원</option><option>선임</option><option>책임</option><option>매니저</option><option>팀장</option></select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
+      {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="PF-2026-129" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직책</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
 
       {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.doc,.docx" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "이력서를 분석하고 있어요" : resumeStatus === "done" ? "AI 정보 추출 완료" : "이력서를 올리면 AI가 자동으로 입력합니다"}</strong><small>{resumeStatus === "done" ? "추출된 내용을 확인하고 필요한 부분을 수정하세요." : "PDF, DOC, DOCX · 직접 입력도 가능합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>이력서 AI 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
 
       {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} onClose={() => setSelectedApplicantId(null)} onInterview={() => { setSelectedApplicantId(null); setInterviewTarget(selectedApplicant); }} />}
       {interviewTarget && <InterviewScheduleModal applicant={interviewTarget} onClose={() => setInterviewTarget(null)} onSubmit={scheduleInterview} />}
-      {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
+      {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} ranks={ranks} organizations={organizations} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
       {retirementOpen && selectedEmployee && <RetirementModal employee={selectedEmployee} onClose={() => setRetirementOpen(false)} onSubmit={saveRetirement} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   );
 }
 
-function EmployeeDirectory({ employees, query, onSelect, onAdd }: { employees: Employee[]; query: string; onSelect: (id: string) => void; onAdd: () => void }) {
-  const departments = Array.from(new Set(employees.map((employee) => employee.department)));
+function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }: { employees: Employee[]; organizations: Organization[]; query: string; onSelect: (id: string) => void; onAdd: () => void }) {
+  const departments = organizations.map((organization) => organization.name);
   const [expanded, setExpanded] = useState<string[]>(departments);
   const visibleEmployees = query ? employees.filter((employee) => Object.values(employee).some((value) => typeof value === "string" && value.toLowerCase().includes(query.toLowerCase()))) : employees;
   const toggle = (department: string) => setExpanded((value) => value.includes(department) ? value.filter((item) => item !== department) : [...value, department]);
   return <div className="page-wrap module-page">
     <section className="module-hero"><div><p className="eyebrow">PEOPLE DIRECTORY</p><h1>인사기록카드</h1><p>전체 구성원을 부서별로 확인하고 개인 인사기록을 관리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 직원 등록</button></section>
     <section className="metric-grid module-metrics">
-      {[{ label: "전체 재직자", value: "128명", note: "지난달 대비 +3" }, { label: "조직", value: "4개", note: "팀 단위 표시", tone: "blue" }, { label: "이번 달 입사", value: "4명", note: "입사 예정 2명", tone: "green" }, { label: "정보 확인 필요", value: "6명", note: "필수항목 미완료", tone: "red" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}
+      {[{ label: "전체 재직자", value: "128명", note: "지난달 대비 +3" }, { label: "조직", value: `${organizations.length}개`, note: "조직관리 기준", tone: "blue" }, { label: "이번 달 입사", value: "4명", note: "입사 예정 2명", tone: "green" }, { label: "정보 확인 필요", value: "6명", note: "필수항목 미완료", tone: "red" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}
     </section>
     <div className="directory-toolbar"><div><h2>전체 현황</h2><span>총 128명 · 부서별 접기/펼치기</span></div><div><button type="button" onClick={() => setExpanded(departments)}>모두 펼치기</button><button type="button" onClick={() => setExpanded([])}>모두 접기</button></div></div>
     <div className="department-list">
       {departments.map((department) => {
         const people = visibleEmployees.filter((employee) => employee.department === department);
+        const organization = organizations.find((item) => item.name === department);
+        const leader = employees.find((employee) => employee.id === organization?.leaderEmployeeId);
         if (query && people.length === 0) return null;
         const quota = department === "제품개발팀" ? 50 : department === "영업1팀" ? 38 : department === "브랜드팀" ? 28 : 26;
         return <section className="panel department-panel" key={department}>
           <button type="button" className="department-heading" onClick={() => toggle(department)} aria-expanded={expanded.includes(department)}><span className={`chevron ${expanded.includes(department) ? "open" : ""}`}>›</span><div><strong>{department}</strong><small>재직 {people.length}명 · 승인 정원 {quota}명</small></div><span className="dept-progress"><i style={{ width: `${Math.min(92, 68 + people.length * 3)}%` }}></i></span><em>{expanded.includes(department) ? "접기" : "펼치기"}</em></button>
-          {expanded.includes(department) && <div className="data-table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>사번</th><th>직급</th><th>고용형태</th><th>입사일</th><th>직속 리더</th><th>상태</th></tr></thead><tbody>{people.map((employee) => <tr key={employee.id}><td><button type="button" className="name-link" onClick={() => onSelect(employee.id)}><span>{employee.name.slice(0, 1)}</span>{employee.name}</button></td><td>{employee.id}</td><td>{employee.position}</td><td>{employee.type}</td><td>{employee.joinDate}</td><td>{employee.manager}</td><td><StatusPill value={employee.status} /></td></tr>)}</tbody></table></div>}
+          {expanded.includes(department) && <div className="data-table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>사번</th><th>직급</th><th>직책</th><th>고용형태</th><th>입사일</th><th>조직장</th><th>상태</th></tr></thead><tbody>{people.map((employee) => {
+            const isLeader = employee.id === organization?.leaderEmployeeId;
+            return <tr key={employee.id} className={isLeader ? "organization-leader-row" : ""}><td><button type="button" className="name-link" onClick={() => onSelect(employee.id)}><span>{employee.name.slice(0, 1)}</span>{employee.name}{isLeader && <em className="organization-leader-badge">조직장</em>}</button></td><td>{employee.id}</td><td>{employee.position}</td><td>{isLeader ? "조직장" : employee.jobTitle ?? "팀원"}</td><td>{employee.type}</td><td>{employee.joinDate}</td><td>{isLeader ? "" : leader?.name ?? "미지정"}</td><td><StatusPill value={employee.status} /></td></tr>;
+          })}</tbody></table></div>}
         </section>;
       })}
     </div>
   </div>;
 }
 
-function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction, onRetirement }: { employee: Employee; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: () => void; onRetirement: () => void }) {
+function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
+  const [newOrganization, setNewOrganization] = useState({ name: "", description: "" });
+  const [newRank, setNewRank] = useState("");
+  const [newJobTitle, setNewJobTitle] = useState("");
+  return <div className="page-wrap module-page organization-page">
+    <section className="module-hero"><div><p className="eyebrow">ORGANIZATION MANAGEMENT</p><h1>조직관리</h1><p>조직 구성과 조직장, 직급 및 직책 기준을 한 곳에서 관리합니다.</p></div></section>
+    <section className="metric-grid module-metrics">{[
+      { label: "운영 조직", value: `${organizations.length}개`, note: "인사기록과 연동" },
+      { label: "조직장 지정", value: `${organizations.filter((organization) => organization.leaderEmployeeId).length}명`, note: `미지정 ${organizations.filter((organization) => !organization.leaderEmployeeId).length}개`, tone: "blue" },
+      { label: "직급 체계", value: `${ranks.length}단계`, note: "승진·강등 기준", tone: "green" },
+      { label: "직책", value: `${jobTitles.length}개`, note: "역할 구분", tone: "orange" },
+    ].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section>
+    <div className="organization-layout">
+      <section className="panel organization-list-panel">
+        <div className="table-toolbar"><div><h2>회사 조직 구성</h2><span>조직장을 지정하면 인사기록카드에 즉시 반영됩니다.</span></div></div>
+        <div className="organization-list">{organizations.map((organization) => {
+          const members = employees.filter((employee) => employee.department === organization.name);
+          const leader = employees.find((employee) => employee.id === organization.leaderEmployeeId);
+          return <article className="organization-card" key={organization.id}><div className="organization-card-heading"><span>{organization.name.slice(0, 1)}</span><div><h3>{organization.name}</h3><p>{organization.description}</p></div><em>{members.length}명</em></div><label><span>조직장</span><select value={organization.leaderEmployeeId ?? ""} onChange={(event) => onLeaderChange(organization.id, event.target.value)}><option value="">미지정</option>{members.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.position}</option>)}</select></label><div className="organization-member-preview"><strong>{leader ? `${leader.name} 조직장` : "조직장 미지정"}</strong><span>{members.slice(0, 4).map((employee) => employee.name).join(" · ") || "소속 구성원 없음"}{members.length > 4 ? ` 외 ${members.length - 4}명` : ""}</span></div></article>;
+        })}</div>
+        <form className="organization-add-form" onSubmit={(event) => { event.preventDefault(); onAddOrganization(newOrganization.name, newOrganization.description); setNewOrganization({ name: "", description: "" }); }}><div><label><span>새 조직명</span><input required value={newOrganization.name} onChange={(event) => setNewOrganization({ ...newOrganization, name: event.target.value })} placeholder="예: 사업전략팀" /></label><label><span>조직 설명</span><input value={newOrganization.description} onChange={(event) => setNewOrganization({ ...newOrganization, description: event.target.value })} placeholder="조직의 주요 역할" /></label></div><button type="submit" className="primary-button">+ 조직 추가</button></form>
+      </section>
+      <aside className="organization-catalogs">
+        <CatalogManager title="직급 관리" description="승진·강등과 인사기록에 사용하는 직급입니다." items={ranks} value={newRank} onValue={setNewRank} onAdd={() => { onAddRank(newRank); setNewRank(""); }} onRemove={onRemoveRank} placeholder="새 직급" />
+        <CatalogManager title="직책 관리" description="구성원의 역할과 책임을 구분합니다." items={jobTitles} value={newJobTitle} onValue={setNewJobTitle} onAdd={() => { onAddJobTitle(newJobTitle); setNewJobTitle(""); }} onRemove={onRemoveJobTitle} placeholder="새 직책" />
+      </aside>
+    </div>
+  </div>;
+}
+
+function CatalogManager({ title, description, items, value, onValue, onAdd, onRemove, placeholder }: { title: string; description: string; items: string[]; value: string; onValue: (value: string) => void; onAdd: () => void; onRemove: (value: string) => void; placeholder: string }) {
+  return <section className="panel catalog-panel"><div><h2>{title}</h2><p>{description}</p></div><div className="catalog-list">{items.map((item, index) => <div key={item}><span>{index + 1}</span><strong>{item}</strong><button type="button" onClick={() => onRemove(item)} aria-label={`${item} 삭제`}>×</button></div>)}</div><form onSubmit={(event) => { event.preventDefault(); onAdd(); }}><input value={value} onChange={(event) => onValue(event.target.value)} placeholder={placeholder} /><button type="submit">추가</button></form></section>;
+}
+
+function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, onBack, onUpdate, onPersonnelAction, onRetirement }: { employee: Employee; employees: Employee[]; organizations: Organization[]; ranks: string[]; jobTitles: string[]; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: () => void; onRetirement: () => void }) {
+  const [selectedDepartment, setSelectedDepartment] = useState(employee.department);
+  const [selectedJobTitle, setSelectedJobTitle] = useState(employee.jobTitle ?? "팀원");
+  const selectedOrganization = organizations.find((organization) => organization.name === selectedDepartment);
+  const isOrganizationLeader = selectedOrganization?.leaderEmployeeId === employee.id;
+  const leader = employees.find((person) => person.id === selectedOrganization?.leaderEmployeeId);
+  const organizationLeaderName = isOrganizationLeader ? "" : leader?.name ?? "";
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    onUpdate(employee.id, { email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), manager: String(data.get("manager")), type: String(data.get("type")) });
+    onUpdate(employee.id, { email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle });
   }
   return <div className="page-wrap detail-page">
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
     <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
-      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>직속 리더</span><input name="manager" defaultValue={employee.manager} /></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>현재 소속</span><input value={employee.department} disabled /></label></div></form>
+      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직책</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
     </div>
   </div>;
@@ -635,10 +750,9 @@ function InterviewScheduleModal({ applicant, onClose, onSubmit }: { applicant: A
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal schedule-modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>SCHEDULE INTERVIEW</p><h2>면접 일정 등록</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{applicant.name.slice(0, 1)}</span><div><strong>{applicant.name}</strong><small>{applicant.role} · {applicant.experience}</small></div><em>{applicant.id}</em></div><div className="form-grid"><label><span>면접일 *</span><input required name="date" type="date" defaultValue="2026-08-12" /></label><label><span>시작 시간 *</span><input required name="time" type="time" defaultValue="14:00" /></label><label><span>면접 유형 *</span><select name="type"><option>1차 대면</option><option>1차 화상</option><option>2차 대면</option><option>컬처핏 인터뷰</option></select></label><label><span>면접관 *</span><input required name="interviewers" defaultValue="최도영 외 1명" /></label><label className="wide"><span>장소 또는 화상 링크</span><input name="location" placeholder="회의실 B 또는 화상회의 링크" /></label></div><label className="form-note"><span>면접관 전달사항</span><textarea placeholder="확인할 역량이나 질문을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">일정 등록 및 면접관리로 이동</button></div></form></div>;
 }
 
-function PersonnelActionModal({ employee, onClose, onSubmit }: { employee: Employee; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
+function PersonnelActionModal({ employee, ranks, organizations, onClose, onSubmit }: { employee: Employee; ranks: string[]; organizations: Organization[]; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
   const [actionType, setActionType] = useState<PersonnelActionType>("인사이동(전보)");
-  const ranks = ["사원", "선임", "책임", "매니저", "팀장"];
-  const departments = ["제품개발팀", "영업1팀", "브랜드팀", "경영지원팀"];
+  const departments = organizations.map((organization) => organization.name);
   const currentRank = ranks.indexOf(employee.position);
   const availableRanks = actionType === "승진"
     ? ranks.filter((_, index) => currentRank < 0 || index > currentRank)

@@ -10,20 +10,20 @@ export async function generateMetadata(): Promise<Metadata> {
 
   return {
     title: "XD NODE ERP · 통합 운영 관리",
-    description: "재무회계, 영업, PeopleFlow HR을 하나의 흐름으로 연결하는 XD NODE 통합 ERP",
+    description: "재무회계, 영업, XDNODE HR을 하나의 흐름으로 연결하는 XD NODE 통합 ERP",
     icons: {
       icon: "/favicon.svg",
       shortcut: "/favicon.svg",
     },
     openGraph: {
       title: "XD NODE ERP",
-      description: "재무 · 영업 · PeopleFlow HR, 하나의 운영 흐름",
+      description: "재무 · 영업 · XDNODE HR, 하나의 운영 흐름",
       images: [{ url: ogImage, width: 1731, height: 909, alt: "XD NODE ERP" }],
     },
     twitter: {
       card: "summary_large_image",
       title: "XD NODE ERP",
-      description: "재무 · 영업 · PeopleFlow HR, 하나의 운영 흐름",
+      description: "재무 · 영업 · XDNODE HR, 하나의 운영 흐름",
       images: [ogImage],
     },
   };

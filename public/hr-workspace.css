@@ -698,3 +698,42 @@ button { color: inherit; }
   .organization-card { border-radius: 26px; }
   .employee-modal, .applicant-detail-modal { border-radius: 30px; }
 }
+
+/* Soft corner scale — increased again */
+.sidebar { border-radius: 36px; }
+.brand-mark { border-radius: 18px; }
+.nav-item, .settings-button { border-radius: 18px; }
+.nav-icon { border-radius: 14px; }
+.eyebrow { border-radius: 16px; }
+.primary-button, .outline-button, .icon-button { border-radius: 18px; }
+.panel { border-radius: 36px; }
+.metric-card, .compact-metric { border-radius: 32px; }
+.metric-icon { border-radius: 16px; }
+.section-heading button, .table-toolbar button, .table-footer button, .directory-toolbar button { border-radius: 18px; }
+.date-strip button { border-radius: 18px; }
+.department-panel { border-radius: 36px; }
+.organization-leader-badge, .status-pill { border-radius: 16px; }
+.profile-hero { border-radius: 40px; }
+.profile-avatar { border-radius: 22px; }
+.profile-actions button { border-radius: 18px; }
+.detail-form input, .detail-form select, .settings-form input, .form-grid input, .form-grid select, .form-note textarea, .organization-card select, .organization-add-form input, .catalog-panel form input, .organization-edit-form input, .organization-edit-form textarea { border-radius: 18px; }
+.organization-card { border-radius: 32px; }
+.organization-card-heading > span, .organization-card-heading em, .organization-edit-button { border-radius: 16px; }
+.organization-member { border-radius: 20px; }
+.organization-edit-actions button, .catalog-panel form button { border-radius: 18px; }
+.catalog-list > div { border-radius: 18px; }
+.catalog-list span { border-radius: 14px; }
+.employee-modal, .applicant-detail-modal { border-radius: 40px; }
+.resume-drop { border-radius: 28px; }
+.resume-icon { border-radius: 16px; }
+.toast { border-radius: 18px; }
+@media (max-width: 840px) {
+  .sidebar { border-radius: 0 0 32px 32px; }
+}
+@media (max-width: 560px) {
+  .metric-card, .compact-metric { border-radius: 30px; }
+  .panel, .department-panel { border-radius: 32px; }
+  .profile-hero { border-radius: 34px; }
+  .organization-card { border-radius: 30px; }
+  .employee-modal, .applicant-detail-modal { border-radius: 34px; }
+}

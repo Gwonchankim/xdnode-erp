@@ -576,3 +576,25 @@ button { color: inherit; }
   .welcome-row h1, .module-hero h1 { font-size: clamp(40px, 10vw, 50px); }
   .nav-item, .settings-button { font-size: 13.5px; }
 }
+
+/* Extra-large container curvature */
+.sidebar { border-radius: 56px; }
+.panel { border-radius: 68px; }
+.metric-card, .compact-metric { border-radius: 64px; }
+.department-panel { border-radius: 68px; }
+.profile-hero { border-radius: 68px; }
+.organization-card { border-radius: 52px; }
+.organization-member { border-radius: 28px; }
+.catalog-list > div { border-radius: 26px; }
+.employee-modal, .applicant-detail-modal { border-radius: 64px; }
+.resume-drop { border-radius: 36px; }
+@media (max-width: 840px) {
+  .sidebar { border-radius: 0 0 48px 48px; }
+}
+@media (max-width: 560px) {
+  .metric-card, .compact-metric { border-radius: 44px; }
+  .panel, .department-panel { border-radius: 48px; }
+  .profile-hero { border-radius: 48px; }
+  .organization-card { border-radius: 40px; }
+  .employee-modal, .applicant-detail-modal { border-radius: 48px; }
+}

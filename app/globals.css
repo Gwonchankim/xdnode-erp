@@ -645,3 +645,18 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .erp-module-tab strong { font-size: 11px; }
   .metric-card small, .metric-card p { font-size: 11px; }
 }
+
+/* Extra-large container curvature */
+.module-hero { border-radius: 72px; }
+.attention-strip { border-radius: 40px; }
+.metric-card { border-radius: 64px; }
+.panel { border-radius: 68px; }
+.calc-result { border-radius: 42px; }
+.quick-modal { border-radius: 64px; }
+@media (max-width: 760px) {
+  .module-hero { border-radius: 48px; }
+  .attention-strip { border-radius: 30px; }
+  .metric-card { border-radius: 44px; }
+  .panel { border-radius: 48px; }
+  .quick-modal { border-radius: 48px; }
+}

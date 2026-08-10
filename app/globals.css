@@ -688,3 +688,30 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .panel { border-radius: 24px; }
   .quick-modal { border-radius: 24px; }
 }
+
+/* Soft corner scale — increased one step */
+.erp-top-brand .brand-mark { border-radius: 18px; }
+.erp-module-tabs { border-radius: 20px; }
+.erp-module-tab { border-radius: 16px; }
+.erp-module-tab .module-glyph { border-radius: 12px; }
+.search-box, .period-button, .icon-button { border-radius: 16px; }
+.module-hero { border-radius: 36px; }
+.eyebrow { border-radius: 14px; }
+.primary-button, .secondary-button { border-radius: 16px; }
+.attention-strip { border-radius: 24px; }
+.attention-icon { border-radius: 12px; }
+.metric-card { border-radius: 28px; }
+.panel { border-radius: 32px; }
+.bank-icon, .person-name i, .deadline-item > span, .rule-item > span, .compliance-item > span { border-radius: 14px; }
+.stage, .status, .approval-item em { border-radius: 14px !important; }
+.calc-form input, .calc-form select, .quick-modal input, .quick-modal textarea { border-radius: 16px; }
+.calc-result { border-radius: 24px; }
+.quick-modal { border-radius: 32px; }
+.toast { border-radius: 16px; }
+@media (max-width: 760px) {
+  .module-hero { border-radius: 30px; }
+  .attention-strip { border-radius: 20px; }
+  .metric-card { border-radius: 26px; }
+  .panel { border-radius: 28px; }
+  .quick-modal { border-radius: 28px; }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import HRWorkspace from "./hr-workspace";
 
 type ModuleKey = "finance" | "sales" | "hr";
 
@@ -105,6 +106,10 @@ export default function Home() {
     setQuickOpen(false);
     setToast(`${copy.action} 항목을 임시 저장했습니다.`);
     window.setTimeout(() => setToast(""), 3200);
+  }
+
+  if (active === "hr") {
+    return <HRWorkspace onModuleChange={setActive} />;
   }
 
   return (

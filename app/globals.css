@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+.peopleflow-host {
+  display: block;
+  min-height: 100vh;
+}
+
 :root {
   --ink: #102a2c;
   --ink-soft: #526566;

@@ -311,6 +311,8 @@ type InterviewRow = {
   status: string;
 };
 
+type PersonnelActionType = "인사이동(전보)" | "승진" | "강등";
+
 const initialEmployees: Employee[] = [
   { id: "PF-2026-128", name: "김민준", department: "제품개발팀", position: "선임", type: "정규직", joinDate: "2026.08.03", status: "재직", email: "minjun.kim@peopleflow.co.kr", phone: "010-2451-8842", address: "서울특별시 성동구", manager: "최도영", birth: "1993.04.18", history: [{ date: "2026.08.03", type: "입사", detail: "제품개발팀 선임 입사" }] },
   { id: "PF-2024-092", name: "정우진", department: "제품개발팀", position: "책임", type: "정규직", joinDate: "2024.03.11", status: "재직", email: "woojin.jung@peopleflow.co.kr", phone: "010-8841-2031", address: "경기도 성남시 분당구", manager: "최도영", birth: "1989.11.02", history: [{ date: "2025.01.01", type: "승진", detail: "선임에서 책임으로 승진" }, { date: "2024.03.11", type: "입사", detail: "제품개발팀 선임 입사" }] },
@@ -416,21 +418,45 @@ function XdnodeHrApp() {
     if (!selectedEmployee || !personnelAction) return;
     const data = new FormData(event.currentTarget);
     const date = String(data.get("effectiveDate")).replaceAll("-", ".");
+    const actionType = String(data.get("actionType")) as PersonnelActionType;
     const department = String(data.get("targetDepartment"));
     const position = String(data.get("targetPosition"));
-    const note = String(data.get("note"));
+    const note = String(data.get("note")).trim();
+    const ranks = ["사원", "선임", "책임", "매니저", "팀장"];
+    const currentRank = ranks.indexOf(selectedEmployee.position);
+    const targetRank = ranks.indexOf(position);
+
+    if (actionType === "인사이동(전보)" && department === selectedEmployee.department) {
+      showToast("인사이동은 현재 소속과 다른 부서를 선택해야 합니다.");
+      return;
+    }
+    if (actionType === "승진" && currentRank >= 0 && targetRank <= currentRank) {
+      showToast("승진은 현재보다 높은 직급을 선택해야 합니다.");
+      return;
+    }
+    if (actionType === "강등" && currentRank >= 0 && (targetRank < 0 || targetRank >= currentRank)) {
+      showToast("강등은 현재보다 낮은 직급을 선택해야 합니다.");
+      return;
+    }
+    if (actionType === "강등" && !note) {
+      showToast("강등 발령에는 정당한 사유를 반드시 입력해야 합니다.");
+      return;
+    }
+
+    const detail = note || (actionType === "인사이동(전보)"
+      ? `${selectedEmployee.department}에서 ${department}(으)로 인사이동`
+      : `${selectedEmployee.position}에서 ${position}(으)로 ${actionType}`);
     setEmployees((value) => value.map((employee) => {
       if (employee.id !== selectedEmployee.id) return employee;
       return {
         ...employee,
-        department: personnelAction === "전보" ? department : employee.department,
-        position: personnelAction === "발령" || personnelAction === "승진" ? position : employee.position,
-        status: personnelAction === "전출" ? "전출 예정" : employee.status,
-        history: [{ date, type: personnelAction, detail: note || `${department} ${position}` }, ...employee.history],
+        department: actionType === "인사이동(전보)" ? department : employee.department,
+        position: actionType === "승진" || actionType === "강등" ? position : employee.position,
+        history: [{ date, type: actionType, detail }, ...employee.history],
       };
     }));
     setPersonnelAction(null);
-    showToast(`${personnelAction} 인사이력을 등록했습니다.`);
+    showToast(`${actionType} 인사 발령을 등록했습니다.`);
   }
 
   function parseResume(file: File | undefined) {
@@ -482,7 +508,7 @@ function XdnodeHrApp() {
 
       <main className="main-content">
         {active === "dashboard" && <Dashboard employeeCount={employeeCount} onNavigate={navigate} />}
-        {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={setPersonnelAction} /> : <EmployeeDirectory employees={employees} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
+        {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} /> : <EmployeeDirectory employees={employees} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && <RecruitmentView applicants={applicants} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onInterview={setInterviewTarget} onReject={(id) => { setApplicants((value) => value.map((applicant) => applicant.id === id ? { ...applicant, stage: "서류 탈락" } : applicant)); showToast("서류 탈락 처리했습니다."); }} />}
         {active === "interviews" && <InterviewManagement interviews={interviews} />}
@@ -496,7 +522,7 @@ function XdnodeHrApp() {
 
       {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} onClose={() => setSelectedApplicantId(null)} onInterview={() => { setSelectedApplicantId(null); setInterviewTarget(selectedApplicant); }} />}
       {interviewTarget && <InterviewScheduleModal applicant={interviewTarget} onClose={() => setInterviewTarget(null)} onSubmit={scheduleInterview} />}
-      {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} action={personnelAction} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
+      {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
   );
@@ -527,7 +553,7 @@ function EmployeeDirectory({ employees, query, onSelect, onAdd }: { employees: E
   </div>;
 }
 
-function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction }: { employee: Employee; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: (action: string) => void }) {
+function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction }: { employee: Employee; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: () => void }) {
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -535,7 +561,7 @@ function EmployeeDetail({ employee, onBack, onUpdate, onPersonnelAction }: { emp
   }
   return <div className="page-wrap detail-page">
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
-    <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions"><button type="button" onClick={() => onPersonnelAction("전보")}>전보</button><button type="button" onClick={() => onPersonnelAction("전출")}>전출</button><button type="button" onClick={() => onPersonnelAction("발령")}>발령</button><button type="button" className="promote" onClick={() => onPersonnelAction("승진")}>승진</button></div></section>
+    <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button></div></section>
     <div className="detail-grid">
       <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>직속 리더</span><input name="manager" defaultValue={employee.manager} /></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>현재 소속</span><input value={employee.department} disabled /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
@@ -568,8 +594,21 @@ function InterviewScheduleModal({ applicant, onClose, onSubmit }: { applicant: A
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal schedule-modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>SCHEDULE INTERVIEW</p><h2>면접 일정 등록</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{applicant.name.slice(0, 1)}</span><div><strong>{applicant.name}</strong><small>{applicant.role} · {applicant.experience}</small></div><em>{applicant.id}</em></div><div className="form-grid"><label><span>면접일 *</span><input required name="date" type="date" defaultValue="2026-08-12" /></label><label><span>시작 시간 *</span><input required name="time" type="time" defaultValue="14:00" /></label><label><span>면접 유형 *</span><select name="type"><option>1차 대면</option><option>1차 화상</option><option>2차 대면</option><option>컬처핏 인터뷰</option></select></label><label><span>면접관 *</span><input required name="interviewers" defaultValue="최도영 외 1명" /></label><label className="wide"><span>장소 또는 화상 링크</span><input name="location" placeholder="회의실 B 또는 화상회의 링크" /></label></div><label className="form-note"><span>면접관 전달사항</span><textarea placeholder="확인할 역량이나 질문을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">일정 등록 및 면접관리로 이동</button></div></form></div>;
 }
 
-function PersonnelActionModal({ employee, action, onClose, onSubmit }: { employee: Employee; action: string; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal personnel-modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>PERSONNEL ACTION</p><h2>{action} 등록</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div><div className="form-grid"><label><span>시행일 *</span><input required name="effectiveDate" type="date" defaultValue="2026-09-01" /></label><label><span>인사 구분</span><input value={action} disabled /></label><label><span>대상 부서</span><select name="targetDepartment" defaultValue={employee.department}><option>제품개발팀</option><option>영업1팀</option><option>브랜드팀</option><option>경영지원팀</option><option>관계사 전출</option></select></label><label><span>발령 직급·직책</span><select name="targetPosition" defaultValue={employee.position}><option>사원</option><option>선임</option><option>책임</option><option>매니저</option><option>팀장</option></select></label></div><label className="form-note"><span>{action} 사유 및 내용</span><textarea name="note" placeholder={`${action} 사유와 주요 내용을 입력하세요.`}></textarea></label><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">{action} 등록</button></div></form></div>;
+function PersonnelActionModal({ employee, onClose, onSubmit }: { employee: Employee; onClose: () => void; onSubmit: (event: React.FormEvent<HTMLFormElement>) => void }) {
+  const [actionType, setActionType] = useState<PersonnelActionType>("인사이동(전보)");
+  const ranks = ["사원", "선임", "책임", "매니저", "팀장"];
+  const departments = ["제품개발팀", "영업1팀", "브랜드팀", "경영지원팀"];
+  const currentRank = ranks.indexOf(employee.position);
+  const availableRanks = actionType === "승진"
+    ? ranks.filter((_, index) => currentRank < 0 || index > currentRank)
+    : ranks.filter((_, index) => currentRank < 0 || index < currentRank);
+  const actionHelp = actionType === "인사이동(전보)"
+    ? "현재 소속과 다른 부서로 이동합니다."
+    : actionType === "승진"
+      ? "현재보다 높은 직급으로 변경합니다."
+      : "현재보다 낮은 직급으로 변경하며 정당한 사유가 반드시 필요합니다.";
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal personnel-modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>PERSONNEL ACTION</p><h2>인사 발령 등록</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div><div className="form-grid"><label><span>시행일 *</span><input required name="effectiveDate" type="date" defaultValue="2026-09-01" /></label><label><span>발령 구분 *</span><select required name="actionType" value={actionType} onChange={(event) => setActionType(event.target.value as PersonnelActionType)}><option>인사이동(전보)</option><option>승진</option><option>강등</option></select></label><div className="action-type-help wide"><strong>{actionType}</strong><span>{actionHelp}</span></div>{actionType === "인사이동(전보)" ? <label className="wide"><span>이동할 부서 *</span><select required name="targetDepartment" defaultValue=""><option value="" disabled>부서 선택</option>{departments.filter((department) => department !== employee.department).map((department) => <option key={department}>{department}</option>)}</select><input type="hidden" name="targetPosition" value={employee.position} /></label> : <label className="wide"><span>변경 직급 *</span><select required name="targetPosition" defaultValue=""><option value="" disabled>직급 선택</option>{availableRanks.map((rank) => <option key={rank}>{rank}</option>)}</select><input type="hidden" name="targetDepartment" value={employee.department} /></label>}</div><label className={`form-note ${actionType === "강등" ? "personnel-note-required" : ""}`}><span>{actionType === "강등" ? "강등 사유 *" : "발령 사유 및 내용"}</span><textarea required={actionType === "강등"} name="note" placeholder={actionType === "강등" ? "강등의 정당한 사유와 근거를 구체적으로 입력하세요." : "발령 배경이나 전달사항을 입력하세요."}></textarea>{actionType === "강등" && <small>강등은 정당한 사유와 객관적인 근거가 확인되어야 등록할 수 있습니다.</small>}</label><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">인사 발령 등록</button></div></form></div>;
 }
 
 function SettingsView({ onSave }: { onSave: () => void }) {

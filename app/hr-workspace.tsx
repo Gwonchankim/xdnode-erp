@@ -1337,6 +1337,75 @@ function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, 
   </div>;
 }
 
+type PermissionsPolicyLike = {
+  allowsFeature?: (feature: string) => boolean;
+};
+
+function microphoneErrorMessage(error: unknown) {
+  const errorName = typeof error === "object" && error && "name" in error
+    ? String((error as { name?: unknown }).name ?? "")
+    : "";
+  const policy = (document as Document & {
+    permissionsPolicy?: PermissionsPolicyLike;
+    featurePolicy?: PermissionsPolicyLike;
+  }).permissionsPolicy ?? (document as Document & { featurePolicy?: PermissionsPolicyLike }).featurePolicy;
+  const policyBlocked = policy?.allowsFeature?.("microphone") === false;
+
+  if (policyBlocked || errorName === "SecurityError") {
+    return "현재 페이지의 보안 정책이 마이크 사용을 차단했습니다. 이 ERP 주소를 Chrome의 새 탭에서 직접 연 뒤 다시 시도해 주세요.";
+  }
+  if (errorName === "NotAllowedError" || errorName === "PermissionDeniedError") {
+    return "Chrome의 마이크 권한이 차단되었습니다. 주소창 왼쪽의 사이트 설정에서 마이크를 허용한 뒤 페이지를 새로고침해 주세요.";
+  }
+  if (errorName === "NotFoundError" || errorName === "DevicesNotFoundError") {
+    return "사용 가능한 마이크를 찾지 못했습니다. Windows 입력 장치가 연결되어 있고 기본 마이크로 선택되어 있는지 확인해 주세요.";
+  }
+  if (errorName === "NotReadableError" || errorName === "TrackStartError") {
+    return "마이크 장치를 시작하지 못했습니다. Teams·Zoom·녹음기처럼 마이크를 사용 중인 앱을 닫고 Windows의 마이크 접근 허용을 확인해 주세요.";
+  }
+  if (errorName === "OverconstrainedError" || errorName === "ConstraintNotSatisfiedError") {
+    return "현재 마이크 설정을 사용할 수 없습니다. Windows에서 다른 입력 장치를 기본 마이크로 선택한 뒤 다시 시도해 주세요.";
+  }
+  if (errorName === "AbortError") {
+    return "마이크 시작이 중단되었습니다. 잠시 후 다시 시도하거나 Chrome을 새로고침해 주세요.";
+  }
+  if (errorName === "InvalidStateError") {
+    return "현재 페이지가 활성 상태가 아닙니다. 이 탭을 선택한 상태에서 녹음을 다시 시작해 주세요.";
+  }
+  return `마이크를 시작하지 못했습니다${errorName ? ` (${errorName})` : ""}. Windows와 Chrome의 마이크 설정을 확인해 주세요.`;
+}
+
+async function requestMicrophoneStream() {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+  } catch (error) {
+    const name = typeof error === "object" && error && "name" in error
+      ? String((error as { name?: unknown }).name ?? "")
+      : "";
+    if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+      return navigator.mediaDevices.getUserMedia({ audio: true });
+    }
+    throw error;
+  }
+}
+
+function createAudioRecorder(stream: MediaStream) {
+  const preferredType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+    .find((type) => MediaRecorder.isTypeSupported(type));
+  if (!preferredType) return new MediaRecorder(stream);
+  try {
+    return new MediaRecorder(stream, { mimeType: preferredType });
+  } catch {
+    return new MediaRecorder(stream);
+  }
+}
+
 function EmployeeInterviewLog({ employee }: { employee: Employee }) {
   const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const [records, setRecords] = useState<EmployeeInterviewRecord[]>([]);
@@ -1381,15 +1450,11 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await requestMicrophoneStream();
       streamRef.current = stream;
       chunksRef.current = [];
       recognizedTextRef.current = transcript.trim();
-      const preferredType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-        .find((type) => MediaRecorder.isTypeSupported(type));
-      const recorder = preferredType
-        ? new MediaRecorder(stream, { mimeType: preferredType })
-        : new MediaRecorder(stream);
+      const recorder = createAudioRecorder(stream);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => {
@@ -1426,8 +1491,11 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
 
       recorder.start(500);
       setRecording(true);
-    } catch {
-      setMessage("마이크 권한을 확인한 뒤 다시 녹음을 시작해 주세요.");
+    } catch (error) {
+      console.error("[microphone] employee interview recording failed", error);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setMessage(microphoneErrorMessage(error));
     }
   }
 
@@ -1637,12 +1705,10 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await requestMicrophoneStream();
       streamRef.current = stream;
       chunksRef.current = [];
-      const preferredType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
-        .find((type) => MediaRecorder.isTypeSupported(type));
-      const recorder = preferredType ? new MediaRecorder(stream, { mimeType: preferredType }) : new MediaRecorder(stream);
+      const recorder = createAudioRecorder(stream);
       recorderRef.current = recorder;
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => {
@@ -1656,8 +1722,11 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
       };
       recorder.start(500);
       setRecording(true);
-    } catch {
-      setMessage("마이크 권한을 확인한 뒤 다시 녹음을 시작해 주세요.");
+    } catch (error) {
+      console.error("[microphone] applicant interview recording failed", error);
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setMessage(microphoneErrorMessage(error));
     }
   }
 

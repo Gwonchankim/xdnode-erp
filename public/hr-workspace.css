@@ -808,3 +808,34 @@ button { color: inherit; }
   .recording-controls audio { width: 100%; margin: 10px 0 0; }
   .interview-record-list > article { grid-template-columns: 1fr; border-radius: 20px; }
 }
+
+/* Organization leaders: shared high-contrast inverted treatment */
+.employee-table tbody tr.organization-leader-row,
+.employee-table tbody tr.organization-leader-row:hover {
+  background: #18181b;
+  box-shadow: none;
+}
+.employee-table tbody tr.organization-leader-row td {
+  color: #fff;
+  border-bottom-color: #303035;
+}
+.organization-leader-row .name-link { color: #fff; }
+.organization-leader-row .name-link > span,
+.organization-leader-row .organization-leader-badge,
+.organization-leader-row .status-pill {
+  color: #18181b;
+  border-color: #fff;
+  background: #fff;
+}
+.organization-member.leader {
+  color: #fff;
+  border-color: #18181b;
+  background: #18181b;
+  box-shadow: none;
+}
+.organization-member.leader > span {
+  color: #18181b;
+  background: #fff;
+}
+.organization-member.leader strong { color: #fff; }
+.organization-member.leader small { color: #d4d4d8; }

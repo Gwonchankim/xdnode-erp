@@ -46,3 +46,33 @@ export const hrAuthorizedUsers = sqliteTable("hr_authorized_users", {
   employeeId: text("employee_id").primaryKey(),
   createdAt: integer("created_at").notNull(),
 });
+
+export const hrRecruiters = sqliteTable("hr_recruiters", {
+  employeeId: text("employee_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const hrApplicants = sqliteTable("hr_applicants", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  applied: text("applied").notNull(),
+  ownerId: text("owner_id").notNull().default(""),
+  stage: text("stage").notNull(),
+  experience: text("experience").notNull().default(""),
+  email: text("email").notNull(),
+  phone: text("phone").notNull().default(""),
+  source: text("source").notNull(),
+  summary: text("summary").notNull().default(""),
+  resumeFileName: text("resume_file_name").notNull().default(""),
+  resumeText: text("resume_text").notNull().default(""),
+  checklistJson: text("checklist_json").notNull().default("[]"),
+  screeningMemosJson: text("screening_memos_json").notNull().default("[]"),
+  interviewJson: text("interview_json"),
+  interviewMemosJson: text("interview_memos_json").notNull().default("[]"),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_hr_applicants_name").on(table.name),
+  index("idx_hr_applicants_email").on(table.email),
+  index("idx_hr_applicants_phone").on(table.phone),
+]);

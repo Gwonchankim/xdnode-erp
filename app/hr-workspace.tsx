@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { companyEmployees, companyJobTitles, companyOrganizations, companyRanks } from "./hr-company-data";
 
 export default function HRWorkspace() {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -56,28 +57,28 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { id: "employees", label: "인사기록카드", icon: "인" },
       { id: "organization", label: "조직관리", icon: "조" },
       { id: "payroll", label: "급여관리", icon: "급" },
-      { id: "onboarding", label: "입·퇴사 관리", icon: "온", badge: "4" },
+      { id: "onboarding", label: "입·퇴사 관리", icon: "온" },
       { id: "workforce", label: "인력계획·정원", icon: "계" },
     ],
   },
   {
     title: "채용",
     items: [
-      { id: "recruitment", label: "지원자 관리", icon: "채", badge: "18" },
+      { id: "recruitment", label: "지원자 관리", icon: "채" },
       { id: "interviews", label: "면접관리", icon: "면" },
     ],
   },
   {
     title: "성장과 분석",
     items: [
-      { id: "performance", label: "성과·목표", icon: "목", badge: "7" },
+      { id: "performance", label: "성과·목표", icon: "목" },
       { id: "training", label: "교육·법정교육", icon: "교" },
       { id: "reports", label: "통계·리포트", icon: "분" },
     ],
   },
 ];
 
-const moduleConfigs: Record<string, ModuleConfig> = {
+const demoModuleConfigs: Record<string, ModuleConfig> = {
   employees: {
     eyebrow: "PEOPLE DIRECTORY",
     title: "인사기록카드",
@@ -278,6 +279,45 @@ type RetirementRecord = {
   completedTaskIds: string[];
 };
 
+const moduleConfigs = Object.fromEntries(Object.entries(demoModuleConfigs).map(([id, config]) => [id, {
+  ...config,
+  metrics: config.metrics.map((metric) => ({ ...metric, value: "0건", note: "자료 미등록" })),
+  rows: [],
+}])) as Record<string, ModuleConfig>;
+
+moduleConfigs.payroll = {
+  ...demoModuleConfigs.payroll,
+  metrics: [
+    { label: "급여 대상", value: `${companyEmployees.length}명`, note: "재직자 기준" },
+    { label: "지급총액", value: "미입력", note: "급여 자료 필요", tone: "blue" },
+    { label: "공제총액", value: "미입력", note: "급여 자료 필요", tone: "orange" },
+    { label: "실지급액", value: "미입력", note: "급여 자료 필요", tone: "red" },
+  ],
+  rows: [["2026년 8월", `${companyEmployees.length}명`, "미입력", "미입력", "미입력", "자료 미등록"]],
+};
+
+moduleConfigs.workforce = {
+  ...demoModuleConfigs.workforce,
+  metrics: [
+    { label: "현재 인원", value: `${companyEmployees.length}명`, note: "재직자 기준" },
+    { label: "운영 조직", value: `${companyOrganizations.length}개`, note: "소속 미지정 포함", tone: "blue" },
+    { label: "승인 정원", value: "미입력", note: "인력계획 자료 필요", tone: "orange" },
+    { label: "충원 필요", value: "미입력", note: "승인 정원 등록 필요", tone: "red" },
+  ],
+  rows: companyOrganizations.map((organization) => [organization.name, "미입력", `${companyEmployees.filter((employee) => employee.department === organization.name).length}명`, "0명", "0명", "미입력"]),
+};
+
+moduleConfigs.reports = {
+  ...demoModuleConfigs.reports,
+  metrics: [
+    { label: "재직 인원", value: `${companyEmployees.length}명`, note: "하이웍스 원본 기준" },
+    { label: "운영 조직", value: `${companyOrganizations.length}개`, note: "소속 미지정 포함", tone: "blue" },
+    { label: "채용 데이터", value: "0건", note: "자료 미등록", tone: "green" },
+    { label: "급여 데이터", value: "미입력", note: "자료 등록 필요", tone: "orange" },
+  ],
+  rows: [],
+};
+
 type Employee = {
   id: string;
   name: string;
@@ -347,50 +387,21 @@ const retirementChecklist = {
 };
 
 const initialOrganizations: Organization[] = [
-  { id: "org-product", name: "제품개발팀", leaderEmployeeId: "PF-2024-092", description: "제품·서비스 개발과 기술 운영" },
-  { id: "org-sales", name: "영업1팀", leaderEmployeeId: "PF-2022-041", description: "B2B 영업과 고객 관계 관리" },
-  { id: "org-brand", name: "브랜드팀", leaderEmployeeId: "PF-2024-101", description: "브랜드·콘텐츠·마케팅 운영" },
-  { id: "org-support", name: "경영지원팀", leaderEmployeeId: "PF-2021-022", description: "재무·인사·총무 운영 지원" },
+  ...companyOrganizations,
 ];
 
-const initialRanks = ["사원", "선임", "책임", "매니저", "팀장"];
-const initialJobTitles = ["팀원", "파트 리더", "프로젝트 리더", "조직장"];
+const initialRanks = [...companyRanks];
+const initialJobTitles = [...companyJobTitles];
 
 const initialEmployees: Employee[] = [
-  { id: "PF-2026-128", name: "김민준", department: "제품개발팀", position: "선임", type: "정규직", joinDate: "2026.08.03", status: "재직", email: "minjun.kim@peopleflow.co.kr", phone: "010-2451-8842", address: "서울특별시 성동구", manager: "최도영", birth: "1993.04.18", history: [{ date: "2026.08.03", type: "입사", detail: "제품개발팀 선임 입사" }] },
-  { id: "PF-2024-092", name: "정우진", department: "제품개발팀", position: "책임", type: "정규직", joinDate: "2024.03.11", status: "재직", email: "woojin.jung@peopleflow.co.kr", phone: "010-8841-2031", address: "경기도 성남시 분당구", manager: "최도영", birth: "1989.11.02", history: [{ date: "2025.01.01", type: "승진", detail: "선임에서 책임으로 승진" }, { date: "2024.03.11", type: "입사", detail: "제품개발팀 선임 입사" }] },
-  { id: "PF-2023-074", name: "정하늘", department: "제품개발팀", position: "선임", type: "정규직", joinDate: "2023.02.06", status: "휴직", email: "haneul.jung@peopleflow.co.kr", phone: "010-3379-1105", address: "서울특별시 송파구", manager: "최도영", birth: "1992.07.23", history: [{ date: "2026.06.01", type: "휴직", detail: "육아휴직" }, { date: "2023.02.06", type: "입사", detail: "데이터팀 선임 입사" }] },
-  { id: "PF-2022-041", name: "박지훈", department: "영업1팀", position: "책임", type: "정규직", joinDate: "2022.04.11", status: "재직", email: "jihoon.park@peopleflow.co.kr", phone: "010-7182-4491", address: "서울특별시 영등포구", manager: "강현석", birth: "1988.02.17", history: [{ date: "2024.07.01", type: "승진", detail: "선임에서 책임으로 승진" }, { date: "2022.04.11", type: "입사", detail: "영업1팀 선임 입사" }] },
-  { id: "PF-2025-111", name: "송예린", department: "영업1팀", position: "매니저", type: "정규직", joinDate: "2025.01.13", status: "재직", email: "yerin.song@peopleflow.co.kr", phone: "010-9056-3820", address: "서울특별시 마포구", manager: "강현석", birth: "1995.09.30", history: [{ date: "2025.01.13", type: "입사", detail: "영업1팀 매니저 입사" }] },
-  { id: "PF-2024-101", name: "이서연", department: "브랜드팀", position: "매니저", type: "정규직", joinDate: "2024.11.18", status: "재직", email: "seoyeon.lee@peopleflow.co.kr", phone: "010-4218-9033", address: "서울특별시 서대문구", manager: "김나영", birth: "1994.05.12", history: [{ date: "2024.11.18", type: "입사", detail: "브랜드팀 매니저 입사" }] },
-  { id: "PF-2025-119", name: "임채원", department: "브랜드팀", position: "사원", type: "정규직", joinDate: "2025.08.18", status: "재직", email: "chaewon.lim@peopleflow.co.kr", phone: "010-5182-6607", address: "서울특별시 강서구", manager: "김나영", birth: "1998.12.09", history: [{ date: "2025.08.18", type: "입사", detail: "브랜드팀 사원 입사" }] },
-  { id: "PF-2026-127", name: "최유진", department: "경영지원팀", position: "사원", type: "계약직", joinDate: "2026.07.20", status: "수습", email: "yujin.choi@peopleflow.co.kr", phone: "010-3328-7110", address: "서울특별시 동작구", manager: "김태호", birth: "1999.01.25", history: [{ date: "2026.07.20", type: "입사", detail: "경영지원팀 계약직 입사" }] },
-  { id: "PF-2021-022", name: "김태호", department: "경영지원팀", position: "팀장", type: "정규직", joinDate: "2021.09.01", status: "재직", email: "taeho.kim@peopleflow.co.kr", phone: "010-6291-0382", address: "서울특별시 용산구", manager: "이정민", birth: "1985.03.16", history: [{ date: "2023.01.01", type: "발령", detail: "경영지원팀 팀장 발령" }, { date: "2021.09.01", type: "입사", detail: "재무팀 책임 입사" }] },
+  ...companyEmployees,
 ];
 
-const payrollPeople = [
-  ["PF-2026-128", "김민준", "제품개발팀", "₩4,800,000", "₩420,000", "₩612,000", "₩4,608,000"],
-  ["PF-2024-092", "정우진", "제품개발팀", "₩6,200,000", "₩550,000", "₩808,000", "₩5,942,000"],
-  ["PF-2022-041", "박지훈", "영업1팀", "₩5,900,000", "₩1,120,000", "₩894,000", "₩6,126,000"],
-  ["PF-2025-111", "송예린", "영업1팀", "₩4,300,000", "₩780,000", "₩644,000", "₩4,436,000"],
-  ["PF-2024-101", "이서연", "브랜드팀", "₩4,700,000", "₩360,000", "₩631,000", "₩4,429,000"],
-  ["PF-2026-127", "최유진", "경영지원팀", "₩3,100,000", "₩200,000", "₩388,000", "₩2,912,000"],
-];
+const payrollPeople = initialEmployees.map((employee) => [employee.id, employee.name, employee.department, "미입력", "미입력", "미입력", "미입력"]);
 
-const initialApplicants: Applicant[] = [
-  { id: "AP-084", name: "윤서진", role: "백엔드 개발자", applied: "08.09", owner: "김지수", stage: "서류 검토", experience: "5년 2개월", email: "seojin.yoon@email.com", phone: "010-4382-1102", source: "원티드", summary: "대규모 트래픽 백엔드와 결제 시스템 구축 경험. Kotlin·Spring 기반 서비스 운영 경험 보유." },
-  { id: "AP-083", name: "한도윤", role: "프로덕트 디자이너", applied: "08.08", owner: "이수민", stage: "과제 검토", experience: "4년 8개월", email: "doyoon.han@email.com", phone: "010-9192-3370", source: "링크드인", summary: "B2B SaaS 제품 설계와 디자인 시스템 구축 경험. 리서치부터 프로토타이핑까지 수행." },
-  { id: "AP-082", name: "송예린", role: "B2B 영업", applied: "08.07", owner: "김지수", stage: "처우 협의", experience: "6년", email: "yerin.song@email.com", phone: "010-5047-2201", source: "직원 추천", summary: "엔터프라이즈 고객 대상 솔루션 영업 및 파이프라인 관리 경험." },
-  { id: "AP-081", name: "문지후", role: "데이터 분석가", applied: "08.06", owner: "박서준", stage: "서류 검토", experience: "3년 4개월", email: "jihoo.moon@email.com", phone: "010-7285-9044", source: "자사 채용페이지", summary: "SQL·Python 기반 제품 지표 분석과 대시보드 구축 경험." },
-  { id: "AP-080", name: "배하린", role: "HR 매니저", applied: "08.05", owner: "이수민", stage: "서류 검토", experience: "5년", email: "harin.bae@email.com", phone: "010-8814-3155", source: "잡코리아", summary: "채용 운영, 평가제도 개선, HR 데이터 분석 프로젝트 경험." },
-];
+const initialApplicants: Applicant[] = [];
 
-const initialInterviews: InterviewRow[] = [
-  { id: "IV-101", time: "오늘 10:30", name: "이현우", role: "프론트엔드 개발자", type: "1차 화상", interviewers: "정우진 외 1명", status: "진행 완료" },
-  { id: "IV-102", time: "오늘 14:00", name: "윤서진", role: "백엔드 개발자", type: "2차 대면", interviewers: "최도영 외 2명", status: "예정" },
-  { id: "IV-103", time: "오늘 16:30", name: "임채원", role: "콘텐츠 마케터", type: "1차 화상", interviewers: "이서연", status: "예정" },
-  { id: "IV-104", time: "내일 11:00", name: "박시우", role: "재무 담당자", type: "1차 대면", interviewers: "김태호", status: "확정" },
-];
+const initialInterviews: InterviewRow[] = [];
 
 function StatusPill({ value }: { value: string }) {
   const kind = value.includes("완료") || value.includes("재직") || value === "마감" ? "success" : value.includes("초과") || value.includes("휴직") ? "danger" : "pending";
@@ -403,7 +414,6 @@ function XdnodeHrApp() {
   const [applicantModalOpen, setApplicantModalOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [query, setQuery] = useState("");
-  const [employeeCount, setEmployeeCount] = useState(128);
   const [employees, setEmployees] = useState(initialEmployees);
   const [organizations, setOrganizations] = useState(initialOrganizations);
   const [ranks, setRanks] = useState(initialRanks);
@@ -453,7 +463,6 @@ function XdnodeHrApp() {
       jobTitle: String(data.get("jobTitle")), status: "재직", address: "미입력", manager: organizationLeader?.name ?? "", birth: "미입력", history: [{ date: String(data.get("joinDate")).replaceAll("-", "."), type: "입사", detail: `${department} ${String(data.get("position"))} 입사` }],
     };
     setEmployees((value) => [...value, newEmployee]);
-    setEmployeeCount((value) => value + 1);
     setEmployeeModalOpen(false);
     showToast("신규 직원이 인사기록카드에 등록되었습니다.");
   }
@@ -631,7 +640,7 @@ function XdnodeHrApp() {
       </aside>
 
       <main className="main-content">
-        {active === "dashboard" && <Dashboard employeeCount={employeeCount} onNavigate={navigate} />}
+        {active === "dashboard" && <Dashboard employees={employees} organizations={organizations} applicants={applicants} onNavigate={navigate} />}
         {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} employees={employees} organizations={organizations} ranks={ranks} jobTitles={jobTitles} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} organizations={organizations} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onUpdateOrganization={updateOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
@@ -641,7 +650,7 @@ function XdnodeHrApp() {
         {!["dashboard", "employees", "organization", "payroll", "recruitment", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
-      {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="PF-2026-129" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직책</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
+      {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
 
       {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.doc,.docx" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "이력서를 분석하고 있어요" : resumeStatus === "done" ? "AI 정보 추출 완료" : "이력서를 올리면 AI가 자동으로 입력합니다"}</strong><small>{resumeStatus === "done" ? "추출된 내용을 확인하고 필요한 부분을 수정하세요." : "PDF, DOC, DOCX · 직접 입력도 가능합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>이력서 AI 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
 
@@ -658,23 +667,25 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
   const departments = organizations.map((organization) => organization.name);
   const [expanded, setExpanded] = useState<string[]>(departments);
   const visibleEmployees = query ? employees.filter((employee) => Object.values(employee).some((value) => typeof value === "string" && value.toLowerCase().includes(query.toLowerCase()))) : employees;
+  const currentEmployees = employees.filter((employee) => employee.status !== "퇴직");
+  const hiresThisMonth = currentEmployees.filter((employee) => employee.joinDate.startsWith("2026.08")).length;
+  const incompleteProfiles = currentEmployees.filter((employee) => [employee.email, employee.phone, employee.birth, employee.address].some((value) => !value || value === "미입력")).length;
   const toggle = (department: string) => setExpanded((value) => value.includes(department) ? value.filter((item) => item !== department) : [...value, department]);
   return <div className="page-wrap module-page">
     <section className="module-hero"><div><p className="eyebrow">PEOPLE DIRECTORY</p><h1>인사기록카드</h1><p>전체 구성원을 부서별로 확인하고 개인 인사기록을 관리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 직원 등록</button></section>
     <section className="metric-grid module-metrics">
-      {[{ label: "전체 재직자", value: "128명", note: "지난달 대비 +3" }, { label: "조직", value: `${organizations.length}개`, note: "조직관리 기준", tone: "blue" }, { label: "이번 달 입사", value: "4명", note: "입사 예정 2명", tone: "green" }, { label: "정보 확인 필요", value: "6명", note: "필수항목 미완료", tone: "red" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}
+      {[{ label: "전체 재직자", value: `${currentEmployees.length}명`, note: "하이웍스 원본 기준" }, { label: "조직", value: `${organizations.length}개`, note: "소속 미지정 포함", tone: "blue" }, { label: "이번 달 입사", value: `${hiresThisMonth}명`, note: "2026년 8월 입사", tone: "green" }, { label: "정보 확인 필요", value: `${incompleteProfiles}명`, note: "필수항목 미입력", tone: "red" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}
     </section>
-    <div className="directory-toolbar"><div><h2>전체 현황</h2><span>총 128명 · 부서별 접기/펼치기</span></div><div><button type="button" onClick={() => setExpanded(departments)}>모두 펼치기</button><button type="button" onClick={() => setExpanded([])}>모두 접기</button></div></div>
+    <div className="directory-toolbar"><div><h2>전체 현황</h2><span>총 {currentEmployees.length}명 · 부서별 접기/펼치기</span></div><div><button type="button" onClick={() => setExpanded(departments)}>모두 펼치기</button><button type="button" onClick={() => setExpanded([])}>모두 접기</button></div></div>
     <div className="department-list">
       {departments.map((department) => {
         const people = visibleEmployees.filter((employee) => employee.department === department);
         const organization = organizations.find((item) => item.name === department);
         const leader = employees.find((employee) => employee.id === organization?.leaderEmployeeId);
         if (query && people.length === 0) return null;
-        const quota = department === "제품개발팀" ? 50 : department === "영업1팀" ? 38 : department === "브랜드팀" ? 28 : 26;
         return <section className="panel department-panel" key={department}>
-          <button type="button" className="department-heading" onClick={() => toggle(department)} aria-expanded={expanded.includes(department)}><span className={`chevron ${expanded.includes(department) ? "open" : ""}`}>›</span><div><strong>{department}</strong><small>재직 {people.length}명 · 승인 정원 {quota}명</small></div><span className="dept-progress"><i style={{ width: `${Math.min(92, 68 + people.length * 3)}%` }}></i></span><em>{expanded.includes(department) ? "접기" : "펼치기"}</em></button>
-          {expanded.includes(department) && <div className="data-table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>사번</th><th>직급</th><th>직책</th><th>고용형태</th><th>입사일</th><th>조직장</th><th>상태</th></tr></thead><tbody>{people.map((employee) => {
+          <button type="button" className="department-heading" onClick={() => toggle(department)} aria-expanded={expanded.includes(department)}><span className={`chevron ${expanded.includes(department) ? "open" : ""}`}>›</span><div><strong>{department}</strong><small>재직 {people.length}명 · 실제 등록 인원</small></div><span className="dept-progress"><i style={{ width: "100%" }}></i></span><em>{expanded.includes(department) ? "접기" : "펼치기"}</em></button>
+          {expanded.includes(department) && <div className="data-table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>사번/ID</th><th>직급</th><th>직무</th><th>고용형태</th><th>입사일</th><th>조직장</th><th>상태</th></tr></thead><tbody>{people.map((employee) => {
             const isLeader = employee.id === organization?.leaderEmployeeId;
             return <tr key={employee.id} className={isLeader ? "organization-leader-row" : ""}><td><button type="button" className="name-link" onClick={() => onSelect(employee.id)}><span>{employee.name.slice(0, 1)}</span>{employee.name}{isLeader && <em className="organization-leader-badge">조직장</em>}</button></td><td>{employee.id}</td><td>{employee.position}</td><td>{isLeader ? "조직장" : employee.jobTitle ?? "팀원"}</td><td>{employee.type}</td><td>{employee.joinDate}</td><td>{isLeader ? "" : leader?.name ?? "미지정"}</td><td><StatusPill value={employee.status} /></td></tr>;
           })}</tbody></table></div>}
@@ -754,7 +765,7 @@ function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, 
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
     <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
-      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>정규직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직책</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label></div></form>
+      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
     </div>
   </div>;
@@ -765,16 +776,16 @@ function PayrollOverview({ config, onSelectMonth }: { config: ModuleConfig; onSe
 }
 
 function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => void }) {
-  return <div className="page-wrap detail-page"><button type="button" className="back-button" onClick={onBack}>← 급여월 현황</button><section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{month} 급여 상세</h1><p>대상자별 기본급, 수당, 공제와 실지급액을 확인합니다.</p></div><div className="welcome-actions"><button type="button" className="outline-button">급여명세서 일괄 발급</button><button type="button" className="primary-button">급여 마감</button></div></section><section className="payroll-summary"><div><span>급여 대상</span><strong>128명</strong><small>변동자 12명</small></div><div><span>지급총액</span><strong>₩684,200,000</strong><small>기본급 + 수당</small></div><div><span>공제총액</span><strong>₩86,480,000</strong><small>세금 · 보험 · 기타</small></div><div><span>실지급액</span><strong>₩597,720,000</strong><small>검토 대기 8건</small></div></section><section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>표시 6명 · 전체 128명</span></div><div><button type="button">변동자만</button><button type="button">오류 2건</button></div></div><div className="data-table-wrap"><table className="data-table payroll-detail-table"><thead><tr>{["사번", "직원", "부서", "기본급", "수당", "공제", "실지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{payrollPeople.map((row, index) => <tr key={row[0]}>{row.map((cell, cellIndex) => <td key={cell}>{cell}</td>)}<td><StatusPill value={index === 2 ? "확인 필요" : "검토 완료"} /></td></tr>)}</tbody></table></div></section></div>;
+  return <div className="page-wrap detail-page"><button type="button" className="back-button" onClick={onBack}>← 급여월 현황</button><section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{month} 급여 상세</h1><p>대상자 명단은 반영되었으며 급여 금액은 별도 자료 등록이 필요합니다.</p></div><div className="welcome-actions"><button type="button" className="outline-button">급여자료 가져오기</button><button type="button" className="primary-button">검토 시작</button></div></section><section className="payroll-summary"><div><span>급여 대상</span><strong>{payrollPeople.length}명</strong><small>재직자 기준</small></div><div><span>지급총액</span><strong>미입력</strong><small>급여 자료 필요</small></div><div><span>공제총액</span><strong>미입력</strong><small>급여 자료 필요</small></div><div><span>실지급액</span><strong>미입력</strong><small>급여 자료 필요</small></div></section><section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>전체 {payrollPeople.length}명</span></div><div><button type="button">미입력만</button><button type="button">자료 가져오기</button></div></div><div className="data-table-wrap"><table className="data-table payroll-detail-table"><thead><tr>{["사번/ID", "직원", "부서", "기본급", "수당", "공제", "실지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{payrollPeople.map((row) => <tr key={row[0]}>{row.map((cell, cellIndex) => <td key={`${row[0]}-${cellIndex}`}>{cell}</td>)}<td><StatusPill value="자료 미등록" /></td></tr>)}</tbody></table></div></section></div>;
 }
 
 function RecruitmentView({ applicants, query, onAdd, onSelect, onInterview, onReject }: { applicants: Applicant[]; query: string; onAdd: () => void; onSelect: (id: string) => void; onInterview: (applicant: Applicant) => void; onReject: (id: string) => void }) {
   const visible = query ? applicants.filter((applicant) => Object.values(applicant).some((value) => value.toLowerCase().includes(query.toLowerCase()))) : applicants;
-  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">RECRUITING PIPELINE</p><h1>지원자 관리</h1><p>진행 중인 채용공고의 지원자를 확인하고 다음 단계를 처리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 지원자 등록</button></section><section className="metric-grid module-metrics">{[{ label: "진행 중 공고", value: "6건", note: "신규 2건" }, { label: "지원 현황", value: `${applicants.length}명`, note: "이번 주 +18", tone: "blue" }, { label: "면접 예정", value: `${applicants.filter((item) => item.stage.includes("면접")).length + 9}명`, note: "오늘 3명", tone: "orange" }, { label: "처우 협의", value: "3명", note: "최종 조율 중", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>지원 현황</h2><span>진행 중 공고의 전체 지원자 {visible.length}명</span></div><div><button type="button">공고 전체</button><button type="button">단계 필터</button></div></div><div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>지원 직무</th><th>지원일</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용 처리</th></tr></thead><tbody>{visible.map((applicant) => <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.experience}</td><td>{applicant.owner}</td><td><StatusPill value={applicant.stage} /></td><td><div className="row-actions"><button type="button" className="interview-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onInterview(applicant)}>면접 진행</button><button type="button" className="reject-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onReject(applicant.id)}>서류 탈락</button></div></td></tr>)}</tbody></table></div></section></div>;
+  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">RECRUITING PIPELINE</p><h1>지원자 관리</h1><p>진행 중인 채용공고의 지원자를 확인하고 다음 단계를 처리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 지원자 등록</button></section><section className="metric-grid module-metrics">{[{ label: "등록 지원자", value: `${applicants.length}명`, note: "실제 등록 기준" }, { label: "서류 검토", value: `${applicants.filter((item) => item.stage === "서류 검토").length}명`, note: "현재 단계 기준", tone: "blue" }, { label: "면접 예정", value: `${applicants.filter((item) => item.stage.includes("면접")).length}명`, note: "현재 단계 기준", tone: "orange" }, { label: "처우 협의", value: `${applicants.filter((item) => item.stage === "처우 협의").length}명`, note: "현재 단계 기준", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>지원 현황</h2><span>전체 지원자 {visible.length}명</span></div><div><button type="button">공고 전체</button><button type="button">단계 필터</button></div></div><div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>지원 직무</th><th>지원일</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용 처리</th></tr></thead><tbody>{visible.length ? visible.map((applicant) => <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.experience}</td><td>{applicant.owner}</td><td><StatusPill value={applicant.stage} /></td><td><div className="row-actions"><button type="button" className="interview-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onInterview(applicant)}>면접 진행</button><button type="button" className="reject-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onReject(applicant.id)}>서류 탈락</button></div></td></tr>) : <tr><td colSpan={7} className="empty-cell">등록된 지원자가 없습니다.</td></tr>}</tbody></table></div></section></div>;
 }
 
 function InterviewManagement({ interviews }: { interviews: InterviewRow[] }) {
-  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">INTERVIEWS</p><h1>면접관리</h1><p>지원자 관리에서 면접 진행한 후보자의 일정과 평가를 관리합니다.</p></div><button type="button" className="primary-button">+ 면접 등록</button></section><section className="metric-grid module-metrics">{[{ label: "오늘 면접", value: `${interviews.filter((item) => item.time.includes("오늘")).length}건`, note: "대면 · 화상 포함" }, { label: "전체 예정", value: `${interviews.length}건`, note: "새 일정 즉시 반영", tone: "blue" }, { label: "평가 미제출", value: "4건", note: "면접관 알림 발송", tone: "orange" }, { label: "평균 합격률", value: "31%", note: "최근 3개월", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>면접 일정</h2><span>총 {interviews.length}건</span></div><div><button type="button">오늘</button><button type="button">이번 주</button></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>일시</th><th>지원자</th><th>직무</th><th>면접 유형</th><th>면접관</th><th>상태</th></tr></thead><tbody>{interviews.map((item) => <tr key={item.id}><td>{item.time}</td><td>{item.name}</td><td>{item.role}</td><td>{item.type}</td><td>{item.interviewers}</td><td><StatusPill value={item.status} /></td></tr>)}</tbody></table></div></section></div>;
+  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">INTERVIEWS</p><h1>면접관리</h1><p>지원자 관리에서 면접 진행한 후보자의 일정과 평가를 관리합니다.</p></div><button type="button" className="primary-button">+ 면접 등록</button></section><section className="metric-grid module-metrics">{[{ label: "오늘 면접", value: `${interviews.filter((item) => item.time.includes("오늘")).length}건`, note: "실제 등록 기준" }, { label: "전체 일정", value: `${interviews.length}건`, note: "새 일정 즉시 반영", tone: "blue" }, { label: "평가 미제출", value: "0건", note: "등록 자료 없음", tone: "orange" }, { label: "합격률", value: "미입력", note: "평가 자료 필요", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>면접 일정</h2><span>총 {interviews.length}건</span></div><div><button type="button">오늘</button><button type="button">이번 주</button></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>일시</th><th>지원자</th><th>직무</th><th>면접 유형</th><th>면접관</th><th>상태</th></tr></thead><tbody>{interviews.length ? interviews.map((item) => <tr key={item.id}><td>{item.time}</td><td>{item.name}</td><td>{item.role}</td><td>{item.type}</td><td>{item.interviewers}</td><td><StatusPill value={item.status} /></td></tr>) : <tr><td colSpan={6} className="empty-cell">등록된 면접 일정이 없습니다.</td></tr>}</tbody></table></div></section></div>;
 }
 
 function ApplicantDetail({ applicant, onClose, onInterview }: { applicant: Applicant; onClose: () => void; onInterview: () => void }) {
@@ -837,20 +848,20 @@ function SettingToggle({ title, description, checked }: { title: string; descrip
   return <button type="button" className="setting-toggle" onClick={() => setEnabled((value) => !value)}><div><strong>{title}</strong><span>{description}</span></div><i className={enabled ? "on" : ""}><em></em></i></button>;
 }
 
-function Dashboard({ employeeCount, onNavigate }: { employeeCount: number; onNavigate: (id: string) => void }) {
-  const tasks = [
-    { label: "개인정보보호 교육 미이수자 확인", meta: "교육 · 오늘 16:00", owner: "박서준", tone: "red" },
-    { label: "8월 급여 변동사항 검토", meta: "급여 · 8월 14일 마감", owner: "김지수", tone: "orange" },
-    { label: "상반기 목표 중간점검 독려", meta: "성과평가 · 7명 미제출", owner: "이수민", tone: "purple" },
-    { label: "신규 입사자 계정 발급 요청", meta: "온보딩 · 8월 17일 입사", owner: "김지수", tone: "blue" },
-  ];
+function Dashboard({ employees, organizations, applicants, onNavigate }: { employees: Employee[]; organizations: Organization[]; applicants: Applicant[]; onNavigate: (id: string) => void }) {
+  const currentEmployees = employees.filter((employee) => employee.status !== "퇴직");
+  const employeeCount = currentEmployees.length;
+  const hiresThisMonth = currentEmployees.filter((employee) => employee.joinDate.startsWith("2026.08")).length;
+  const incompleteProfiles = currentEmployees.filter((employee) => [employee.email, employee.phone, employee.birth, employee.address].some((value) => !value || value === "미입력")).length;
+  const employmentTypes = Object.entries(currentEmployees.reduce<Record<string, number>>((counts, employee) => ({ ...counts, [employee.type]: (counts[employee.type] ?? 0) + 1 }), {}));
+  const tasks: { label: string; meta: string; owner: string; tone: string }[] = [];
   return (
     <div className="page-wrap dashboard-page">
       <section className="welcome-row">
         <div>
-          <p className="eyebrow">MONDAY, AUGUST 10</p>
-          <h1>좋은 아침이에요, 지수님.</h1>
-          <p>오늘 처리할 HR 업무 <strong>8건</strong>과 확인이 필요한 알림 <strong>2건</strong>이 있습니다.</p>
+          <p className="eyebrow">XDNODE PEOPLE DATA</p>
+          <h1>실제 인사 데이터가 반영되었습니다.</h1>
+          <p>재직자 <strong>{employeeCount}명</strong> 중 필수정보 확인이 필요한 인원은 <strong>{incompleteProfiles}명</strong>입니다.</p>
         </div>
         <div className="welcome-actions">
           <button type="button" className="outline-button" onClick={() => onNavigate("reports")}>월간 리포트</button>
@@ -860,28 +871,28 @@ function Dashboard({ employeeCount, onNavigate }: { employeeCount: number; onNav
 
       <section className="metric-grid">
         <button type="button" className="metric-card" onClick={() => onNavigate("employees")}>
-          <div className="metric-top"><span className="metric-icon navy">인</span><em>+3 this month</em></div>
+          <div className="metric-top"><span className="metric-icon navy">인</span><em>+{hiresThisMonth} this month</em></div>
           <p>전체 재직자</p><h2>{employeeCount}<small>명</small></h2>
-          <div className="mini-bar"><span style={{ width: "78%" }}></span></div>
-          <small>승인 정원 142명 · 충원율 90.1%</small>
+          <div className="mini-bar"><span style={{ width: "100%" }}></span></div>
+          <small>하이웍스 원본 기준 · 2026년 8월 입사 {hiresThisMonth}명</small>
         </button>
         <button type="button" className="metric-card" onClick={() => onNavigate("recruitment")}>
-          <div className="metric-top"><span className="metric-icon blue">채</span><em>6 positions</em></div>
-          <p>채용 진행</p><h2>18<small>명</small></h2>
+          <div className="metric-top"><span className="metric-icon blue">채</span><em>NO SAMPLE DATA</em></div>
+          <p>등록 지원자</p><h2>{applicants.length}<small>명</small></h2>
           <div className="stage-dots"><span></span><span></span><span></span><span></span><i></i></div>
-          <small>면접 예정 9명 · 처우 협의 3명</small>
+          <small>기존 샘플 채용 데이터 삭제 완료</small>
         </button>
         <button type="button" className="metric-card" onClick={() => onNavigate("performance")}>
-          <div className="metric-top"><span className="metric-icon purple">목</span><em>D-2</em></div>
-          <p>평가 제출률</p><h2>94<small>%</small></h2>
-          <div className="mini-bar purple"><span style={{ width: "94%" }}></span></div>
-          <small>111명 완료 · 7명 미제출</small>
+          <div className="metric-top"><span className="metric-icon purple">목</span><em>NOT REGISTERED</em></div>
+          <p>평가 데이터</p><h2>0<small>건</small></h2>
+          <div className="mini-bar purple"><span style={{ width: "0%" }}></span></div>
+          <small>실제 평가 자료 등록 필요</small>
         </button>
         <button type="button" className="metric-card" onClick={() => onNavigate("training")}>
-          <div className="metric-top"><span className="metric-icon green">교</span><em>11 pending</em></div>
-          <p>법정교육 이수율</p><h2>91<small>%</small></h2>
-          <div className="mini-bar green"><span style={{ width: "91%" }}></span></div>
-          <small>개인정보보호 교육 · 8월 13일 마감</small>
+          <div className="metric-top"><span className="metric-icon green">교</span><em>NOT REGISTERED</em></div>
+          <p>교육 데이터</p><h2>0<small>건</small></h2>
+          <div className="mini-bar green"><span style={{ width: "0%" }}></span></div>
+          <small>실제 교육 자료 등록 필요</small>
         </button>
       </section>
 
@@ -889,7 +900,7 @@ function Dashboard({ employeeCount, onNavigate }: { employeeCount: number; onNav
         <div className="panel work-panel">
           <div className="section-heading"><div><p className="eyebrow">MY WORK QUEUE</p><h2>오늘의 우선 업무</h2></div><button type="button" onClick={() => onNavigate("schedule")}>전체 업무 →</button></div>
           <div className="task-list">
-            {tasks.map((task, index) => (
+            {tasks.length === 0 ? <div className="empty-cell">등록된 HR 업무가 없습니다.</div> : tasks.map((task) => (
               <div className="task-row" key={task.label}>
                 <button type="button" className="check-button" aria-label={`${task.label} 완료 처리`}></button>
                 <span className={`task-marker ${task.tone}`}></span>
@@ -899,38 +910,35 @@ function Dashboard({ employeeCount, onNavigate }: { employeeCount: number; onNav
               </div>
             ))}
           </div>
-          <div className="queue-footer"><span><b>4</b> / 8 tasks completed</span><div><i style={{ width: "50%" }}></i></div><strong>50%</strong></div>
+          <div className="queue-footer"><span><b>0</b> / 0 tasks completed</span><div><i style={{ width: "0%" }}></i></div><strong>0%</strong></div>
         </div>
 
         <div className="panel schedule-panel">
           <div className="section-heading"><div><p className="eyebrow">UPCOMING</p><h2>다가오는 일정</h2></div><button type="button" onClick={() => onNavigate("schedule")}>캘린더 →</button></div>
           <div className="date-strip"><button>10<span>월</span></button><button className="active">11<span>화</span></button><button>12<span>수</span></button><button>13<span>목</span></button><button>14<span>금</span></button></div>
-          <div className="agenda-list">
-            <div><time>10:30</time><span className="agenda-line blue"></span><p><strong>프론트엔드 1차 면접</strong><small>화상 · 이현우 지원자</small></p><em>면접</em></div>
-            <div><time>14:00</time><span className="agenda-line purple"></span><p><strong>상반기 평가 운영 미팅</strong><small>회의실 B · HR팀</small></p><em>평가</em></div>
-            <div><time>16:30</time><span className="agenda-line green"></span><p><strong>신규 입사자 온보딩</strong><small>김민준 외 1명</small></p><em>입사</em></div>
-          </div>
+          <div className="agenda-list"><div className="empty-cell">등록된 HR 일정이 없습니다.</div></div>
         </div>
 
         <div className="panel workforce-panel">
           <div className="section-heading"><div><p className="eyebrow">HEADCOUNT</p><h2>조직별 인원 현황</h2></div><button type="button" onClick={() => onNavigate("workforce")}>정원 관리 →</button></div>
           <div className="headcount-chart">
-            {[
-              ["제품개발", "44", "50", "88%"], ["사업", "35", "38", "92%"], ["브랜드", "25", "28", "89%"], ["경영지원", "24", "26", "92%"]
-            ].map(([label, current, quota, percent]) => (
-              <div className="headcount-row" key={label}><span>{label}</span><div><i style={{ width: percent }}></i></div><strong>{current}<small> / {quota}</small></strong></div>
-            ))}
+            {organizations.map((organization) => {
+              const count = currentEmployees.filter((employee) => employee.department === organization.name).length;
+              return (
+              <div className="headcount-row" key={organization.id}><span>{organization.name}</span><div><i style={{ width: `${employeeCount ? Math.max(8, Math.round((count / employeeCount) * 100)) : 0}%` }}></i></div><strong>{count}<small>명</small></strong></div>
+              );
+            })}
           </div>
-          <div className="headcount-summary"><div><span>현재 인원</span><strong>{employeeCount}</strong></div><div><span>승인 정원</span><strong>142</strong></div><div><span>충원 필요</span><strong className="accent">6</strong></div></div>
+          <div className="headcount-summary"><div><span>현재 인원</span><strong>{employeeCount}</strong></div><div><span>운영 조직</span><strong>{organizations.length}</strong></div><div><span>소속 미지정</span><strong className="accent">{currentEmployees.filter((employee) => employee.department === "소속 미지정").length}</strong></div></div>
         </div>
 
         <div className="panel insights-panel">
           <div className="section-heading"><div><p className="eyebrow">PEOPLE INSIGHT</p><h2>이번 달 주요 변화</h2></div><button type="button" onClick={() => onNavigate("reports")}>분석 보기 →</button></div>
           <div className="donut-wrap">
-            <div className="donut"><div><strong>128</strong><span>재직자</span></div></div>
-            <ul><li><span className="legend navy"></span><p>정규직<strong>112명</strong></p></li><li><span className="legend blue"></span><p>계약직<strong>10명</strong></p></li><li><span className="legend pale"></span><p>인턴<strong>6명</strong></p></li></ul>
+            <div className="donut"><div><strong>{employeeCount}</strong><span>재직자</span></div></div>
+            <ul>{employmentTypes.map(([type, count], index) => <li key={type}><span className={`legend ${index === 0 ? "navy" : index === 1 ? "blue" : "pale"}`}></span><p>{type}<strong>{count}명</strong></p></li>)}</ul>
           </div>
-          <div className="insight-note"><span>↗</span><p><strong>전년 동기 대비 인원이 12% 증가했어요.</strong><small>제품개발본부가 전체 증가의 58%를 차지합니다.</small></p></div>
+          <div className="insight-note"><span>✓</span><p><strong>실제 재직자 데이터 {employeeCount}명을 불러왔습니다.</strong><small>증감률은 이전 기간 자료가 등록되면 계산됩니다.</small></p></div>
         </div>
       </section>
     </div>

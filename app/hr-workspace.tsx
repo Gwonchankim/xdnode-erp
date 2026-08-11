@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { companyEmployees, companyJobTitles, companyOrganizations, companyRanks } from "./hr-company-data";
 
-export default function HRWorkspace() {
+export default function HRWorkspace({ requestedView = "dashboard", navigationRequestKey = 0 }: { requestedView?: string; navigationRequestKey?: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [root, setRoot] = useState<ShadowRoot | null>(null);
 
@@ -18,7 +18,7 @@ export default function HRWorkspace() {
       {root && createPortal(
         <>
           <link rel="stylesheet" href="/hr-workspace.css" />
-          <XdnodeHrApp />
+          <XdnodeHrApp requestedView={requestedView} navigationRequestKey={navigationRequestKey} />
         </>,
         root,
       )}
@@ -460,11 +460,15 @@ function StatusPill({ value }: { value: string }) {
   return <span className={`status-pill ${kind}`}>{value}</span>;
 }
 
-function XdnodeHrApp() {
-  const [active, setActive] = useState("dashboard");
+function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: string; navigationRequestKey: number }) {
+  const [active, setActive] = useState(requestedView);
   const [employeeModalOpen, setEmployeeModalOpen] = useState(false);
   const [applicantModalOpen, setApplicantModalOpen] = useState(false);
   const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    setActive(requestedView);
+  }, [requestedView, navigationRequestKey]);
   const [query, setQuery] = useState("");
   const [employees, setEmployees] = useState(initialEmployees);
   const [organizations, setOrganizations] = useState(initialOrganizations);

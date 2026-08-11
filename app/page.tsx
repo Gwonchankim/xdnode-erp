@@ -1,9 +1,18 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import HRWorkspace from "./hr-workspace";
 
 type ModuleKey = "finance" | "sales" | "hr";
+
+type ERPAlert = {
+  id: string;
+  category: string;
+  title: string;
+  description: string;
+  time: string;
+  destination?: { module: ModuleKey; hrView?: string };
+};
 
 const modules: Array<{
   key: ModuleKey;
@@ -17,11 +26,13 @@ const modules: Array<{
 ];
 
 const erpAlerts = [
-  { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘" },
-  { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2" },
-  { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주" },
-  { id: "finance-close", category: "재무", title: "월 마감 검토", description: "미증빙 자료와 단가 오류 내역을 마감 전에 검토해 주세요.", time: "D-2" },
-];
+  { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘", destination: { module: "hr", hrView: "employees" } },
+  { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
+  { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
+  { id: "finance-close", category: "재무", title: "월 마감 검토", description: "미증빙 자료와 단가 오류 내역을 마감 전에 검토해 주세요.", time: "D-2", destination: { module: "finance" } },
+  { id: "sync-complete", category: "시스템", title: "마감 데이터 동기화 완료", description: "재무·영업 데이터가 최신 상태로 반영되었습니다.", time: "방금 전" },
+  { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
+] satisfies ERPAlert[];
 
 const accountRows = [
   { bank: "KB국민 · 운영", balance: "₩1,284,500,000", move: "+4.2%", tone: "up" },
@@ -89,8 +100,33 @@ function formatWon(value: number) {
   }).format(Math.max(0, value));
 }
 
-function ERPTopNavigation({ active, onChange }: { active: ModuleKey; onChange: (module: ModuleKey) => void }) {
+function ERPTopNavigation({ active, onChange, onOpenAlert }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>([]);
+  const visibleAlerts = erpAlerts.filter((alert) => !dismissedAlertIds.includes(alert.id));
+
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("xdnode-dismissed-alerts");
+      if (saved) setDismissedAlertIds(JSON.parse(saved) as string[]);
+    } catch {
+      setDismissedAlertIds([]);
+    }
+  }, []);
+
+  function dismissAlert(alertId: string) {
+    setDismissedAlertIds((current) => {
+      const next = current.includes(alertId) ? current : [...current, alertId];
+      window.localStorage.setItem("xdnode-dismissed-alerts", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function openAlert(alert: ERPAlert) {
+    if (!alert.destination) return;
+    onOpenAlert(alert);
+    setAlertsOpen(false);
+  }
 
   return (
     <>
@@ -129,13 +165,13 @@ function ERPTopNavigation({ active, onChange }: { active: ModuleKey; onChange: (
         <button
           type="button"
           className="erp-alarm-button"
-          aria-label={`확인할 알람 ${erpAlerts.length}건`}
+          aria-label={`확인할 알람 ${visibleAlerts.length}건`}
           aria-expanded={alertsOpen}
           onClick={() => setAlertsOpen(true)}
         >
           <span className="erp-alarm-glyph" aria-hidden="true">♢</span>
           <span>알람</span>
-          <em>{erpAlerts.length}</em>
+          <em>{visibleAlerts.length}</em>
         </button>
       </header>
 
@@ -147,14 +183,21 @@ function ERPTopNavigation({ active, onChange }: { active: ModuleKey; onChange: (
               <div><p>NOTIFICATION CENTER</p><h2>확인할 알람</h2></div>
               <button type="button" aria-label="닫기" onClick={() => setAlertsOpen(false)}>×</button>
             </div>
-            <div className="erp-alarm-summary"><strong>미확인 {erpAlerts.length}건</strong><span>업무 누락을 막기 위해 오늘 확인해 주세요.</span></div>
+            <div className="erp-alarm-summary"><strong>확인 필요 {visibleAlerts.length}건</strong><span>업무 알람은 관련 화면에서 해결하고, 단순 알람은 확인 후 끌 수 있습니다.</span></div>
             <div className="erp-alarm-list">
-              {erpAlerts.map((alert) => (
+              {visibleAlerts.map((alert) => (
                 <article key={alert.id} className="erp-alarm-item">
                   <span className="erp-alarm-unread" aria-hidden="true" />
-                  <div><p><em>{alert.category}</em><time>{alert.time}</time></p><h3>{alert.title}</h3><span>{alert.description}</span></div>
+                  <div>
+                    <p><em>{alert.category}</em><time>{alert.time}</time></p>
+                    <h3>{alert.title}</h3><span>{alert.description}</span>
+                    {alert.destination
+                      ? <button type="button" className="erp-alarm-action" onClick={() => openAlert(alert)}>관련 화면에서 확인 →</button>
+                      : <button type="button" className="erp-alarm-dismiss" onClick={() => dismissAlert(alert.id)}>확인 후 끄기</button>}
+                  </div>
                 </article>
               ))}
+              {visibleAlerts.length === 0 && <div className="erp-alarm-empty"><span>✓</span><strong>모든 알람을 확인했습니다.</strong><p>새로운 확인 사항이 생기면 이곳에 표시됩니다.</p></div>}
             </div>
           </aside>
         </>
@@ -165,6 +208,7 @@ function ERPTopNavigation({ active, onChange }: { active: ModuleKey; onChange: (
 
 export default function Home() {
   const [active, setActive] = useState<ModuleKey>("finance");
+  const [hrNavigation, setHrNavigation] = useState({ view: "dashboard", requestKey: 0 });
   const [search, setSearch] = useState("");
   const [quickOpen, setQuickOpen] = useState(false);
   const [toast, setToast] = useState("");
@@ -182,6 +226,15 @@ export default function Home() {
 
   const copy = moduleCopy[active];
 
+  function openAlert(alert: ERPAlert) {
+    if (!alert.destination) return;
+    if (alert.destination.hrView) {
+      setHrNavigation((current) => ({ view: alert.destination?.hrView ?? current.view, requestKey: current.requestKey + 1 }));
+    }
+    setActive(alert.destination.module);
+    setSearch("");
+  }
+
   function saveQuick(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setQuickOpen(false);
@@ -192,15 +245,15 @@ export default function Home() {
   if (active === "hr") {
     return (
       <div className="hr-module-shell">
-        <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} />
-        <HRWorkspace />
+        <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} />
+        <HRWorkspace requestedView={hrNavigation.view} navigationRequestKey={hrNavigation.requestKey} />
       </div>
     );
   }
 
   return (
     <div className="app-shell">
-      <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} />
+      <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} />
 
       <main className="main">
         <header className="topbar">

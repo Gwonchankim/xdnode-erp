@@ -960,3 +960,21 @@ button { color: inherit; }
   .applicant-edit-footer { align-items: stretch; flex-direction: column; }
   .applicant-edit-footer > div:last-child { flex-wrap: wrap; }
 }
+
+/* Use the full HR workspace width consistently across every tab. */
+.page-wrap {
+  width: 100%;
+  max-width: none;
+  margin-right: 0;
+  margin-left: 0;
+  padding-right: 24px;
+  padding-left: 24px;
+}
+
+@media (max-width: 1180px) {
+  .page-wrap { padding-right: 20px; padding-left: 20px; }
+}
+
+@media (max-width: 900px) {
+  .page-wrap { padding-right: 16px; padding-left: 16px; }
+}

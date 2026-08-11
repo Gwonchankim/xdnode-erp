@@ -13,3 +13,9 @@ export const employeeInterviewRecords = sqliteTable("employee_interview_records"
 }, (table) => [
   index("idx_employee_interview_records_employee_created").on(table.employeeId, table.createdAt),
 ]);
+
+export const hrOrganizationLeaders = sqliteTable("hr_organization_leaders", {
+  organizationId: text("organization_id").primaryKey(),
+  leaderEmployeeId: text("leader_employee_id"),
+  updatedAt: integer("updated_at").notNull(),
+});

@@ -402,6 +402,11 @@ type Organization = {
   description: string;
 };
 
+type PersistedOrganizationLeader = {
+  organizationId: string;
+  leaderEmployeeId: string | null;
+};
+
 const retirementChecklist = {
   hr: [
     { id: "hr-approval", label: "퇴직 승인 및 퇴직 인사발령 등록" },
@@ -461,6 +466,31 @@ function XdnodeHrApp() {
   const [retirementOpen, setRetirementOpen] = useState(false);
   const [resumeStatus, setResumeStatus] = useState<"idle" | "analyzing" | "done">("idle");
   const [applicantDraft, setApplicantDraft] = useState({ name: "", role: "", email: "", phone: "", experience: "", source: "직접 등록", summary: "" });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/hr/organization-leaders")
+      .then(async (response) => {
+        const data = await response.json() as { leaders?: PersistedOrganizationLeader[]; error?: string };
+        if (!response.ok) throw new Error(data.error || "조직장 정보를 불러오지 못했습니다.");
+        return data.leaders ?? [];
+      })
+      .then((leaders) => {
+        if (cancelled || !leaders.length) return;
+        const leaderByOrganization = new Map(leaders.map((leader) => [leader.organizationId, leader.leaderEmployeeId]));
+        const persistedLeaderIds = new Set(leaders.map((leader) => leader.leaderEmployeeId).filter((id): id is string => Boolean(id)));
+        setOrganizations((items) => items.map((organization) => leaderByOrganization.has(organization.id)
+          ? { ...organization, leaderEmployeeId: leaderByOrganization.get(organization.id) ?? null }
+          : organization));
+        setEmployees((items) => items.map((employee) => persistedLeaderIds.has(employee.id)
+          ? { ...employee, jobTitle: "조직장" }
+          : employee));
+      })
+      .catch(() => {
+        if (!cancelled) showToast("저장된 조직장 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const selectedEmployee = employees.find((employee) => employee.id === selectedEmployeeId) ?? null;
   const selectedApplicant = applicants.find((applicant) => applicant.id === selectedApplicantId) ?? null;
@@ -550,13 +580,29 @@ function XdnodeHrApp() {
     showToast(`${actionType} 인사 발령을 등록했습니다.`);
   }
 
-  function updateOrganizationLeader(organizationId: string, leaderEmployeeId: string) {
+  async function updateOrganizationLeader(organizationId: string, leaderEmployeeId: string) {
     const previousLeaderId = organizations.find((organization) => organization.id === organizationId)?.leaderEmployeeId;
-    setOrganizations((value) => value.map((organization) => organization.id === organizationId ? { ...organization, leaderEmployeeId: leaderEmployeeId || null } : organization));
+    const nextLeaderId = leaderEmployeeId || null;
+    setOrganizations((value) => value.map((organization) => organization.id === organizationId ? { ...organization, leaderEmployeeId: nextLeaderId } : organization));
     setEmployees((value) => value.map((employee) => employee.id === leaderEmployeeId
       ? { ...employee, jobTitle: "조직장" }
       : employee.id === previousLeaderId && employee.jobTitle === "조직장" ? { ...employee, jobTitle: "팀원" } : employee));
-    showToast("조직장을 변경했습니다. 인사기록카드에도 즉시 반영됩니다.");
+    try {
+      const response = await fetch("/api/hr/organization-leaders", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organizationId, leaderEmployeeId: nextLeaderId }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "조직장 정보를 저장하지 못했습니다.");
+      showToast("조직장을 저장했습니다. 이후 기능 업데이트에도 유지됩니다.");
+    } catch {
+      setOrganizations((value) => value.map((organization) => organization.id === organizationId ? { ...organization, leaderEmployeeId: previousLeaderId ?? null } : organization));
+      setEmployees((value) => value.map((employee) => employee.id === previousLeaderId
+        ? { ...employee, jobTitle: "조직장" }
+        : employee.id === leaderEmployeeId && employee.jobTitle === "조직장" ? { ...employee, jobTitle: "팀원" } : employee));
+      showToast("조직장 저장에 실패해 이전 값으로 되돌렸습니다.");
+    }
   }
 
   function addOrganization(name: string, description: string) {

@@ -391,6 +391,16 @@ type Applicant = {
   interviewMemos: RecruitmentNote[];
 };
 
+type ResumeAnalysis = {
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  experience: string;
+  summary: string;
+  warnings: string[];
+};
+
 type RecruitmentNote = {
   id: string;
   text: string;
@@ -878,21 +888,65 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       const experience = normalizedText.match(/(?:총\s*경력|경력)\s*[:：]?\s*(\d+\s*년(?:\s*\d+\s*개월)?)/)?.[1]?.replace(/\s+/g, " ") ?? "";
       const summaryLines = lines.filter((line) => line !== email && !line.includes(phone)).slice(0, 12);
       const summary = summaryLines.join(" · ").slice(0, 700);
-      const detectedCount = [labeledName ?? lineName, role, email, phone, experience].filter(Boolean).length;
-      setApplicantDraft((current) => ({
-        ...current,
-        name: labeledName ?? lineName ?? current.name,
-        role: role || current.role,
-        email: email || current.email,
-        phone: phone || current.phone,
-        experience: experience || current.experience,
-        source: "이력서 내용 추출",
+      const fallback = {
+        name: labeledName ?? lineName ?? "",
+        role,
+        email,
+        phone,
+        experience,
         summary,
-        resumeFileName: file.name,
-        resumeText: normalizedText.slice(0, 20000),
-      }));
-      setResumeStatus("done");
-      setResumeMessage(`이력서 원문에서 ${detectedCount}개 기본 항목을 찾았습니다. 찾지 못한 항목은 임의로 채우지 않았습니다.`);
+      };
+      const resumeText = normalizedText.slice(0, 30000);
+
+      setResumeMessage("텍스트 추출을 마쳤습니다. Cloudflare Qwen AI가 내용을 분석하고 있습니다.");
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 50_000);
+        let response: Response;
+        try {
+          response = await fetch("/api/hr/resume-analysis", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ fileName: file.name, resumeText }),
+            signal: controller.signal,
+          });
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+        const data = await response.json() as { analysis?: ResumeAnalysis; error?: string };
+        if (!response.ok || !data.analysis) throw new Error(data.error || "AI 분석 결과를 받지 못했습니다.");
+
+        const analysis = data.analysis;
+        const detectedCount = [analysis.name, analysis.role, analysis.email, analysis.phone, analysis.experience].filter(Boolean).length;
+        setApplicantDraft((current) => ({
+          ...current,
+          name: analysis.name || fallback.name || current.name,
+          role: analysis.role || fallback.role || current.role,
+          email: analysis.email || fallback.email || current.email,
+          phone: analysis.phone || fallback.phone || current.phone,
+          experience: analysis.experience || fallback.experience || current.experience,
+          summary: analysis.summary || fallback.summary,
+          resumeFileName: file.name,
+          resumeText,
+        }));
+        setResumeStatus("done");
+        setResumeMessage(`Qwen AI 분석을 완료했습니다. 기본 항목 ${detectedCount}개를 찾았습니다.${analysis.warnings.length ? ` 확인 필요 ${analysis.warnings.length}건이 있습니다.` : " 찾지 못한 값은 임의로 채우지 않았습니다."}`);
+      } catch (analysisError) {
+        setApplicantDraft((current) => ({
+          ...current,
+          name: fallback.name || current.name,
+          role: fallback.role || current.role,
+          email: fallback.email || current.email,
+          phone: fallback.phone || current.phone,
+          experience: fallback.experience || current.experience,
+          summary: fallback.summary,
+          resumeFileName: file.name,
+          resumeText,
+        }));
+        setResumeStatus("done");
+        const reason = analysisError instanceof Error && analysisError.name !== "AbortError" ? analysisError.message : "AI 분석 시간이 초과되었습니다.";
+        setResumeMessage(`${reason} 기본 텍스트 추출 결과를 대신 반영했습니다.`);
+      }
     } catch (error) {
       setResumeStatus("error");
       setResumeMessage(error instanceof Error ? error.message : "이력서 내용을 읽지 못했습니다.");

@@ -336,6 +336,39 @@ type Employee = {
   retirement?: RetirementRecord;
 };
 
+type EmployeeInterviewRecord = {
+  id: string;
+  employeeId: string;
+  interviewAt: string;
+  transcript: string;
+  memo: string;
+  audioFileName: string | null;
+  audioUrl: string | null;
+  createdAt: number;
+};
+
+type SpeechRecognitionResultLike = {
+  isFinal: boolean;
+  0: { transcript: string };
+};
+
+type SpeechRecognitionEventLike = {
+  resultIndex: number;
+  results: ArrayLike<SpeechRecognitionResultLike>;
+};
+
+type SpeechRecognitionLike = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
 type Applicant = {
   id: string;
   name: string;
@@ -652,7 +685,7 @@ function XdnodeHrApp() {
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
 
-      {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.doc,.docx" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "이력서를 분석하고 있어요" : resumeStatus === "done" ? "AI 정보 추출 완료" : "이력서를 올리면 AI가 자동으로 입력합니다"}</strong><small>{resumeStatus === "done" ? "추출된 내용을 확인하고 필요한 부분을 수정하세요." : "PDF, DOC, DOCX · 직접 입력도 가능합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>이력서 AI 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
+      {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.doc,.docx" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "이력서를 분석하고 있어요" : resumeStatus === "done" ? "AI 정보 추출 완료" : "이력서를 올리면 AI가 자동으로 입력합니다"}</strong><small>{resumeStatus === "done" ? "추출된 내용을 확인하고 필요한 부분을 수정하세요." : "PDF, DOC, DOCX · 직접 입력도 가능합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>사람인</option><option>그룹바이</option><option>기타 채용사이트</option><option>이력서 AI 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
 
       {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} onClose={() => setSelectedApplicantId(null)} onInterview={() => { setSelectedApplicantId(null); setInterviewTarget(selectedApplicant); }} />}
       {interviewTarget && <InterviewScheduleModal applicant={interviewTarget} onClose={() => setInterviewTarget(null)} onSubmit={scheduleInterview} />}
@@ -679,8 +712,13 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
     <div className="directory-toolbar"><div><h2>전체 현황</h2><span>총 {currentEmployees.length}명 · 부서별 접기/펼치기</span></div><div><button type="button" onClick={() => setExpanded(departments)}>모두 펼치기</button><button type="button" onClick={() => setExpanded([])}>모두 접기</button></div></div>
     <div className="department-list">
       {departments.map((department) => {
-        const people = visibleEmployees.filter((employee) => employee.department === department);
         const organization = organizations.find((item) => item.name === department);
+        const people = visibleEmployees
+          .filter((employee) => employee.department === department)
+          .sort((first, second) => {
+            const leaderOrder = Number(second.id === organization?.leaderEmployeeId) - Number(first.id === organization?.leaderEmployeeId);
+            return leaderOrder || first.joinDate.localeCompare(second.joinDate) || first.name.localeCompare(second.name, "ko");
+          });
         const leader = employees.find((employee) => employee.id === organization?.leaderEmployeeId);
         if (query && people.length === 0) return null;
         return <section className="panel department-panel" key={department}>
@@ -759,16 +797,168 @@ function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    onUpdate(employee.id, { email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle });
+    const birth = String(data.get("birth"));
+    onUpdate(employee.id, { name: String(data.get("name")).trim(), birth: birth ? birth.replaceAll("-", ".") : "미입력", email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle });
   }
   return <div className="page-wrap detail-page">
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
     <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
-      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input value={employee.name} disabled /></label><label><span>생년월일</span><input value={employee.birth} disabled /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label></div></form>
+      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input required name="name" defaultValue={employee.name} /></label><label><span>생년월일</span><input name="birth" type="date" defaultValue={employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-")} /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
     </div>
+    <EmployeeInterviewLog employee={employee} />
   </div>;
+}
+
+function EmployeeInterviewLog({ employee }: { employee: Employee }) {
+  const nowLocal = () => new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const [records, setRecords] = useState<EmployeeInterviewRecord[]>([]);
+  const [interviewAt, setInterviewAt] = useState(nowLocal);
+  const [transcript, setTranscript] = useState("");
+  const [memo, setMemo] = useState("");
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const speechRef = useRef<SpeechRecognitionLike | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const recognizedTextRef = useRef("");
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    fetch(`/api/hr/interviews?employeeId=${encodeURIComponent(employee.id)}`)
+      .then(async (response) => {
+        if (!response.ok) throw new Error("면담 기록을 불러오지 못했습니다.");
+        return response.json() as Promise<{ records: EmployeeInterviewRecord[] }>;
+      })
+      .then((data) => { if (active) setRecords(data.records); })
+      .catch((error: Error) => { if (active) setMessage(error.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [employee.id]);
+
+  useEffect(() => () => {
+    if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, [audioPreviewUrl]);
+
+  async function startRecording() {
+    setMessage("");
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setMessage("이 브라우저에서는 음성 녹음을 지원하지 않습니다. 전사문과 메모를 직접 입력해 주세요.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      chunksRef.current = [];
+      recognizedTextRef.current = transcript.trim();
+      const preferredType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+        .find((type) => MediaRecorder.isTypeSupported(type));
+      const recorder = preferredType
+        ? new MediaRecorder(stream, { mimeType: preferredType })
+        : new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+      recorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+        setAudioBlob(blob);
+        setAudioPreviewUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      const speechWindow = window as unknown as { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor };
+      const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+      if (Recognition) {
+        const recognition = new Recognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = "ko-KR";
+        recognition.onresult = (event) => {
+          let interim = "";
+          for (let index = event.resultIndex; index < event.results.length; index += 1) {
+            const result = event.results[index];
+            const text = result[0].transcript.trim();
+            if (result.isFinal) recognizedTextRef.current = `${recognizedTextRef.current} ${text}`.trim();
+            else interim = `${interim} ${text}`.trim();
+          }
+          setTranscript(`${recognizedTextRef.current} ${interim}`.trim());
+        };
+        recognition.onerror = () => setMessage("자동 전사가 중단되었습니다. 녹음은 계속되며 전사문을 직접 보완할 수 있습니다.");
+        speechRef.current = recognition;
+        recognition.start();
+      } else {
+        setMessage("이 브라우저는 자동 전사를 지원하지 않아 녹음만 진행합니다. 전사문은 직접 입력할 수 있습니다.");
+      }
+
+      recorder.start(500);
+      setRecording(true);
+    } catch {
+      setMessage("마이크 권한을 확인한 뒤 다시 녹음을 시작해 주세요.");
+    }
+  }
+
+  function stopRecording() {
+    speechRef.current?.stop();
+    speechRef.current = null;
+    if (recorderRef.current?.state !== "inactive") recorderRef.current?.stop();
+    recorderRef.current = null;
+    setRecording(false);
+  }
+
+  async function saveRecord(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!transcript.trim() && !memo.trim() && !audioBlob) {
+      setMessage("전사기록, 메모 또는 녹음 중 하나를 입력해 주세요.");
+      return;
+    }
+    setSaving(true);
+    setMessage("");
+    const form = new FormData();
+    form.append("employeeId", employee.id);
+    form.append("interviewAt", interviewAt);
+    form.append("transcript", transcript);
+    form.append("memo", memo);
+    if (audioBlob) {
+      const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
+      form.append("audio", new File([audioBlob], `interview-${employee.id}-${Date.now()}.${extension}`, { type: audioBlob.type }));
+    }
+    try {
+      const response = await fetch("/api/hr/interviews", { method: "POST", body: form });
+      const data = await response.json() as { record?: EmployeeInterviewRecord; error?: string };
+      if (!response.ok || !data.record) throw new Error(data.error || "면담 기록을 저장하지 못했습니다.");
+      setRecords((items) => [data.record as EmployeeInterviewRecord, ...items]);
+      setInterviewAt(nowLocal());
+      setTranscript("");
+      setMemo("");
+      setAudioBlob(null);
+      if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
+      setAudioPreviewUrl(null);
+      setMessage("면담 기록을 저장했습니다.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "면담 기록을 저장하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <section className="panel interview-log-card">
+    <div className="detail-card-heading"><div><p className="eyebrow">INTERVIEW LOG</p><h2>면담 기록</h2></div><span>{records.length}건</span></div>
+    <form className="interview-log-form" onSubmit={saveRecord}>
+      <div className="interview-log-top"><label><span>면담일시</span><input required type="datetime-local" value={interviewAt} onChange={(event) => setInterviewAt(event.target.value)} /></label><div className="recording-controls"><span>음성녹음</span><button type="button" className={recording ? "recording" : ""} onClick={recording ? stopRecording : startRecording}>{recording ? "■ 녹음 종료" : "● 녹음 시작"}</button>{audioPreviewUrl && <audio controls src={audioPreviewUrl}>녹음 미리듣기</audio>}</div></div>
+      <div className="interview-text-grid"><label><span>AI 전사기록</span><textarea value={transcript} onChange={(event) => { setTranscript(event.target.value); recognizedTextRef.current = event.target.value; }} placeholder="녹음을 시작하면 지원되는 브라우저에서 한국어 음성이 자동으로 전사됩니다. 직접 수정할 수도 있습니다." /></label><label><span>사용자 메모</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="면담 요약, 후속 조치, 확인할 내용을 기록하세요." /></label></div>
+      {message && <p className="interview-log-message">{message}</p>}
+      <div className="interview-log-actions"><small>녹음 파일과 기록은 이 직원의 인사기록에 안전하게 저장됩니다.</small><button type="submit" className="primary-button" disabled={saving || recording}>{saving ? "저장 중…" : "면담 기록 저장"}</button></div>
+    </form>
+    <div className="interview-record-list">{loading ? <p className="interview-empty">면담 기록을 불러오는 중입니다.</p> : records.length ? records.map((record) => <article key={record.id}><div><strong>{new Date(record.interviewAt).toLocaleString("ko-KR")}</strong><small>{record.audioFileName ? "음성녹음 포함" : "텍스트 기록"}</small></div>{record.audioUrl && <audio controls src={record.audioUrl}>면담 녹음</audio>}<section><span>AI 전사기록</span><p>{record.transcript || "전사기록 없음"}</p></section><section><span>사용자 메모</span><p>{record.memo || "메모 없음"}</p></section></article>) : <p className="interview-empty">아직 등록된 면담 기록이 없습니다.</p>}</div>
+  </section>;
 }
 
 function PayrollOverview({ config, onSelectMonth }: { config: ModuleConfig; onSelectMonth: (month: string) => void }) {
@@ -781,7 +971,7 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
 
 function RecruitmentView({ applicants, query, onAdd, onSelect, onInterview, onReject }: { applicants: Applicant[]; query: string; onAdd: () => void; onSelect: (id: string) => void; onInterview: (applicant: Applicant) => void; onReject: (id: string) => void }) {
   const visible = query ? applicants.filter((applicant) => Object.values(applicant).some((value) => value.toLowerCase().includes(query.toLowerCase()))) : applicants;
-  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">RECRUITING PIPELINE</p><h1>지원자 관리</h1><p>진행 중인 채용공고의 지원자를 확인하고 다음 단계를 처리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 지원자 등록</button></section><section className="metric-grid module-metrics">{[{ label: "등록 지원자", value: `${applicants.length}명`, note: "실제 등록 기준" }, { label: "서류 검토", value: `${applicants.filter((item) => item.stage === "서류 검토").length}명`, note: "현재 단계 기준", tone: "blue" }, { label: "면접 예정", value: `${applicants.filter((item) => item.stage.includes("면접")).length}명`, note: "현재 단계 기준", tone: "orange" }, { label: "처우 협의", value: `${applicants.filter((item) => item.stage === "처우 협의").length}명`, note: "현재 단계 기준", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>지원 현황</h2><span>전체 지원자 {visible.length}명</span></div><div><button type="button">공고 전체</button><button type="button">단계 필터</button></div></div><div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>지원 직무</th><th>지원일</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용 처리</th></tr></thead><tbody>{visible.length ? visible.map((applicant) => <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.experience}</td><td>{applicant.owner}</td><td><StatusPill value={applicant.stage} /></td><td><div className="row-actions"><button type="button" className="interview-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onInterview(applicant)}>면접 진행</button><button type="button" className="reject-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onReject(applicant.id)}>서류 탈락</button></div></td></tr>) : <tr><td colSpan={7} className="empty-cell">등록된 지원자가 없습니다.</td></tr>}</tbody></table></div></section></div>;
+  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">RECRUITING PIPELINE</p><h1>지원자 관리</h1><p>진행 중인 채용공고의 지원자를 확인하고 다음 단계를 처리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 지원자 등록</button></section><section className="metric-grid module-metrics">{[{ label: "등록 지원자", value: `${applicants.length}명`, note: "실제 등록 기준" }, { label: "서류 검토", value: `${applicants.filter((item) => item.stage === "서류 검토").length}명`, note: "현재 단계 기준", tone: "blue" }, { label: "면접 예정", value: `${applicants.filter((item) => item.stage.includes("면접")).length}명`, note: "현재 단계 기준", tone: "orange" }, { label: "처우 협의", value: `${applicants.filter((item) => item.stage === "처우 협의").length}명`, note: "현재 단계 기준", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>지원 현황</h2><span>전체 지원자 {visible.length}명</span></div><div><button type="button">공고 전체</button><button type="button">단계 필터</button></div></div><div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>지원 직무</th><th>지원일</th><th>지원경로</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용 처리</th></tr></thead><tbody>{visible.length ? visible.map((applicant) => <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.source}</td><td>{applicant.experience}</td><td>{applicant.owner}</td><td><StatusPill value={applicant.stage} /></td><td><div className="row-actions"><button type="button" className="interview-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onInterview(applicant)}>면접 진행</button><button type="button" className="reject-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onReject(applicant.id)}>서류 탈락</button></div></td></tr>) : <tr><td colSpan={8} className="empty-cell">등록된 지원자가 없습니다.</td></tr>}</tbody></table></div></section></div>;
 }
 
 function InterviewManagement({ interviews }: { interviews: InterviewRow[] }) {

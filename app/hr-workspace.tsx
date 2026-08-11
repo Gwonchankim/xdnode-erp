@@ -851,9 +851,15 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
   async function parseResume(file: File | undefined) {
     if (!file) return;
     setResumeStatus("analyzing");
-    setResumeMessage("파일에서 실제 텍스트를 읽고 있습니다.");
-    try {
-      const extension = file.name.split(".").pop()?.toLowerCase();
+    setResumeMessage("원본 이력서를 Cloudflare Qwen AI에 전달하고 있습니다.");
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
+      setResumeStatus("error");
+      setResumeMessage("PDF, DOCX, TXT 이력서만 분석할 수 있습니다.");
+      return;
+    }
+
+    async function applyBasicTextFallback(reason: string) {
       let text = "";
       if (extension === "pdf") {
         const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -873,8 +879,6 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         text = result.value;
       } else if (extension === "txt") {
         text = await file.text();
-      } else {
-        throw new Error("구형 DOC 파일은 정확히 읽을 수 없습니다. DOCX 또는 PDF로 저장한 뒤 다시 올려주세요.");
       }
 
       const normalizedText = text.replace(/\u0000/g, " ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
@@ -897,60 +901,93 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         summary,
       };
       const resumeText = normalizedText.slice(0, 30000);
-
-      setResumeMessage("텍스트 추출을 마쳤습니다. Cloudflare Qwen AI가 내용을 분석하고 있습니다.");
-      try {
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), 50_000);
-        let response: Response;
-        try {
-          response = await fetch("/api/hr/resume-analysis", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ fileName: file.name, resumeText }),
-            signal: controller.signal,
-          });
-        } finally {
-          window.clearTimeout(timeoutId);
-        }
-        const data = await response.json() as { analysis?: ResumeAnalysis; error?: string };
-        if (!response.ok || !data.analysis) throw new Error(data.error || "AI 분석 결과를 받지 못했습니다.");
-
-        const analysis = data.analysis;
-        const detectedCount = [analysis.name, analysis.role, analysis.email, analysis.phone, analysis.experience].filter(Boolean).length;
-        setApplicantDraft((current) => ({
-          ...current,
-          name: analysis.name || fallback.name || current.name,
-          role: analysis.role || fallback.role || current.role,
-          email: analysis.email || fallback.email || current.email,
-          phone: analysis.phone || fallback.phone || current.phone,
-          experience: analysis.experience || fallback.experience || current.experience,
-          summary: analysis.summary || fallback.summary,
-          resumeFileName: file.name,
-          resumeText,
-        }));
-        setResumeStatus("done");
-        setResumeMessage(`Qwen AI 분석을 완료했습니다. 기본 항목 ${detectedCount}개를 찾았습니다.${analysis.warnings.length ? ` 확인 필요 ${analysis.warnings.length}건이 있습니다.` : " 찾지 못한 값은 임의로 채우지 않았습니다."}`);
-      } catch (analysisError) {
-        setApplicantDraft((current) => ({
-          ...current,
-          name: fallback.name || current.name,
-          role: fallback.role || current.role,
-          email: fallback.email || current.email,
-          phone: fallback.phone || current.phone,
-          experience: fallback.experience || current.experience,
-          summary: fallback.summary,
-          resumeFileName: file.name,
-          resumeText,
-        }));
-        setResumeStatus("done");
-        const reason = analysisError instanceof Error && analysisError.name !== "AbortError" ? analysisError.message : "AI 분석 시간이 초과되었습니다.";
-        setResumeMessage(`${reason} 기본 텍스트 추출 결과를 대신 반영했습니다.`);
-      }
-    } catch (error) {
-      setResumeStatus("error");
-      setResumeMessage(error instanceof Error ? error.message : "이력서 내용을 읽지 못했습니다.");
+      const detectedCount = [fallback.name, fallback.role, fallback.email, fallback.phone, fallback.experience].filter(Boolean).length;
+      setApplicantDraft((current) => ({
+        ...current,
+        name: fallback.name || current.name,
+        role: fallback.role || current.role,
+        email: fallback.email || current.email,
+        phone: fallback.phone || current.phone,
+        experience: fallback.experience || current.experience,
+        summary: fallback.summary,
+        resumeFileName: file.name,
+        resumeText,
+      }));
+      setResumeStatus("done");
+      setResumeMessage(`${reason} 기본 항목 ${detectedCount}개를 찾았습니다.`);
     }
+
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 120_000);
+    let response: Response;
+    try {
+      try {
+        response = await fetch("/api/hr/resume-analysis", {
+          method: "POST",
+          body: formData,
+          signal: controller.signal,
+        });
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    } catch (requestError) {
+      const reason = requestError instanceof Error && requestError.name !== "AbortError"
+        ? requestError.message
+        : "AI 분석 시간이 초과되었습니다.";
+      try {
+        await applyBasicTextFallback(`${reason} 기본 텍스트 추출로 전환했습니다.`);
+      } catch (fallbackError) {
+        setResumeStatus("error");
+        setResumeMessage(fallbackError instanceof Error ? fallbackError.message : "이력서 내용을 읽지 못했습니다.");
+      }
+      return;
+    }
+
+    let data: { analysis?: ResumeAnalysis; error?: string; quotaExceeded?: boolean; resumeText?: string };
+    try {
+      data = await response.json() as { analysis?: ResumeAnalysis; error?: string; quotaExceeded?: boolean; resumeText?: string };
+    } catch {
+      data = { error: "AI 분석 응답을 읽지 못했습니다." };
+    }
+
+    if (response.status === 429 && data.quotaExceeded) {
+      window.alert("한도 부족으로 기본 텍스트만 추출됩니다.");
+      try {
+        await applyBasicTextFallback("한도 부족으로 기본 텍스트만 추출했습니다.");
+      } catch (fallbackError) {
+        setResumeStatus("error");
+        setResumeMessage(fallbackError instanceof Error ? fallbackError.message : "기본 텍스트를 추출하지 못했습니다.");
+      }
+      return;
+    }
+
+    if (!response.ok || !data.analysis) {
+      try {
+        await applyBasicTextFallback(`${data.error || "AI 분석에 실패했습니다."} 기본 텍스트 추출로 전환했습니다.`);
+      } catch (fallbackError) {
+        setResumeStatus("error");
+        setResumeMessage(fallbackError instanceof Error ? fallbackError.message : "이력서 내용을 읽지 못했습니다.");
+      }
+      return;
+    }
+
+    const analysis = data.analysis;
+    const detectedCount = [analysis.name, analysis.role, analysis.email, analysis.phone, analysis.experience].filter(Boolean).length;
+    setApplicantDraft((current) => ({
+      ...current,
+      name: analysis.name || current.name,
+      role: analysis.role || current.role,
+      email: analysis.email || current.email,
+      phone: analysis.phone || current.phone,
+      experience: analysis.experience || current.experience,
+      summary: analysis.summary || current.summary,
+      resumeFileName: file.name,
+      resumeText: data.resumeText || "",
+    }));
+    setResumeStatus("done");
+    setResumeMessage(`원본 이력서 Qwen AI 분석을 완료했습니다. 기본 항목 ${detectedCount}개를 찾았습니다.${analysis.warnings.length ? ` 확인 필요 ${analysis.warnings.length}건이 있습니다.` : " 찾지 못한 값은 임의로 채우지 않았습니다."}`);
   }
 
   async function saveApplicant(event: React.FormEvent<HTMLFormElement>) {
@@ -1104,7 +1141,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
 
-      {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.docx,.txt" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "이력서를 분석하고 있어요" : resumeStatus === "done" ? "실제 이력서 내용 추출 완료" : resumeStatus === "error" ? "이력서 분석 실패" : "이력서를 올리면 실제 내용을 분석합니다"}</strong><small>{resumeMessage || "PDF, DOCX, TXT · 찾지 못한 값은 임의로 입력하지 않습니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" || resumeStatus === "error" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
+      {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.docx,.txt" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "원본 이력서를 Qwen AI가 분석하고 있어요" : resumeStatus === "done" ? "이력서 분석 완료" : resumeStatus === "error" ? "이력서 분석 실패" : "원본 이력서를 Qwen AI가 바로 분석합니다"}</strong><small>{resumeMessage || "PDF, DOCX, TXT · 한도 초과 시에만 기본 텍스트 추출로 전환합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" || resumeStatus === "error" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
 
       {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} recruiters={recruiters} onClose={() => setSelectedApplicantId(null)} onSave={updateApplicantDetail} onInterview={() => { setSelectedApplicantId(null); setScreeningApplicantId(selectedApplicant.id); }} />}
       {directInterviewPickerOpen && <DirectInterviewPicker applicants={applicants} onClose={() => setDirectInterviewPickerOpen(false)} onSelect={(applicant) => { setDirectInterviewPickerOpen(false); setInterviewTarget(applicant); }} />}

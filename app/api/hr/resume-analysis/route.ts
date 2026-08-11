@@ -19,13 +19,17 @@ type ResumeAnalysis = {
   warnings: string[];
 };
 
-type CloudflareResponse = {
+type CloudflareEnvelope = {
   success?: boolean;
   errors?: Array<{ message?: string }>;
-  result?: {
-    response?: unknown;
-    choices?: Array<{ message?: { content?: unknown } }>;
-  };
+  result?: unknown;
+};
+
+type MarkdownConversion = {
+  name?: string;
+  format?: string;
+  data?: string;
+  error?: string;
 };
 
 function stringValue(value: unknown, maxLength = 1000): string {
@@ -38,6 +42,29 @@ function stringArray(value: unknown, maxItems = 20): string[] {
     .map((item) => stringValue(item, 500))
     .filter(Boolean)
     .slice(0, maxItems);
+}
+
+function providerMessage(data: CloudflareEnvelope): string {
+  return data.errors?.map((item) => item.message).filter(Boolean).join(" ") ?? "";
+}
+
+function quotaExceeded(response: Response, data: CloudflareEnvelope): boolean {
+  return response.status === 429 || /quota|limit|neuron|exceeded/i.test(providerMessage(data));
+}
+
+function quotaResponse() {
+  return Response.json(
+    { error: "오늘의 Workers AI 무료 사용 한도를 초과했습니다.", quotaExceeded: true },
+    { status: 429 },
+  );
+}
+
+async function responseJson(response: Response): Promise<CloudflareEnvelope | null> {
+  try {
+    return await response.json() as CloudflareEnvelope;
+  } catch {
+    return null;
+  }
 }
 
 function parseModelContent(value: unknown): Record<string, unknown> {
@@ -83,17 +110,84 @@ export async function POST(request: Request) {
     return Response.json({ error: "Workers AI 환경설정이 완료되지 않았습니다." }, { status: 503 });
   }
 
-  let body: { fileName?: unknown; resumeText?: unknown };
-  try {
-    body = await request.json() as { fileName?: unknown; resumeText?: unknown };
-  } catch {
-    return Response.json({ error: "요청 내용을 읽을 수 없습니다." }, { status: 400 });
+  let fileName = "";
+  let resumeText = "";
+  const contentType = request.headers.get("content-type") ?? "";
+
+  if (contentType.includes("multipart/form-data")) {
+    let file: File;
+    try {
+      const formData = await request.formData();
+      const uploaded = formData.get("file");
+      if (!(uploaded instanceof File)) {
+        return Response.json({ error: "분석할 이력서 파일이 없습니다." }, { status: 400 });
+      }
+      file = uploaded;
+    } catch {
+      return Response.json({ error: "이력서 파일을 읽을 수 없습니다." }, { status: 400 });
+    }
+
+    fileName = stringValue(file.name, 240);
+    const extension = fileName.split(".").pop()?.toLowerCase();
+    if (!extension || !["pdf", "docx", "txt"].includes(extension)) {
+      return Response.json({ error: "PDF, DOCX, TXT 이력서만 분석할 수 있습니다." }, { status: 415 });
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      return Response.json({ error: "이력서 파일은 20MB 이하만 분석할 수 있습니다." }, { status: 413 });
+    }
+
+    if (extension === "txt") {
+      resumeText = stringValue(await file.text(), 60_000);
+    } else {
+      const conversionBody = new FormData();
+      conversionBody.append("files", file, fileName);
+
+      let conversionResponse: Response;
+      try {
+        conversionResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/tomarkdown`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${apiToken}` },
+            body: conversionBody,
+            signal: AbortSignal.timeout(60_000),
+          },
+        );
+      } catch (error) {
+        const message = error instanceof Error && error.name === "TimeoutError"
+          ? "원본 이력서 변환 시간이 초과되었습니다."
+          : "원본 이력서를 Cloudflare에서 읽지 못했습니다.";
+        return Response.json({ error: message }, { status: 502 });
+      }
+
+      const conversionData = await responseJson(conversionResponse);
+      if (!conversionData) {
+        return Response.json({ error: "문서 변환 응답을 읽을 수 없습니다." }, { status: 502 });
+      }
+      if (quotaExceeded(conversionResponse, conversionData)) return quotaResponse();
+      if (!conversionResponse.ok || conversionData.success === false || !Array.isArray(conversionData.result)) {
+        return Response.json({ error: "Cloudflare 원본 문서 변환에 실패했습니다." }, { status: 502 });
+      }
+
+      const converted = conversionData.result[0] as MarkdownConversion | undefined;
+      if (!converted || converted.format === "error" || typeof converted.data !== "string") {
+        return Response.json({ error: converted?.error || "이력서에서 읽을 수 있는 내용을 찾지 못했습니다." }, { status: 422 });
+      }
+      resumeText = stringValue(converted.data, 60_000);
+    }
+  } else {
+    let body: { fileName?: unknown; resumeText?: unknown };
+    try {
+      body = await request.json() as { fileName?: unknown; resumeText?: unknown };
+    } catch {
+      return Response.json({ error: "요청 내용을 읽을 수 없습니다." }, { status: 400 });
+    }
+    fileName = stringValue(body.fileName, 240);
+    resumeText = stringValue(body.resumeText, 60_000);
   }
 
-  const fileName = stringValue(body.fileName, 240);
-  const resumeText = stringValue(body.resumeText, 30000);
   if (resumeText.length < 20) {
-    return Response.json({ error: "분석할 이력서 텍스트가 부족합니다." }, { status: 400 });
+    return Response.json({ error: "분석할 이력서 내용이 부족합니다." }, { status: 422 });
   }
 
   const systemPrompt = [
@@ -109,18 +203,6 @@ export async function POST(request: Request) {
     "name, email, phone, role, experience, summary는 문자열이며 education, careerHistory, skills, warnings는 문자열 배열입니다.",
   ].join("\n");
 
-  const payload = {
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `파일명: ${fileName || "미상"}\n\n<resume>\n${resumeText}\n</resume>`,
-      },
-    ],
-    temperature: 0.1,
-    max_tokens: 1200,
-  };
-
   let cloudflareResponse: Response;
   try {
     cloudflareResponse = await fetch(
@@ -131,7 +213,14 @@ export async function POST(request: Request) {
           Authorization: `Bearer ${apiToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `파일명: ${fileName || "미상"}\n\n<resume>\n${resumeText}\n</resume>` },
+          ],
+          temperature: 0.1,
+          max_tokens: 1200,
+        }),
         signal: AbortSignal.timeout(45_000),
       },
     );
@@ -142,26 +231,23 @@ export async function POST(request: Request) {
     return Response.json({ error: message }, { status: 502 });
   }
 
-  let cloudflareData: CloudflareResponse;
-  try {
-    cloudflareData = await cloudflareResponse.json() as CloudflareResponse;
-  } catch {
+  const cloudflareData = await responseJson(cloudflareResponse);
+  if (!cloudflareData) {
     return Response.json({ error: "Workers AI 응답을 읽을 수 없습니다." }, { status: 502 });
   }
-
+  if (quotaExceeded(cloudflareResponse, cloudflareData)) return quotaResponse();
   if (!cloudflareResponse.ok || cloudflareData.success === false) {
-    const providerMessage = cloudflareData.errors?.map((item) => item.message).filter(Boolean).join(" ");
-    const quotaExceeded = cloudflareResponse.status === 429 || /quota|limit|neuron/i.test(providerMessage ?? "");
-    return Response.json(
-      { error: quotaExceeded ? "오늘의 Workers AI 무료 사용 한도를 초과했습니다." : "Workers AI 분석 요청에 실패했습니다." },
-      { status: quotaExceeded ? 429 : 502 },
-    );
+    return Response.json({ error: "Workers AI 분석 요청에 실패했습니다." }, { status: 502 });
   }
 
   try {
-    const modelContent = cloudflareData.result?.response
-      ?? cloudflareData.result?.choices?.[0]?.message?.content;
-    return Response.json({ analysis: normalizeAnalysis(modelContent), model });
+    const result = cloudflareData.result as { response?: unknown; choices?: Array<{ message?: { content?: unknown } }> } | undefined;
+    const modelContent = result?.response ?? result?.choices?.[0]?.message?.content;
+    return Response.json({
+      analysis: normalizeAnalysis(modelContent),
+      model,
+      resumeText: resumeText.slice(0, 30_000),
+    });
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "AI 분석 결과를 확인할 수 없습니다." },

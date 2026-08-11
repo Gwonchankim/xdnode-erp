@@ -1015,6 +1015,13 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     showToast("서류 탈락 처리했습니다.");
   }
 
+  function updateApplicantDetail(updated: Applicant) {
+    setApplicants((items) => items.map((applicant) => applicant.id === updated.id ? updated : applicant));
+    persistApplicantRecord(updated)
+      .then(() => showToast("지원자 정보와 특이사항을 저장했습니다."))
+      .catch((error: Error) => showToast(error.message));
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -1045,7 +1052,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
 
       {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.docx,.txt" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "이력서를 분석하고 있어요" : resumeStatus === "done" ? "실제 이력서 내용 추출 완료" : resumeStatus === "error" ? "이력서 분석 실패" : "이력서를 올리면 실제 내용을 분석합니다"}</strong><small>{resumeMessage || "PDF, DOCX, TXT · 찾지 못한 값은 임의로 입력하지 않습니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" || resumeStatus === "error" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
 
-      {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} onClose={() => setSelectedApplicantId(null)} onInterview={() => { setSelectedApplicantId(null); setScreeningApplicantId(selectedApplicant.id); }} />}
+      {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} recruiters={recruiters} onClose={() => setSelectedApplicantId(null)} onSave={updateApplicantDetail} onInterview={() => { setSelectedApplicantId(null); setScreeningApplicantId(selectedApplicant.id); }} />}
       {directInterviewPickerOpen && <DirectInterviewPicker applicants={applicants} onClose={() => setDirectInterviewPickerOpen(false)} onSelect={(applicant) => { setDirectInterviewPickerOpen(false); setInterviewTarget(applicant); }} />}
       {interviewTarget && <InterviewScheduleModal applicant={interviewTarget} onClose={() => setInterviewTarget(null)} onSubmit={scheduleInterview} />}
       {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} ranks={ranks} organizations={organizations} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
@@ -1386,7 +1393,7 @@ function previousApplicationsFor(applicant: Applicant, applicants: Applicant[]) 
 
 function RecruitmentView({ applicants, recruiters, query, onAdd, onSelect, onOwnerChange, onScreening, onReject }: { applicants: Applicant[]; recruiters: Employee[]; query: string; onAdd: () => void; onSelect: (id: string) => void; onOwnerChange: (applicantId: string, ownerId: string) => void; onScreening: (id: string) => void; onReject: (id: string) => void }) {
   const visible = query ? applicants.filter((applicant) => JSON.stringify(applicant).toLowerCase().includes(query.toLowerCase())) : applicants;
-  return <div className="page-wrap module-page">
+  return <div className="page-wrap module-page recruitment-page">
     <section className="module-hero"><div><p className="eyebrow">RECRUITING PIPELINE</p><h1>지원자 관리</h1><p>지원자별 담당자와 서류 합격·면접 회신 과정을 한 흐름으로 관리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 지원자 등록</button></section>
     <section className="metric-grid module-metrics">{[
       { label: "등록 지원자", value: `${applicants.length}명`, note: "실제 등록 기준" },
@@ -1463,8 +1470,69 @@ function InterviewCandidateView({ applicant, applicants, onBack, onSaveMemo }: {
   return <div className="page-wrap detail-page interview-candidate-page"><button type="button" className="back-button" onClick={onBack}>← 면접 일정</button><section className="profile-hero panel"><div className="profile-avatar">{applicant.name.slice(0, 1)}</div><div className="profile-copy"><p>INTERVIEW CANDIDATE</p><h1>{applicant.name}</h1><div><span>{applicant.role}</span><b>·</b><span>{applicant.experience || "경력 미입력"}</span></div></div><StatusPill value={applicant.stage} /></section><div className="interview-candidate-grid"><section className="panel candidate-resume"><div className="detail-card-heading"><div><p className="eyebrow">RESUME</p><h2>면접 기본 정보와 이력서</h2></div><span>{applicant.resumeFileName || "직접 등록"}</span></div><div className="applicant-facts"><div><span>이메일</span><strong>{applicant.email}</strong></div><div><span>연락처</span><strong>{applicant.phone || "미입력"}</strong></div><div><span>지원 경로</span><strong>{applicant.source}</strong></div><div><span>채용담당자</span><strong>{applicant.owner || "미지정"}</strong></div></div><article className="resume-text-view"><strong>이력서 추출 내용</strong><p>{applicant.resumeText || applicant.summary || "등록된 이력서 내용이 없습니다."}</p></article>{previous.length > 0 && <div className="interview-previous"><strong>과거 지원 기록</strong>{previous.map((record) => <p key={record.id}>{record.applied} · {record.role} · {record.stage}</p>)}</div>}</section><section className="panel interview-memo-panel"><div className="detail-card-heading"><div><p className="eyebrow">INTERVIEW NOTES</p><h2>면접 메모</h2></div></div><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="면접 답변, 평가 포인트, 후속 확인사항을 기록하세요." /><button type="button" className="primary-button" disabled={!memo.trim()} onClick={() => { onSaveMemo(applicant.id, memo); setMemo(""); }}>면접 메모 저장</button><div>{(applicant.interviewMemos ?? []).map((note) => <article key={note.id}><p>{note.text}</p><span>{note.author} · {new Date(note.createdAt).toLocaleString("ko-KR")}</span></article>)}</div></section></div></div>;
 }
 
-function ApplicantDetail({ applicant, onClose, onInterview }: { applicant: Applicant; onClose: () => void; onInterview: () => void }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><div className="applicant-detail-modal" onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>APPLICANT PROFILE</p><h2>지원자 상세</h2></div><button type="button" onClick={onClose}>×</button></div><div className="applicant-profile"><div className="profile-avatar">{applicant.name.slice(0, 1)}</div><div><h2>{applicant.name}</h2><p>{applicant.role} · {applicant.experience || "경력 미입력"}</p></div><StatusPill value={applicant.stage} /></div><div className="applicant-facts"><div><span>이메일</span><strong>{applicant.email}</strong></div><div><span>연락처</span><strong>{applicant.phone || "미입력"}</strong></div><div><span>지원일</span><strong>{applicant.applied}</strong></div><div><span>지원 경로</span><strong>{applicant.source}</strong></div><div><span>담당자</span><strong>{applicant.owner || "미지정"}</strong></div><div><span>지원자 ID</span><strong>{applicant.id}</strong></div></div><div className="resume-summary"><span>이력서 추출 요약</span><p>{applicant.summary || "등록된 요약이 없습니다."}</p></div><div className="modal-actions"><button type="button" onClick={onClose}>닫기</button><button type="button" className="primary-button" onClick={onInterview}>서류 합격</button></div></div></div>;
+function ApplicantDetail({ applicant, recruiters, onClose, onSave, onInterview }: { applicant: Applicant; recruiters: Employee[]; onClose: () => void; onSave: (applicant: Applicant) => void; onInterview: () => void }) {
+  const [draft, setDraft] = useState({
+    name: applicant.name,
+    role: applicant.role,
+    email: applicant.email,
+    phone: applicant.phone,
+    experience: applicant.experience,
+    source: applicant.source,
+    summary: applicant.summary,
+    ownerId: applicant.ownerId,
+  });
+  const [note, setNote] = useState("");
+  const ownerName = recruiters.find((recruiter) => recruiter.id === draft.ownerId)?.name ?? "담당자 미지정";
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const newNote: RecruitmentNote | null = note.trim() ? {
+      id: `AN-${Date.now()}`,
+      text: note.trim(),
+      author: ownerName,
+      createdAt: new Date().toISOString(),
+    } : null;
+    onSave({
+      ...applicant,
+      ...draft,
+      name: draft.name.trim(),
+      role: draft.role.trim(),
+      email: draft.email.trim(),
+      phone: draft.phone.trim(),
+      owner: ownerName,
+      screeningMemos: newNote ? [newNote, ...(applicant.screeningMemos ?? [])] : applicant.screeningMemos ?? [],
+    });
+    setNote("");
+  }
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+    <form className="applicant-detail-modal applicant-edit-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
+      <div className="modal-header"><div><p>APPLICANT PROFILE</p><h2>지원자 정보 수정</h2></div><button type="button" onClick={onClose}>×</button></div>
+      <div className="applicant-profile"><div className="profile-avatar">{draft.name.slice(0, 1) || "지"}</div><div><h2>{draft.name || "지원자"}</h2><p>{draft.role || "지원 직무 미입력"} · {draft.experience || "경력 미입력"}</p></div><StatusPill value={applicant.stage} /></div>
+      <div className="applicant-edit-layout">
+        <section className="applicant-edit-fields">
+          <div className="detail-card-heading"><div><p className="eyebrow">APPLICANT INFORMATION</p><h3>지원 정보</h3></div></div>
+          <div className="form-grid">
+            <label><span>이름 *</span><input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+            <label><span>지원 직무 *</span><input required value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value })} /></label>
+            <label><span>이메일 *</span><input required type="email" value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} /></label>
+            <label><span>연락처</span><input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
+            <label><span>경력</span><input value={draft.experience} onChange={(event) => setDraft({ ...draft, experience: event.target.value })} /></label>
+            <label><span>채용담당자</span><select value={draft.ownerId} onChange={(event) => setDraft({ ...draft, ownerId: event.target.value })}><option value="">미지정</option>{recruiters.map((recruiter) => <option value={recruiter.id} key={recruiter.id}>{recruiter.name}</option>)}</select></label>
+            <label className="wide"><span>지원 경로</span><select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label>
+          </div>
+          <label className="form-note"><span>경력 및 이력서 요약</span><textarea value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} /></label>
+        </section>
+        <section className="applicant-special-notes">
+          <div className="detail-card-heading"><div><p className="eyebrow">SPECIAL NOTES</p><h3>특이사항 기록</h3></div><span>{(applicant.screeningMemos ?? []).length}건</span></div>
+          <textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="지원자 확인사항, 연락 내용, 추후 확인할 내용을 기록하세요." />
+          <small>저장 시 {ownerName} 및 현재 작성일시가 자동 기록됩니다.</small>
+          <div className="applicant-note-history">{(applicant.screeningMemos ?? []).length ? (applicant.screeningMemos ?? []).map((item) => <article key={item.id}><p>{item.text}</p><span>{item.author} · {new Date(item.createdAt).toLocaleString("ko-KR")}</span></article>) : <p className="empty-note">등록된 특이사항이 없습니다.</p>}</div>
+        </section>
+      </div>
+      <div className="applicant-edit-footer"><div><span>지원일 {applicant.applied}</span><span>지원자 ID {applicant.id}</span></div><div><button type="button" onClick={onClose}>닫기</button><button type="button" className="outline-button" onClick={onInterview}>서류 합격 처리</button><button type="submit" className="primary-button">변경내용 저장</button></div></div>
+    </form>
+  </div>;
 }
 
 function DirectInterviewPicker({ applicants, onClose, onSelect }: { applicants: Applicant[]; onClose: () => void; onSelect: (applicant: Applicant) => void }) {

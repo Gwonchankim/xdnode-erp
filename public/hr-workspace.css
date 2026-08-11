@@ -902,3 +902,46 @@ button { color: inherit; }
   .recruiter-list article { grid-template-columns: auto 1fr; }.recruiter-list article em, .recruiter-list article button { grid-column: 2; justify-self: start; }
   .screening-save-bar { align-items: stretch; flex-direction: column; }.screening-save-bar button { width: 100%; }
 }
+
+/* Wide recruiting canvas and editable applicant popup */
+.recruitment-page { width: 100%; max-width: none; padding-right: 24px; padding-left: 24px; }
+.recruitment-page .applicant-table { min-width: 1180px; table-layout: auto; }
+.recruitment-page .applicant-table th,
+.recruitment-page .applicant-table td { padding-right: 14px; padding-left: 14px; white-space: nowrap; }
+.recruitment-page .applicant-table th:nth-child(2),
+.recruitment-page .applicant-table td:nth-child(2) { min-width: 230px; }
+.recruitment-page .applicant-table th:nth-child(6),
+.recruitment-page .applicant-table td:nth-child(6) { min-width: 130px; }
+.recruitment-page .applicant-table th:last-child,
+.recruitment-page .applicant-table td:last-child { min-width: 160px; }
+.recruitment-page .name-link { white-space: nowrap; }
+.applicant-edit-modal { width: min(1000px, calc(100vw - 36px)); max-height: 92vh; overflow-y: auto; }
+.applicant-edit-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .8fr); gap: 0; }
+.applicant-edit-fields, .applicant-special-notes { min-width: 0; padding: 24px; }
+.applicant-edit-fields { border-right: 1px solid #e4e4e7; }
+.applicant-edit-fields .detail-card-heading,
+.applicant-special-notes .detail-card-heading { margin-bottom: 18px; }
+.applicant-edit-fields .detail-card-heading h3,
+.applicant-special-notes .detail-card-heading h3 { margin: 4px 0 0; font-size: 18px; }
+.applicant-edit-fields .form-note { display: grid; gap: 8px; margin-top: 14px; }
+.applicant-edit-fields .form-note span { color: #52525b; font-size: 10px; font-weight: 800; }
+.applicant-edit-fields .form-note textarea,
+.applicant-special-notes > textarea { width: 100%; min-height: 120px; padding: 14px; resize: vertical; border: 1px solid #d4d4d8; border-radius: 14px; background: #fff; font: inherit; font-size: 11px; line-height: 1.6; }
+.applicant-special-notes > small { display: block; margin: 8px 0 16px; color: #71717a; font-size: 9.5px; line-height: 1.5; }
+.applicant-note-history { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; }
+.applicant-note-history article { padding: 12px; border: 1px solid #e4e4e7; border-radius: 13px; background: #fafafa; }
+.applicant-note-history article p { margin: 0 0 8px; color: #3f3f46; font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; }
+.applicant-note-history article span { color: #71717a; font-size: 9px; }
+.applicant-note-history .empty-note { margin: 0; padding: 28px 12px; color: #a1a1aa; text-align: center; font-size: 10px; }
+.applicant-edit-footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 24px; border-top: 1px solid #e4e4e7; background: #fafafa; }
+.applicant-edit-footer > div { display: flex; align-items: center; gap: 8px; }
+.applicant-edit-footer > div:first-child span { color: #71717a; font-size: 9.5px; }
+.applicant-edit-footer button { min-height: 42px; padding: 0 14px; border-radius: 13px; font: inherit; font-size: 10px; font-weight: 800; cursor: pointer; }
+.applicant-edit-footer button:not(.primary-button):not(.outline-button) { color: #52525b; border: 1px solid #d4d4d8; background: #fff; }
+@media (max-width: 900px) {
+  .recruitment-page { padding-right: 16px; padding-left: 16px; }
+  .applicant-edit-layout { grid-template-columns: 1fr; }
+  .applicant-edit-fields { border-right: 0; border-bottom: 1px solid #e4e4e7; }
+  .applicant-edit-footer { align-items: stretch; flex-direction: column; }
+  .applicant-edit-footer > div:last-child { flex-wrap: wrap; }
+}

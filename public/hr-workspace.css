@@ -764,45 +764,47 @@ button { color: inherit; }
 .interview-record-list section { min-width: 0; }.interview-record-list section span { color: #8a92a2; font-size: 9.5px; font-weight: 700; }.interview-record-list section p { margin: 6px 0 0; color: #4d576a; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .interview-empty { margin: 0; padding: 34px 16px; text-align: center; color: #929aaa; font-size: 11px; }
 
-/* Much larger system curvature */
-.sidebar { border-radius: 52px; }
-.brand-mark { border-radius: 24px; }
-.nav-item, .settings-button { border-radius: 26px; }
-.nav-icon { border-radius: 18px; }
-.eyebrow { border-radius: 22px; }
-.primary-button, .outline-button, .icon-button { border-radius: 24px; }
-.panel, .department-panel { border-radius: 52px; }
-.metric-card, .compact-metric { border-radius: 46px; }
-.metric-icon { border-radius: 22px; }
-.section-heading button, .table-toolbar button, .table-footer button, .directory-toolbar button, .date-strip button { border-radius: 24px; }
-.organization-leader-badge, .status-pill { border-radius: 22px; }
-.profile-hero { border-radius: 58px; }
-.profile-avatar { border-radius: 30px; }
-.profile-actions button { border-radius: 24px; }
-.detail-form input, .detail-form select, .settings-form input, .form-grid input, .form-grid select, .form-note textarea, .organization-card select, .organization-add-form input, .catalog-panel form input, .organization-edit-form input, .organization-edit-form textarea { border-radius: 24px; }
-.organization-card { border-radius: 48px; }
-.organization-card-heading > span, .organization-card-heading em, .organization-edit-button { border-radius: 22px; }
-.organization-member { border-radius: 30px; }
-.organization-edit-actions button, .catalog-panel form button { border-radius: 24px; }
-.catalog-list > div { border-radius: 26px; }
-.catalog-list span { border-radius: 20px; }
-.employee-modal, .applicant-detail-modal { border-radius: 60px; }
-.resume-drop { border-radius: 36px; }
-.resume-icon { border-radius: 22px; }
-.toast { border-radius: 26px; }
+/* Reference curvature: softly rounded rectangles, never capsule-like cards */
+.sidebar { border-radius: 24px; }
+.brand-mark { border-radius: 14px; }
+.nav-item, .settings-button { border-radius: 14px; }
+.nav-icon { border-radius: 10px; }
+.eyebrow { border-radius: 12px; }
+.primary-button, .outline-button, .icon-button { border-radius: 14px; }
+.panel, .department-panel { border-radius: 24px; }
+.metric-card, .compact-metric { border-radius: 22px; }
+.metric-icon { border-radius: 12px; }
+.section-heading button, .table-toolbar button, .table-footer button, .directory-toolbar button, .date-strip button { border-radius: 14px; }
+.organization-leader-badge, .status-pill { border-radius: 12px; }
+.profile-hero { border-radius: 26px; }
+.profile-avatar { border-radius: 16px; }
+.profile-actions button { border-radius: 14px; }
+.detail-form input, .detail-form select, .settings-form input, .form-grid input, .form-grid select, .form-note textarea, .organization-card select, .organization-add-form input, .catalog-panel form input, .organization-edit-form input, .organization-edit-form textarea { border-radius: 14px; }
+.organization-card { border-radius: 24px; }
+.organization-card-heading > span, .organization-card-heading em, .organization-edit-button { border-radius: 12px; }
+.organization-member { border-radius: 16px; }
+.organization-edit-actions button, .catalog-panel form button { border-radius: 14px; }
+.catalog-list > div { border-radius: 16px; }
+.catalog-list span { border-radius: 10px; }
+.employee-modal, .applicant-detail-modal { border-radius: 28px; }
+.resume-drop { border-radius: 20px; }
+.resume-icon { border-radius: 12px; }
+.toast { border-radius: 14px; }
+.interview-log-top input, .recording-controls > button, .interview-text-grid textarea, .interview-log-message { border-radius: 14px; }
+.interview-record-list > article { border-radius: 22px; }
 @media (max-width: 980px) {
   .interview-record-list > article { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 840px) {
-  .sidebar { border-radius: 0 0 42px 42px; }
+  .sidebar { border-radius: 0 0 22px 22px; }
   .interview-log-top, .interview-text-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
-  .metric-card, .compact-metric { border-radius: 38px; }
-  .panel, .department-panel { border-radius: 42px; }
-  .profile-hero { border-radius: 44px; }
-  .organization-card { border-radius: 40px; }
-  .employee-modal, .applicant-detail-modal { border-radius: 46px; }
+  .metric-card, .compact-metric { border-radius: 20px; }
+  .panel, .department-panel { border-radius: 22px; }
+  .profile-hero { border-radius: 24px; }
+  .organization-card { border-radius: 22px; }
+  .employee-modal, .applicant-detail-modal { border-radius: 24px; }
   .recording-controls audio { width: 100%; margin: 10px 0 0; }
-  .interview-record-list > article { grid-template-columns: 1fr; border-radius: 34px; }
+  .interview-record-list > article { grid-template-columns: 1fr; border-radius: 20px; }
 }

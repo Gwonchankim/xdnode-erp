@@ -743,30 +743,30 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .quick-modal { border-radius: 32px; }
 }
 
-/* Much larger ERP curvature */
-.erp-top-brand .brand-mark { border-radius: 28px; }
-.erp-module-tabs { border-radius: 34px; }
-.erp-module-tab { border-radius: 28px; }
-.erp-module-tab .module-glyph { border-radius: 22px; }
-.search-box, .period-button, .icon-button { border-radius: 26px; }
-.search-box kbd { border-radius: 16px; }
-.module-hero { border-radius: 64px; }
-.eyebrow { border-radius: 24px; }
-.primary-button, .secondary-button { border-radius: 26px; }
-.attention-strip { border-radius: 42px; }
-.attention-icon { border-radius: 22px; }
-.metric-card { border-radius: 52px; }
-.panel { border-radius: 56px; }
-.bank-icon, .person-name i, .deadline-item > span, .rule-item > span, .compliance-item > span { border-radius: 24px; }
-.stage, .status, .approval-item em { border-radius: 24px !important; }
-.calc-form input, .calc-form select, .quick-modal input, .quick-modal textarea { border-radius: 26px; }
-.calc-result { border-radius: 42px; }
-.quick-modal { border-radius: 60px; }
-.toast { border-radius: 28px; }
+/* Reference curvature: softly rounded rectangles, never capsule-like cards */
+.erp-top-brand .brand-mark { border-radius: 14px; }
+.erp-module-tabs { border-radius: 18px; }
+.erp-module-tab { border-radius: 14px; }
+.erp-module-tab .module-glyph { border-radius: 10px; }
+.search-box, .period-button, .icon-button { border-radius: 14px; }
+.search-box kbd { border-radius: 8px; }
+.module-hero { border-radius: 24px; }
+.eyebrow { border-radius: 12px; }
+.primary-button, .secondary-button { border-radius: 14px; }
+.attention-strip { border-radius: 20px; }
+.attention-icon { border-radius: 10px; }
+.metric-card { border-radius: 22px; }
+.panel { border-radius: 24px; }
+.bank-icon, .person-name i, .deadline-item > span, .rule-item > span, .compliance-item > span { border-radius: 12px; }
+.stage, .status, .approval-item em { border-radius: 12px !important; }
+.calc-form input, .calc-form select, .quick-modal input, .quick-modal textarea { border-radius: 14px; }
+.calc-result { border-radius: 18px; }
+.quick-modal { border-radius: 26px; }
+.toast { border-radius: 14px; }
 @media (max-width: 760px) {
-  .module-hero { border-radius: 48px; }
-  .attention-strip { border-radius: 34px; }
-  .metric-card { border-radius: 42px; }
-  .panel { border-radius: 46px; }
-  .quick-modal { border-radius: 48px; }
+  .module-hero { border-radius: 22px; }
+  .attention-strip { border-radius: 18px; }
+  .metric-card { border-radius: 20px; }
+  .panel { border-radius: 22px; }
+  .quick-modal { border-radius: 24px; }
 }

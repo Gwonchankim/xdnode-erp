@@ -29,6 +29,13 @@
       "when": 1786414882037,
       "tag": "0003_spicy_loners",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1786416362397,
+      "tag": "0004_volatile_meltdown",
+      "breakpoints": true
     }
   ]
 }

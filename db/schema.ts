@@ -20,6 +20,13 @@ export const hrOrganizationLeaders = sqliteTable("hr_organization_leaders", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const hrOrganizationRecords = sqliteTable("hr_organization_records", {
+  organizationId: text("organization_id").primaryKey(),
+  name: text("name").notNull().unique(),
+  description: text("description").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const hrEmployeeRecords = sqliteTable("hr_employee_records", {
   employeeId: text("employee_id").primaryKey(),
   name: text("name").notNull(),

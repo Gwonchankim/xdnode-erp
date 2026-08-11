@@ -407,6 +407,12 @@ type PersistedOrganizationLeader = {
   leaderEmployeeId: string | null;
 };
 
+type PersistedOrganizationRecord = {
+  organizationId: string;
+  name: string;
+  description: string;
+};
+
 type PersistedEmployeeRecord = {
   employeeId: string;
   name: string;
@@ -497,23 +503,35 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       if (!response.ok) throw new Error(data.error || "직원 정보를 불러오지 못했습니다.");
       return data.records ?? [];
     }).catch(() => null);
+    const loadOrganizations = fetch("/api/hr/organizations").then(async (response) => {
+      const data = await response.json() as { organizations?: PersistedOrganizationRecord[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "조직 정보를 불러오지 못했습니다.");
+      return data.organizations ?? [];
+    }).catch(() => null);
 
-    Promise.all([loadLeaders, loadEmployeeRecords]).then(([leaders, employeeRecords]) => {
+    Promise.all([loadLeaders, loadEmployeeRecords, loadOrganizations]).then(([leaders, employeeRecords, organizationRecords]) => {
       if (cancelled) return;
-      if (leaders) {
-        const leaderByOrganization = new Map(leaders.map((leader) => [leader.organizationId, leader.leaderEmployeeId]));
-        setOrganizations((items) => items.map((organization) => leaderByOrganization.has(organization.id)
-          ? { ...organization, leaderEmployeeId: leaderByOrganization.get(organization.id) ?? null }
-          : organization));
-      }
+      const leaderByOrganization = new Map((leaders ?? []).map((leader) => [leader.organizationId, leader.leaderEmployeeId]));
+      const recordByOrganization = new Map((organizationRecords ?? []).map((record) => [record.organizationId, record]));
+      const renamedDepartmentByOriginalName = new Map(initialOrganizations.map((organization) => [organization.name, recordByOrganization.get(organization.id)?.name ?? organization.name]));
+      setOrganizations((items) => items.map((organization) => {
+        const saved = recordByOrganization.get(organization.id);
+        return {
+          ...organization,
+          ...(saved ? { name: saved.name, description: saved.description } : {}),
+          leaderEmployeeId: leaderByOrganization.has(organization.id) ? leaderByOrganization.get(organization.id) ?? null : organization.leaderEmployeeId,
+        };
+      }));
       const persistedLeaderIds = new Set((leaders ?? []).map((leader) => leader.leaderEmployeeId).filter((id): id is string => Boolean(id)));
       const recordByEmployee = new Map((employeeRecords ?? []).map((record) => [record.employeeId, record]));
       setEmployees((items) => items.map((employee) => {
         const record = recordByEmployee.get(employee.id);
         const merged = record ? { ...employee, ...record, id: employee.id } : employee;
-        return persistedLeaderIds.has(employee.id) ? { ...merged, jobTitle: "조직장" } : merged;
+        const renamedDepartment = renamedDepartmentByOriginalName.get(merged.department) ?? merged.department;
+        const withOrganization = { ...merged, department: renamedDepartment };
+        return persistedLeaderIds.has(employee.id) ? { ...withOrganization, jobTitle: "조직장" } : withOrganization;
       }));
-      if (!leaders || !employeeRecords) showToast("일부 저장 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
+      if (!leaders || !employeeRecords || !organizationRecords) showToast("일부 저장 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
     });
     return () => { cancelled = true; };
   }, []);
@@ -668,19 +686,36 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     showToast(`${trimmed} 조직을 추가했습니다.`);
   }
 
-  function updateOrganization(organizationId: string, name: string, description: string) {
+  async function updateOrganization(organizationId: string, name: string, description: string) {
     const trimmedName = name.trim();
     const current = organizations.find((organization) => organization.id === organizationId);
     if (!current || !trimmedName || organizations.some((organization) => organization.id !== organizationId && organization.name === trimmedName)) {
       showToast("조직명은 비어 있거나 다른 조직과 같을 수 없습니다.");
       return false;
     }
-    setOrganizations((items) => items.map((organization) => organization.id === organizationId ? { ...organization, name: trimmedName, description: description.trim() || "조직 설명 미입력" } : organization));
+    const savedDescription = description.trim() || "조직 설명 미입력";
+    setOrganizations((items) => items.map((organization) => organization.id === organizationId ? { ...organization, name: trimmedName, description: savedDescription } : organization));
     if (current.name !== trimmedName) {
       setEmployees((items) => items.map((employee) => employee.department === current.name ? { ...employee, department: trimmedName } : employee));
     }
-    showToast(`${trimmedName} 조직 정보를 수정했습니다.`);
-    return true;
+    try {
+      const response = await fetch("/api/hr/organizations", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ organizationId, previousName: current.name, name: trimmedName, description: savedDescription }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "조직 정보를 저장하지 못했습니다.");
+      showToast(`${trimmedName} 조직 정보를 영구 저장했습니다.`);
+      return true;
+    } catch (error) {
+      setOrganizations((items) => items.map((organization) => organization.id === organizationId ? current : organization));
+      if (current.name !== trimmedName) {
+        setEmployees((items) => items.map((employee) => employee.department === trimmedName ? { ...employee, department: current.name } : employee));
+      }
+      showToast(error instanceof Error ? error.message : "저장에 실패해 이전 정보로 되돌렸습니다.");
+      return false;
+    }
   }
 
   function addRank(value: string) {
@@ -868,7 +903,7 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
   </div>;
 }
 
-function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onUpdateOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onUpdateOrganization: (organizationId: string, name: string, description: string) => boolean; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
+function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onUpdateOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onUpdateOrganization: (organizationId: string, name: string, description: string) => Promise<boolean>; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
   const [newOrganization, setNewOrganization] = useState({ name: "", description: "" });
   const [newRank, setNewRank] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
@@ -897,7 +932,7 @@ function OrganizationManagement({ organizations, employees, ranks, jobTitles, on
   </div>;
 }
 
-function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: { organization: Organization; members: Employee[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onUpdate: (organizationId: string, name: string, description: string) => boolean }) {
+function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: { organization: Organization; members: Employee[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onUpdate: (organizationId: string, name: string, description: string) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ name: organization.name, description: organization.description });
   const sortedMembers = [...members].sort((first, second) => Number(second.id === organization.leaderEmployeeId) - Number(first.id === organization.leaderEmployeeId));
@@ -908,9 +943,9 @@ function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: {
     setEditing(false);
   }
 
-  function saveEdit(event: React.FormEvent<HTMLFormElement>) {
+  async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (onUpdate(organization.id, draft.name, draft.description)) setEditing(false);
+    if (await onUpdate(organization.id, draft.name, draft.description)) setEditing(false);
   }
 
   return <article className={`organization-card ${editing ? "editing" : ""}`}>

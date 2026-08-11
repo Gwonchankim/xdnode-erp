@@ -407,6 +407,20 @@ type PersistedOrganizationLeader = {
   leaderEmployeeId: string | null;
 };
 
+type PersistedEmployeeRecord = {
+  employeeId: string;
+  name: string;
+  birth: string;
+  email: string;
+  phone: string;
+  address: string;
+  department: string;
+  manager: string;
+  type: string;
+  position: string;
+  jobTitle: string;
+};
+
 const retirementChecklist = {
   hr: [
     { id: "hr-approval", label: "퇴직 승인 및 퇴직 인사발령 등록" },
@@ -469,26 +483,34 @@ function XdnodeHrApp() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch("/api/hr/organization-leaders")
-      .then(async (response) => {
-        const data = await response.json() as { leaders?: PersistedOrganizationLeader[]; error?: string };
-        if (!response.ok) throw new Error(data.error || "조직장 정보를 불러오지 못했습니다.");
-        return data.leaders ?? [];
-      })
-      .then((leaders) => {
-        if (cancelled || !leaders.length) return;
+    const loadLeaders = fetch("/api/hr/organization-leaders").then(async (response) => {
+      const data = await response.json() as { leaders?: PersistedOrganizationLeader[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "조직장 정보를 불러오지 못했습니다.");
+      return data.leaders ?? [];
+    }).catch(() => null);
+    const loadEmployeeRecords = fetch("/api/hr/employee-records").then(async (response) => {
+      const data = await response.json() as { records?: PersistedEmployeeRecord[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "직원 정보를 불러오지 못했습니다.");
+      return data.records ?? [];
+    }).catch(() => null);
+
+    Promise.all([loadLeaders, loadEmployeeRecords]).then(([leaders, employeeRecords]) => {
+      if (cancelled) return;
+      if (leaders) {
         const leaderByOrganization = new Map(leaders.map((leader) => [leader.organizationId, leader.leaderEmployeeId]));
-        const persistedLeaderIds = new Set(leaders.map((leader) => leader.leaderEmployeeId).filter((id): id is string => Boolean(id)));
         setOrganizations((items) => items.map((organization) => leaderByOrganization.has(organization.id)
           ? { ...organization, leaderEmployeeId: leaderByOrganization.get(organization.id) ?? null }
           : organization));
-        setEmployees((items) => items.map((employee) => persistedLeaderIds.has(employee.id)
-          ? { ...employee, jobTitle: "조직장" }
-          : employee));
-      })
-      .catch(() => {
-        if (!cancelled) showToast("저장된 조직장 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
-      });
+      }
+      const persistedLeaderIds = new Set((leaders ?? []).map((leader) => leader.leaderEmployeeId).filter((id): id is string => Boolean(id)));
+      const recordByEmployee = new Map((employeeRecords ?? []).map((record) => [record.employeeId, record]));
+      setEmployees((items) => items.map((employee) => {
+        const record = recordByEmployee.get(employee.id);
+        const merged = record ? { ...employee, ...record, id: employee.id } : employee;
+        return persistedLeaderIds.has(employee.id) ? { ...merged, jobTitle: "조직장" } : merged;
+      }));
+      if (!leaders || !employeeRecords) showToast("일부 저장 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
+    });
     return () => { cancelled = true; };
   }, []);
 
@@ -530,9 +552,36 @@ function XdnodeHrApp() {
     showToast("신규 직원이 인사기록카드에 등록되었습니다.");
   }
 
-  function updateEmployee(id: string, patch: Partial<Employee>) {
-    setEmployees((value) => value.map((employee) => employee.id === id ? { ...employee, ...patch } : employee));
-    showToast("인사기록의 기본정보를 저장했습니다.");
+  async function updateEmployee(id: string, patch: Partial<Employee>) {
+    const previous = employees.find((employee) => employee.id === id);
+    if (!previous) return;
+    const next = { ...previous, ...patch };
+    setEmployees((value) => value.map((employee) => employee.id === id ? next : employee));
+    try {
+      const response = await fetch("/api/hr/employee-records", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          employeeId: id,
+          name: next.name,
+          birth: next.birth,
+          email: next.email,
+          phone: next.phone,
+          address: next.address,
+          department: next.department,
+          manager: next.manager,
+          type: next.type,
+          position: next.position,
+          jobTitle: next.jobTitle ?? "팀원",
+        }),
+      });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error || "직원 정보를 저장하지 못했습니다.");
+      showToast("인사기록의 변경내용을 영구 저장했습니다.");
+    } catch {
+      setEmployees((value) => value.map((employee) => employee.id === id ? previous : employee));
+      showToast("저장에 실패해 이전 정보로 되돌렸습니다.");
+    }
   }
 
   function savePersonnelAction(event: React.FormEvent<HTMLFormElement>) {

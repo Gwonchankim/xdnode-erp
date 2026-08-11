@@ -43,6 +43,42 @@ type ModuleConfig = {
   rows: string[][];
 };
 
+type PayrollSummary = {
+  yearMonth: string;
+  employeeCount: number;
+  grossPay: number;
+  deductions: number;
+  netPay: number;
+};
+
+type PayrollRecord = {
+  id: string;
+  yearMonth: string;
+  employeeId: string | null;
+  employeeName: string;
+  department: string | null;
+  annualSalary: number;
+  basePay: number;
+  mealAllowance: number;
+  childcareAllowance: number;
+  vehicleAllowance: number;
+  incentive: number;
+  bonus: number;
+  annualLeavePay: number;
+  retirementPay: number;
+  deductions: number;
+  grossPay: number;
+  netPay: number;
+  cardAllowance: number;
+  cardUsage: number;
+  personalPurchase: number;
+  nonTaxable: number;
+  welfareFund: number;
+  notes: string;
+  sourceSheet: string;
+  sourceRow: number;
+};
+
 const navGroups: { title: string; items: NavItem[] }[] = [
   {
     title: "업무 홈",
@@ -501,14 +537,12 @@ const initialEmployees: Employee[] = [
   ...companyEmployees,
 ];
 
-const payrollPeople = initialEmployees.map((employee) => [employee.id, employee.name, employee.department, "미입력", "미입력", "미입력", "미입력"]);
-
 const initialApplicants: Applicant[] = [];
 
 const initialInterviews: InterviewRow[] = [];
 
 function StatusPill({ value }: { value: string }) {
-  const kind = value.includes("완료") || value.includes("재직") || value === "마감" ? "success" : value.includes("초과") || value.includes("휴직") ? "danger" : "pending";
+  const kind = value.includes("완료") || value.includes("반영") || value.includes("재직") || value === "마감" ? "success" : value.includes("초과") || value.includes("휴직") ? "danger" : "pending";
   return <span className={`status-pill ${kind}`}>{value}</span>;
 }
 
@@ -1164,7 +1198,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         {active === "dashboard" && <Dashboard employees={employees} organizations={organizations} applicants={applicants} onNavigate={navigate} />}
         {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} employees={employees} organizations={organizations} ranks={ranks} jobTitles={jobTitles} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} organizations={organizations} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onUpdateOrganization={updateOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
-        {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
+        {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && (screeningApplicant ? <ScreeningWorkflow applicant={screeningApplicant} applicants={applicants} recruiters={recruiters} onBack={() => setScreeningApplicantId(null)} onSave={saveScreeningApplicant} /> : <RecruitmentView applicants={applicants} recruiters={recruiters} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onOwnerChange={assignRecruiter} onScreening={setScreeningApplicantId} onReject={rejectApplicant} onDelete={deleteApplicant} />)}
         {active === "recruiters" && <RecruiterManagement employees={employees} recruiterIds={recruiterIds} onAdd={addRecruiter} onRemove={removeRecruiter} />}
         {active === "interviews" && (interviewApplicant ? <InterviewCandidateView applicant={interviewApplicant} applicants={applicants} onBack={() => setInterviewApplicantId(null)} onSaveMemo={addInterviewMemo} /> : <InterviewManagement interviews={interviews} onSelectApplicant={setInterviewApplicantId} onDirect={() => setDirectInterviewPickerOpen(true)} />)}
@@ -1555,12 +1589,78 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
   </section>;
 }
 
-function PayrollOverview({ config, onSelectMonth }: { config: ModuleConfig; onSelectMonth: (month: string) => void }) {
-  return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">PAYROLL</p><h1>급여관리</h1><p>급여월을 선택해 대상자별 지급·공제 내역을 확인합니다.</p></div><button type="button" className="primary-button">+ 8월 급여 계산</button></section><section className="metric-grid module-metrics">{config.metrics.map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>급여월 현황</h2><span>급여월을 클릭하면 개인별 상세내역을 볼 수 있습니다.</span></div><div><button type="button">연도 2026</button><button type="button">필터</button></div></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr>{config.columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{config.rows.map((row) => <tr key={row[0]} onClick={() => onSelectMonth(row[0])} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelectMonth(row[0])}>{row.map((cell, index) => <td key={cell}>{index === 0 ? <button type="button" className="month-link">{cell}<span>상세 보기 →</span></button> : index === row.length - 1 ? <StatusPill value={cell} /> : cell}</td>)}</tr>)}</tbody></table></div></section></div>;
+const formatWon = (value: number) => `₩${Math.round(value).toLocaleString("ko-KR")}`;
+
+function payrollMonthLabel(yearMonth: string) {
+  const [year, month] = yearMonth.split("-");
+  return `${year}년 ${Number(month)}월`;
+}
+
+function PayrollOverview({ onSelectMonth }: { onSelectMonth: (month: string) => void }) {
+  const [summaries, setSummaries] = useState<PayrollSummary[]>([]);
+  const [year, setYear] = useState(2026);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch("/api/hr/payroll");
+        const payload = await response.json() as { summaries?: PayrollSummary[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "급여 기록을 불러오지 못했습니다.");
+        if (!cancelled) setSummaries(payload.summaries ?? []);
+      } catch (fetchError) {
+        if (!cancelled) setError(fetchError instanceof Error ? fetchError.message : "급여 기록을 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const latest = summaries[0];
+  const rows = summaries.filter((summary) => summary.yearMonth.startsWith(`${year}-`));
+  const metrics = [
+    { label: "최근 급여월", value: latest ? payrollMonthLabel(latest.yearMonth) : "-", note: "인건비 정리 원본 기준" },
+    { label: "급여 대상", value: latest ? `${latest.employeeCount}명` : "-", note: "정규 월별 기록", tone: "blue" },
+    { label: "지급총액", value: latest ? formatWon(latest.grossPay) : "-", note: "기본급·수당·인센티브 포함", tone: "orange" },
+    { label: "기록상 지급액", value: latest ? formatWon(latest.netPay) : "-", note: "지급총액 - 원본 공제", tone: "red" },
+  ];
+
+  return <div className="page-wrap module-page payroll-page"><section className="module-hero"><div><p className="eyebrow">PAYROLL RECORDS</p><h1>급여관리</h1><p>2025~2026년 인건비 자료를 월별로 확인합니다. 세금·4대보험 전체 공제 자료가 아니므로 지급액은 원본 기록 기준입니다.</p></div><span className="payroll-import-badge">20개월 자료 반영</span></section><section className="metric-grid module-metrics">{metrics.map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>급여월 현황</h2><span>급여월을 클릭하면 개인별 항목과 원본 메모를 확인할 수 있습니다.</span></div><div className="payroll-year-filter"><button type="button" className={year === 2026 ? "active" : ""} onClick={() => setYear(2026)}>2026년</button><button type="button" className={year === 2025 ? "active" : ""} onClick={() => setYear(2025)}>2025년</button></div></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr>{["급여월", "대상 인원", "지급총액", "공제총액", "기록상 지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={6} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={6} className="table-message error">{error}</td></tr> : rows.map((summary) => <tr key={summary.yearMonth} onClick={() => onSelectMonth(summary.yearMonth)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelectMonth(summary.yearMonth)}><td><button type="button" className="month-link">{payrollMonthLabel(summary.yearMonth)}<span>상세 보기 →</span></button></td><td>{summary.employeeCount}명</td><td>{formatWon(summary.grossPay)}</td><td>{formatWon(summary.deductions)}</td><td>{formatWon(summary.netPay)}</td><td><StatusPill value="자료 반영" /></td></tr>)}</tbody></table></div></section></div>;
 }
 
 function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => void }) {
-  return <div className="page-wrap detail-page"><button type="button" className="back-button" onClick={onBack}>← 급여월 현황</button><section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{month} 급여 상세</h1><p>대상자 명단은 반영되었으며 급여 금액은 별도 자료 등록이 필요합니다.</p></div><div className="welcome-actions"><button type="button" className="outline-button">급여자료 가져오기</button><button type="button" className="primary-button">검토 시작</button></div></section><section className="payroll-summary"><div><span>급여 대상</span><strong>{payrollPeople.length}명</strong><small>재직자 기준</small></div><div><span>지급총액</span><strong>미입력</strong><small>급여 자료 필요</small></div><div><span>공제총액</span><strong>미입력</strong><small>급여 자료 필요</small></div><div><span>실지급액</span><strong>미입력</strong><small>급여 자료 필요</small></div></section><section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>전체 {payrollPeople.length}명</span></div><div><button type="button">미입력만</button><button type="button">자료 가져오기</button></div></div><div className="data-table-wrap"><table className="data-table payroll-detail-table"><thead><tr>{["사번/ID", "직원", "부서", "기본급", "수당", "공제", "실지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{payrollPeople.map((row) => <tr key={row[0]}>{row.map((cell, cellIndex) => <td key={`${row[0]}-${cellIndex}`}>{cell}</td>)}<td><StatusPill value="자료 미등록" /></td></tr>)}</tbody></table></div></section></div>;
+  const [records, setRecords] = useState<PayrollRecord[]>([]);
+  const [summary, setSummary] = useState<PayrollSummary | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<PayrollRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`/api/hr/payroll?month=${encodeURIComponent(month)}`);
+        const payload = await response.json() as { summary?: PayrollSummary | null; records?: PayrollRecord[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "월별 급여 기록을 불러오지 못했습니다.");
+        if (!cancelled) {
+          setSummary(payload.summary ?? null);
+          setRecords(payload.records ?? []);
+        }
+      } catch (fetchError) {
+        if (!cancelled) setError(fetchError instanceof Error ? fetchError.message : "월별 급여 기록을 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [month]);
+
+  return <div className="page-wrap detail-page payroll-page"><button type="button" className="back-button" onClick={onBack}>← 급여월 현황</button><section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{payrollMonthLabel(month)} 급여 상세</h1><p>기본급, 수당, 인센티브와 원본 공제 내역을 반영했습니다. 직원명을 클릭하면 세부 항목과 메모를 확인할 수 있습니다.</p></div><span className="payroll-import-badge">원본 자료 반영 완료</span></section><section className="payroll-summary"><div><span>급여 대상</span><strong>{summary ? `${summary.employeeCount}명` : "-"}</strong><small>월별 정규 급여 행</small></div><div><span>지급총액</span><strong>{summary ? formatWon(summary.grossPay) : "-"}</strong><small>기본급·수당·인센티브 포함</small></div><div><span>공제총액</span><strong>{summary ? formatWon(summary.deductions) : "-"}</strong><small>원본 공제 열 합계</small></div><div><span>기록상 지급액</span><strong>{summary ? formatWon(summary.netPay) : "-"}</strong><small>실제 세후 송금액과 다를 수 있음</small></div></section><section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>전체 {records.length}명</span></div><span className="payroll-source-note">인건비 정리 원본 기준</span></div><div className="data-table-wrap"><table className="data-table payroll-detail-table"><thead><tr>{["사번/ID", "직원", "부서", "기본급", "수당", "공제", "기록상 지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={8} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={8} className="table-message error">{error}</td></tr> : records.map((record) => <tr key={record.id}><td>{record.employeeId ?? "과거 기록"}</td><td><button type="button" className="payroll-person-link" onClick={() => setSelectedRecord(record)}>{record.employeeName}</button></td><td>{record.department ?? "퇴직·미등록"}</td><td>{formatWon(record.basePay)}</td><td>{formatWon(record.grossPay - record.basePay)}</td><td>{formatWon(record.deductions)}</td><td>{formatWon(record.netPay)}</td><td><StatusPill value="자료 반영" /></td></tr>)}</tbody></table></div></section>{selectedRecord && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedRecord(null)}><section className="payroll-record-modal" role="dialog" aria-modal="true" aria-label={`${selectedRecord.employeeName} 급여 세부 항목`}><div className="modal-header"><div><p className="eyebrow">PAYROLL BREAKDOWN</p><h2>{selectedRecord.employeeName} · {payrollMonthLabel(selectedRecord.yearMonth)}</h2></div><button type="button" className="modal-close" onClick={() => setSelectedRecord(null)}>×</button></div><div className="payroll-record-summary"><div><span>연봉 기준</span><strong>{formatWon(selectedRecord.annualSalary)}</strong></div><div><span>지급총액</span><strong>{formatWon(selectedRecord.grossPay)}</strong></div><div><span>기록상 지급액</span><strong>{formatWon(selectedRecord.netPay)}</strong></div></div><div className="payroll-breakdown-grid">{[
+    ["기본급", selectedRecord.basePay], ["식대", selectedRecord.mealAllowance], ["육아수당", selectedRecord.childcareAllowance], ["차량보조", selectedRecord.vehicleAllowance], ["인센티브", selectedRecord.incentive], ["상여", selectedRecord.bonus], ["연차수당", selectedRecord.annualLeavePay], ["퇴직금", selectedRecord.retirementPay], ["공제", selectedRecord.deductions], ["비과세", selectedRecord.nonTaxable], ["복지기금", selectedRecord.welfareFund], ["카드 사용액", selectedRecord.cardUsage], ["개인매입", selectedRecord.personalPurchase],
+  ].map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{formatWon(Number(value))}</strong></div>)}</div><div className="payroll-record-note"><span>원본 메모</span><p>{selectedRecord.notes || "등록된 메모가 없습니다."}</p><small>{selectedRecord.sourceSheet} · {selectedRecord.sourceRow}행</small></div></section></div>}</div>;
 }
 
 const screeningChecklist = [

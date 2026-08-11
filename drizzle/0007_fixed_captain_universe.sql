@@ -1,0 +1,30 @@
+CREATE TABLE `hr_payroll_records` (
+	`id` text PRIMARY KEY NOT NULL,
+	`year_month` text NOT NULL,
+	`employee_id` text,
+	`employee_name` text NOT NULL,
+	`department` text,
+	`annual_salary` integer NOT NULL,
+	`base_pay` integer NOT NULL,
+	`meal_allowance` integer NOT NULL,
+	`childcare_allowance` integer NOT NULL,
+	`vehicle_allowance` integer NOT NULL,
+	`incentive` integer NOT NULL,
+	`bonus` integer NOT NULL,
+	`annual_leave_pay` integer NOT NULL,
+	`retirement_pay` integer NOT NULL,
+	`deductions` integer NOT NULL,
+	`gross_pay` integer NOT NULL,
+	`net_pay` integer NOT NULL,
+	`card_allowance` integer NOT NULL,
+	`card_usage` integer NOT NULL,
+	`personal_purchase` integer NOT NULL,
+	`non_taxable` integer NOT NULL,
+	`welfare_fund` integer NOT NULL,
+	`notes` text DEFAULT '' NOT NULL,
+	`source_sheet` text NOT NULL,
+	`source_row` integer NOT NULL,
+	`imported_at` integer NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX `idx_hr_payroll_records_month_name` ON `hr_payroll_records` (`year_month`,`employee_name`);

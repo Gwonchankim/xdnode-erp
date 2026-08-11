@@ -14,6 +14,18 @@ export const employeeInterviewRecords = sqliteTable("employee_interview_records"
   index("idx_employee_interview_records_employee_created").on(table.employeeId, table.createdAt),
 ]);
 
+export const applicantInterviewRecordings = sqliteTable("applicant_interview_recordings", {
+  id: text("id").primaryKey(),
+  applicantId: text("applicant_id").notNull(),
+  recordedAt: text("recorded_at").notNull(),
+  audioKey: text("audio_key").notNull(),
+  audioContentType: text("audio_content_type").notNull(),
+  audioFileName: text("audio_file_name").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_applicant_interview_recordings_applicant_created").on(table.applicantId, table.createdAt),
+]);
+
 export const hrOrganizationLeaders = sqliteTable("hr_organization_leaders", {
   organizationId: text("organization_id").primaryKey(),
   leaderEmployeeId: text("leader_employee_id"),

@@ -156,7 +156,7 @@ export async function POST(request: Request) {
       } catch (error) {
         const message = error instanceof Error && error.name === "TimeoutError"
           ? "원본 이력서 변환 시간이 초과되었습니다."
-          : "원본 이력서를 Cloudflare에서 읽지 못했습니다.";
+          : "AI가 원본 이력서를 읽지 못했습니다.";
         return Response.json({ error: message }, { status: 502 });
       }
 
@@ -166,7 +166,7 @@ export async function POST(request: Request) {
       }
       if (quotaExceeded(conversionResponse, conversionData)) return quotaResponse();
       if (!conversionResponse.ok || conversionData.success === false || !Array.isArray(conversionData.result)) {
-        return Response.json({ error: "Cloudflare 원본 문서 변환에 실패했습니다." }, { status: 502 });
+        return Response.json({ error: "AI 원본 문서 변환에 실패했습니다." }, { status: 502 });
       }
 
       const converted = conversionData.result[0] as MarkdownConversion | undefined;

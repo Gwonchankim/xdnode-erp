@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { companyEmployees } from "../../../hr-company-data";
 
-type HrBindings = { DB: D1Database };
-const db = (env as unknown as HrBindings).DB;
+type HrBindings = { DB: D1Database; HR_AUDIO: R2Bucket };
+const bindings = env as unknown as HrBindings;
+const db = bindings.DB;
 const employeeIds = new Set(companyEmployees.map((employee) => employee.id));
 
 type ApplicantRow = {
@@ -28,6 +29,13 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_applicants_name ON hr_applicants (name)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_applicants_email ON hr_applicants (email)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_applicants_phone ON hr_applicants (phone)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS applicant_interview_recordings (
+      id TEXT PRIMARY KEY, applicant_id TEXT NOT NULL, recorded_at TEXT NOT NULL,
+      audio_key TEXT NOT NULL, audio_content_type TEXT NOT NULL, audio_file_name TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_applicant_interview_recordings_applicant_created
+      ON applicant_interview_recordings(applicant_id, created_at)`),
     db.prepare("INSERT OR IGNORE INTO hr_recruiters (employee_id, created_at) VALUES ('gc.kim', 0)"),
   ]);
 }
@@ -98,8 +106,26 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   await ensureSchema();
-  const body = await request.json() as { employeeId?: string };
+  const body = await request.json() as { employeeId?: string; applicantId?: string };
+  const applicantId = body.applicantId?.trim() ?? "";
+  if (applicantId) {
+    const applicant = await db.prepare("SELECT id FROM hr_applicants WHERE id = ?").bind(applicantId).first<{ id: string }>();
+    if (!applicant) return Response.json({ error: "삭제할 지원자를 찾을 수 없습니다." }, { status: 404 });
+
+    const recordingResult = await db.prepare("SELECT audio_key FROM applicant_interview_recordings WHERE applicant_id = ?")
+      .bind(applicantId)
+      .all<{ audio_key: string }>();
+    const audioKeys = recordingResult.results.map((row) => row.audio_key).filter(Boolean);
+    if (audioKeys.length) await bindings.HR_AUDIO.delete(audioKeys);
+    await db.batch([
+      db.prepare("DELETE FROM applicant_interview_recordings WHERE applicant_id = ?").bind(applicantId),
+      db.prepare("DELETE FROM hr_applicants WHERE id = ?").bind(applicantId),
+    ]);
+    return Response.json({ applicantId });
+  }
+
   const employeeId = body.employeeId?.trim() ?? "";
+  if (!employeeId) return Response.json({ error: "삭제할 대상이 필요합니다." }, { status: 400 });
   await db.prepare("DELETE FROM hr_recruiters WHERE employee_id = ?").bind(employeeId).run();
   return Response.json({ employeeId });
 }

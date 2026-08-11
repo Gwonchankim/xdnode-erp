@@ -774,7 +774,7 @@ function XdnodeHrApp() {
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview config={moduleConfigs.payroll} onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && <RecruitmentView applicants={applicants} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onInterview={setInterviewTarget} onReject={(id) => { setApplicants((value) => value.map((applicant) => applicant.id === id ? { ...applicant, stage: "서류 탈락" } : applicant)); showToast("서류 탈락 처리했습니다."); }} />}
         {active === "interviews" && <InterviewManagement interviews={interviews} />}
-        {active === "settings" && <SettingsView onSave={() => showToast("환경설정을 저장했습니다.")} />}
+        {active === "settings" && <SettingsView employees={employees} onSave={() => showToast("환경설정을 저장했습니다.")} onNotify={showToast} />}
         {!["dashboard", "employees", "organization", "payroll", "recruitment", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
@@ -794,13 +794,49 @@ function XdnodeHrApp() {
 function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }: { employees: Employee[]; organizations: Organization[]; query: string; onSelect: (id: string) => void; onAdd: () => void }) {
   const departments = organizations.map((organization) => organization.name);
   const [expanded, setExpanded] = useState<string[]>(departments);
+  const [exporting, setExporting] = useState(false);
   const visibleEmployees = query ? employees.filter((employee) => Object.values(employee).some((value) => typeof value === "string" && value.toLowerCase().includes(query.toLowerCase()))) : employees;
   const currentEmployees = employees.filter((employee) => employee.status !== "퇴직");
   const hiresThisMonth = currentEmployees.filter((employee) => employee.joinDate.startsWith("2026.08")).length;
   const incompleteProfiles = currentEmployees.filter((employee) => [employee.email, employee.phone, employee.birth, employee.address].some((value) => !value || value === "미입력")).length;
   const toggle = (department: string) => setExpanded((value) => value.includes(department) ? value.filter((item) => item !== department) : [...value, department]);
+
+  async function downloadEmployeeWorkbook() {
+    setExporting(true);
+    try {
+      const { default: writeXlsxFile } = await import("write-excel-file/browser");
+      const header = ["이름", "사번/ID", "생년월일", "이메일", "연락처", "주소", "소속 조직", "조직장", "직급", "직무", "고용형태", "입사일", "재직상태"];
+      const sortedEmployees = departments.flatMap((department) => {
+        const organization = organizations.find((item) => item.name === department);
+        return currentEmployees
+          .filter((employee) => employee.department === department)
+          .sort((first, second) => {
+            const leaderOrder = Number(second.id === organization?.leaderEmployeeId) - Number(first.id === organization?.leaderEmployeeId);
+            return leaderOrder || first.joinDate.localeCompare(second.joinDate) || first.name.localeCompare(second.name, "ko");
+          });
+      });
+      const rows = sortedEmployees.map((employee) => {
+        const organization = organizations.find((item) => item.name === employee.department);
+        const isLeader = employee.id === organization?.leaderEmployeeId;
+        const leader = employees.find((item) => item.id === organization?.leaderEmployeeId);
+        return [employee.name, employee.id, employee.birth, employee.email, employee.phone, employee.address, employee.department, isLeader ? "" : leader?.name ?? "미지정", employee.position, isLeader ? "조직장" : employee.jobTitle, employee.type, employee.joinDate, employee.status];
+      });
+      const writer = writeXlsxFile([
+        header.map((value) => ({ value, fontWeight: "bold" as const, backgroundColor: "#18181B", color: "#FFFFFF" })),
+        ...rows,
+      ], {
+        sheet: "인사기록",
+        columns: [18, 18, 14, 28, 18, 36, 18, 16, 12, 18, 14, 14, 12].map((width) => ({ width })),
+        showGridLines: true,
+      }, { fontFamily: "맑은 고딕", fontSize: 10 });
+      await writer.toFile(`XDNODE_인사기록_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return <div className="page-wrap module-page">
-    <section className="module-hero"><div><p className="eyebrow">PEOPLE DIRECTORY</p><h1>인사기록카드</h1><p>전체 구성원을 부서별로 확인하고 개인 인사기록을 관리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 직원 등록</button></section>
+    <section className="module-hero"><div><p className="eyebrow">PEOPLE DIRECTORY</p><h1>인사기록카드</h1><p>전체 구성원을 부서별로 확인하고 개인 인사기록을 관리합니다.</p></div><div className="employee-directory-actions"><button type="button" className="outline-button" disabled={exporting} onClick={downloadEmployeeWorkbook}>{exporting ? "엑셀 생성 중…" : "엑셀로 다운 받기"}</button><button type="button" className="primary-button" onClick={onAdd}>+ 직원 등록</button></div></section>
     <section className="metric-grid module-metrics">
       {[{ label: "전체 재직자", value: `${currentEmployees.length}명`, note: "하이웍스 원본 기준" }, { label: "조직", value: `${organizations.length}개`, note: "소속 미지정 포함", tone: "blue" }, { label: "이번 달 입사", value: `${hiresThisMonth}명`, note: "2026년 8월 입사", tone: "green" }, { label: "정보 확인 필요", value: `${incompleteProfiles}명`, note: "필수항목 미입력", tone: "red" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}
     </section>
@@ -1123,9 +1159,113 @@ function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; 
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal retirement-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>RETIREMENT PROCESS</p><h2>퇴직 절차 관리</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div><div className="retirement-fields"><label><span>퇴직일 *</span><input required type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label><span>퇴직사유 *</span><textarea required value={reason} onChange={(event) => setReason(event.target.value)} placeholder="퇴직 사유와 참고사항을 입력하세요."></textarea></label></div><div className="retirement-progress"><div><span>퇴직 절차 체크리스트</span><strong>{completedTaskIds.length}/{totalTasks} 완료</strong></div><div className="retirement-progress-track"><i style={{ width: `${progress}%` }}></i></div><small>{progress === 100 ? "모든 퇴직 절차를 완료했습니다." : `미완료 업무 ${totalTasks - completedTaskIds.length}건이 남아 있습니다.`}</small></div><div className="retirement-checklist-grid"><ChecklistGroup title="인사담당자 수행 업무" owner="HR OWNER" tasks={retirementChecklist.hr} /><ChecklistGroup title="퇴직자 수행 업무" owner="EMPLOYEE" tasks={retirementChecklist.employee} /></div><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">퇴직 절차 저장</button></div></form></div>;
 }
 
-function SettingsView({ onSave }: { onSave: () => void }) {
+function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; onSave: () => void; onNotify: (message: string) => void }) {
   const [section, setSection] = useState("company");
-  return <div className="page-wrap settings-page"><section className="module-hero"><div><p className="eyebrow">WORKSPACE SETTINGS</p><h1>환경설정</h1><p>회사 정보, 인사 기준, 알림과 접근 권한을 설정합니다.</p></div><button type="button" className="primary-button" onClick={onSave}>변경사항 저장</button></section><div className="settings-layout"><aside className="panel settings-nav">{[["company", "회사·조직 정보"], ["hr", "인사 기준정보"], ["notifications", "알림 설정"], ["permissions", "사용자·권한"], ["data", "데이터·백업"]].map(([id, label]) => <button type="button" className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)}>{label}<span>›</span></button>)}</aside><section className="panel settings-content"><div className="detail-card-heading"><div><p className="eyebrow">{section.toUpperCase()}</p><h2>{section === "company" ? "회사·조직 정보" : section === "hr" ? "인사 기준정보" : section === "notifications" ? "알림 설정" : section === "permissions" ? "사용자·권한" : "데이터·백업"}</h2></div></div>{section === "company" && <div className="settings-form"><label><span>회사명</span><input defaultValue="XD NODE" /></label><label><span>대표자</span><input defaultValue="이정민" /></label><label><span>사업자등록번호</span><input defaultValue="123-45-67890" /></label><label><span>기본 근무지</span><input defaultValue="서울 본사" /></label><label className="wide"><span>회사 주소</span><input defaultValue="서울특별시 성동구 아차산로 00" /></label></div>}{section === "hr" && <div className="setting-list"><SettingToggle title="사번 자동 발급" description="입사연도와 순번으로 사번을 자동 생성합니다." checked /><SettingToggle title="수습기간 종료 알림" description="종료 14일 전에 담당자와 부서장에게 알립니다." checked /><SettingToggle title="급여 마감 후 수정 제한" description="마감된 급여는 급여관리자만 다시 열 수 있습니다." checked /></div>}{section === "notifications" && <div className="setting-list"><SettingToggle title="시스템 알림" description="업무 마감과 승인 요청을 알림센터에서 받습니다." checked /><SettingToggle title="이메일 알림" description="중요 HR 일정을 이메일로도 받습니다." checked /><SettingToggle title="미처리 업무 재알림" description="기한이 지난 업무를 매일 오전 다시 알립니다." checked={false} /></div>}{section === "permissions" && <div className="permission-list"><div><span className="owner-chip">김</span><p><strong>김지수</strong><small>HR 매니저 · 전체 인사정보</small></p><em>관리자</em></div><div><span className="owner-chip">이</span><p><strong>이수민</strong><small>채용담당자 · 지원자/면접</small></p><em>편집자</em></div><div><span className="owner-chip">박</span><p><strong>박서준</strong><small>교육담당자 · 교육정보</small></p><em>편집자</em></div></div>}{section === "data" && <div className="data-settings"><div><strong>마지막 자동 백업</strong><span>오늘 03:00 · 정상 완료</span><button type="button" onClick={onSave}>지금 백업</button></div><div><strong>개인정보 보유기간</strong><span>퇴사 후 3년 · 관리자 확인 필요</span><button type="button">정책 관리</button></div><div><strong>엑셀 데이터 가져오기</strong><span>직원·급여·교육 표준양식 지원</span><button type="button">가져오기</button></div></div>}</section></div></div>;
+  const [authorizedUserIds, setAuthorizedUserIds] = useState<string[]>([]);
+  const [candidateId, setCandidateId] = useState("");
+  const [permissionsLoading, setPermissionsLoading] = useState(true);
+  const activeEmployees = employees.filter((employee) => employee.status !== "퇴직");
+  const availableEmployees = activeEmployees.filter((employee) => !authorizedUserIds.includes(employee.id));
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAuthorizedUsers() {
+      try {
+        const response = await fetch("/api/hr/authorized-users");
+        const payload = await response.json() as { users?: { employeeId: string }[]; error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "사용자 권한을 불러오지 못했습니다.");
+        if (!cancelled) setAuthorizedUserIds((payload.users ?? []).map((user) => user.employeeId));
+      } catch (error) {
+        if (!cancelled) onNotify(error instanceof Error ? error.message : "사용자 권한을 불러오지 못했습니다.");
+      } finally {
+        if (!cancelled) setPermissionsLoading(false);
+      }
+    }
+    loadAuthorizedUsers();
+    return () => { cancelled = true; };
+  }, []);
+
+  async function addAuthorizedUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!candidateId) return;
+    const response = await fetch("/api/hr/authorized-users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeId: candidateId }),
+    });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) {
+      onNotify(payload.error ?? "사용자를 추가하지 못했습니다.");
+      return;
+    }
+    setAuthorizedUserIds((value) => value.includes(candidateId) ? value : [...value, candidateId]);
+    setCandidateId("");
+    onNotify("사용자 권한을 추가했습니다.");
+  }
+
+  async function removeAuthorizedUser(employeeId: string) {
+    const response = await fetch("/api/hr/authorized-users", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeId }),
+    });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) {
+      onNotify(payload.error ?? "사용자 권한을 삭제하지 못했습니다.");
+      return;
+    }
+    setAuthorizedUserIds((value) => value.filter((id) => id !== employeeId));
+    onNotify("사용자 권한을 삭제했습니다.");
+  }
+
+  const sectionTitle = section === "company"
+    ? "회사·조직 정보"
+    : section === "hr"
+      ? "인사 기준정보"
+      : section === "notifications"
+        ? "알림 설정"
+        : section === "permissions"
+          ? "사용자·권한"
+          : "데이터·백업";
+
+  return <div className="page-wrap settings-page">
+    <section className="module-hero">
+      <div><p className="eyebrow">WORKSPACE SETTINGS</p><h1>환경설정</h1><p>회사 정보, 인사 기준, 알림과 접근 권한을 설정합니다.</p></div>
+      <button type="button" className="primary-button" onClick={onSave}>변경사항 저장</button>
+    </section>
+    <div className="settings-layout">
+      <aside className="panel settings-nav">
+        {[["company", "회사·조직 정보"], ["hr", "인사 기준정보"], ["notifications", "알림 설정"], ["permissions", "사용자·권한"], ["data", "데이터·백업"]].map(([id, label]) => <button type="button" className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)}>{label}<span>›</span></button>)}
+      </aside>
+      <section className="panel settings-content">
+        <div className="detail-card-heading"><div><p className="eyebrow">{section.toUpperCase()}</p><h2>{sectionTitle}</h2></div></div>
+        {section === "company" && <div className="settings-form"><label><span>회사명</span><input defaultValue="XD NODE" /></label><label><span>대표자</span><input defaultValue="이정민" /></label><label><span>사업자등록번호</span><input defaultValue="123-45-67890" /></label><label><span>기본 근무지</span><input defaultValue="서울 본사" /></label><label className="wide"><span>회사 주소</span><input defaultValue="서울특별시 성동구 아차산로 00" /></label></div>}
+        {section === "hr" && <div className="setting-list"><SettingToggle title="사번 자동 발급" description="입사연도와 순번으로 사번을 자동 생성합니다." checked /><SettingToggle title="수습기간 종료 알림" description="종료 14일 전에 담당자와 부서장에게 알립니다." checked /><SettingToggle title="급여 마감 후 수정 제한" description="마감된 급여는 급여관리자만 다시 열 수 있습니다." checked /></div>}
+        {section === "notifications" && <div className="setting-list"><SettingToggle title="시스템 알림" description="업무 마감과 승인 요청을 알림센터에서 받습니다." checked /><SettingToggle title="이메일 알림" description="중요 HR 일정을 이메일로도 받습니다." checked /><SettingToggle title="미처리 업무 재알림" description="기한이 지난 업무를 매일 오전 다시 알립니다." checked={false} /></div>}
+        {section === "permissions" && <div className="permission-management">
+          <form className="permission-add-form" onSubmit={addAuthorizedUser}>
+            <label><span>회사 등록 인물</span><select value={candidateId} onChange={(event) => setCandidateId(event.target.value)} disabled={permissionsLoading || availableEmployees.length === 0}><option value="">{availableEmployees.length === 0 ? "추가 가능한 인물이 없습니다" : "사용자 선택"}</option>{availableEmployees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.department}</option>)}</select></label>
+            <button type="submit" className="primary-button" disabled={!candidateId}>사용자 추가</button>
+          </form>
+          <p className="permission-help">회사 인사기록에 등록된 재직자만 ERP 사용자로 추가할 수 있습니다.</p>
+          <div className="permission-list">
+            {permissionsLoading && <div className="permission-loading">사용자 권한을 불러오는 중입니다.</div>}
+            {!permissionsLoading && authorizedUserIds.map((employeeId) => {
+              const employee = employees.find((item) => item.id === employeeId);
+              if (!employee) return null;
+              const isCurrentAdministrator = employeeId === "gc.kim";
+              return <div key={employeeId}>
+                <span className="owner-chip">{employee.name.slice(0, 1)}</span>
+                <p><strong>{employee.name}</strong><small>{employee.department} · 전체 ERP 접근</small></p>
+                <div className="permission-row-actions"><em>관리자</em>{isCurrentAdministrator ? <span className="permission-current">현재 사용자</span> : <button type="button" onClick={() => removeAuthorizedUser(employeeId)}>삭제</button>}</div>
+              </div>;
+            })}
+          </div>
+        </div>}
+        {section === "data" && <div className="data-settings"><div><strong>마지막 자동 백업</strong><span>오늘 03:00 · 정상 완료</span><button type="button" onClick={onSave}>지금 백업</button></div><div><strong>개인정보 보유기간</strong><span>퇴사 후 3년 · 관리자 확인 필요</span><button type="button">정책 관리</button></div><div><strong>엑셀 데이터 가져오기</strong><span>직원·급여·교육 표준양식 지원</span><button type="button">가져오기</button></div></div>}
+      </section>
+    </div>
+  </div>;
 }
 
 function SettingToggle({ title, description, checked }: { title: string; description: string; checked: boolean }) {

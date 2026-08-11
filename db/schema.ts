@@ -34,3 +34,8 @@ export const hrEmployeeRecords = sqliteTable("hr_employee_records", {
   jobTitle: text("job_title").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
+
+export const hrAuthorizedUsers = sqliteTable("hr_authorized_users", {
+  employeeId: text("employee_id").primaryKey(),
+  createdAt: integer("created_at").notNull(),
+});

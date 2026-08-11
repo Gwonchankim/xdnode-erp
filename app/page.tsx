@@ -16,6 +16,13 @@ const modules: Array<{
   { key: "hr", label: "HR", eyebrow: "People", glyph: "◎" },
 ];
 
+const erpAlerts = [
+  { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘" },
+  { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2" },
+  { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주" },
+  { id: "finance-close", category: "재무", title: "월 마감 검토", description: "미증빙 자료와 단가 오류 내역을 마감 전에 검토해 주세요.", time: "D-2" },
+];
+
 const accountRows = [
   { bank: "KB국민 · 운영", balance: "₩1,284,500,000", move: "+4.2%", tone: "up" },
   { bank: "KB국민 · 급여", balance: "₩186,240,000", move: "9/5 지급", tone: "neutral" },
@@ -83,45 +90,76 @@ function formatWon(value: number) {
 }
 
 function ERPTopNavigation({ active, onChange }: { active: ModuleKey; onChange: (module: ModuleKey) => void }) {
+  const [alertsOpen, setAlertsOpen] = useState(false);
+
   return (
-    <header className="erp-top-nav">
-      <div className="erp-top-brand">
-        <span className="brand-mark">XD</span>
-        <div>
-          <strong>XD NODE</strong>
-          <small>OPERATIONS</small>
+    <>
+      <header className="erp-top-nav">
+        <div className="erp-top-brand">
+          <span className="brand-mark">XD</span>
+          <div>
+            <strong>XD NODE</strong>
+            <small>OPERATIONS</small>
+          </div>
         </div>
-      </div>
 
-      <nav className="erp-module-tabs" aria-label="ERP 모듈">
-        {modules.map((module) => (
-          <button
-            type="button"
-            className={active === module.key ? "erp-module-tab active" : "erp-module-tab"}
-            key={module.key}
-            aria-current={active === module.key ? "page" : undefined}
-            onClick={() => onChange(module.key)}
-          >
-            <span className="module-glyph">{module.glyph}</span>
-            <span>
-              <strong>{module.label}</strong>
-              <small>{module.eyebrow}</small>
-            </span>
-          </button>
-        ))}
-      </nav>
+        <nav className="erp-module-tabs" aria-label="ERP 모듈">
+          {modules.map((module) => (
+            <button
+              type="button"
+              className={active === module.key ? "erp-module-tab active" : "erp-module-tab"}
+              key={module.key}
+              aria-current={active === module.key ? "page" : undefined}
+              onClick={() => onChange(module.key)}
+            >
+              <span className="module-glyph">{module.glyph}</span>
+              <span>
+                <strong>{module.label}</strong>
+                <small>{module.eyebrow}</small>
+              </span>
+            </button>
+          ))}
+        </nav>
 
-      <div className="erp-nav-spacer" />
-      <div className="erp-sync-state">
-        <span className="status-dot" />
-        <div><strong>마감 데이터 동기화</strong><small>방금 전 완료</small></div>
-      </div>
-      <div className="erp-user-card">
-        <span className="avatar">GK</span>
-        <div><strong>김경건</strong><small>경영지원 팀장</small></div>
-        <button type="button" aria-label="프로필 메뉴">•••</button>
-      </div>
-    </header>
+        <div className="erp-nav-spacer" />
+        <div className="erp-sync-state">
+          <span className="status-dot" />
+          <div><strong>마감 데이터 동기화</strong><small>방금 전 완료</small></div>
+        </div>
+        <button
+          type="button"
+          className="erp-alarm-button"
+          aria-label={`확인할 알람 ${erpAlerts.length}건`}
+          aria-expanded={alertsOpen}
+          onClick={() => setAlertsOpen(true)}
+        >
+          <span className="erp-alarm-glyph" aria-hidden="true">♢</span>
+          <span>알람</span>
+          <em>{erpAlerts.length}</em>
+        </button>
+      </header>
+
+      {alertsOpen && (
+        <>
+          <button type="button" className="erp-alarm-backdrop" aria-label="알람 닫기" onClick={() => setAlertsOpen(false)} />
+          <aside className="erp-alarm-panel" role="dialog" aria-modal="true" aria-label="확인할 알람">
+            <div className="erp-alarm-panel-header">
+              <div><p>NOTIFICATION CENTER</p><h2>확인할 알람</h2></div>
+              <button type="button" aria-label="닫기" onClick={() => setAlertsOpen(false)}>×</button>
+            </div>
+            <div className="erp-alarm-summary"><strong>미확인 {erpAlerts.length}건</strong><span>업무 누락을 막기 위해 오늘 확인해 주세요.</span></div>
+            <div className="erp-alarm-list">
+              {erpAlerts.map((alert) => (
+                <article key={alert.id} className="erp-alarm-item">
+                  <span className="erp-alarm-unread" aria-hidden="true" />
+                  <div><p><em>{alert.category}</em><time>{alert.time}</time></p><h3>{alert.title}</h3><span>{alert.description}</span></div>
+                </article>
+              ))}
+            </div>
+          </aside>
+        </>
+      )}
+    </>
   );
 }
 

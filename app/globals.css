@@ -661,6 +661,101 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .quick-modal { border-radius: 48px; }
 }
 
+/* Global notification center */
+.erp-alarm-button {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  color: #18181b;
+  border: 1px solid #dedee3;
+  border-radius: 14px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.erp-alarm-button:hover { background: #f4f4f5; }
+.erp-alarm-glyph {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #18181b;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.erp-alarm-button em {
+  min-width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0 6px;
+  color: #fff;
+  border-radius: 8px;
+  background: #18181b;
+  font-size: 11px;
+  font-style: normal;
+}
+.erp-alarm-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 119;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: rgba(24, 24, 27, .38);
+  cursor: default;
+}
+.erp-alarm-panel {
+  position: fixed;
+  z-index: 120;
+  top: 0;
+  right: 0;
+  width: min(430px, 100vw);
+  height: 100dvh;
+  padding: 28px;
+  color: #18181b;
+  border-left: 1px solid #d4d4d8;
+  background: #fafafa;
+  box-shadow: -24px 0 60px rgba(24, 24, 27, .16);
+  overflow-y: auto;
+  animation: erp-alarm-slide-in .22s ease-out;
+}
+@keyframes erp-alarm-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.erp-alarm-panel-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+.erp-alarm-panel-header p { margin: 0 0 6px; color: #71717a; font-size: 11px; font-weight: 900; letter-spacing: .12em; }
+.erp-alarm-panel-header h2 { margin: 0; font-size: 28px; letter-spacing: -.04em; }
+.erp-alarm-panel-header > button {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  color: #fff;
+  border: 0;
+  border-radius: 12px;
+  background: #18181b;
+  font-size: 25px;
+  cursor: pointer;
+}
+.erp-alarm-summary { display: grid; gap: 4px; margin: 28px 0 16px; padding: 18px; border: 1px solid #d4d4d8; border-radius: 16px; background: #fff; }
+.erp-alarm-summary strong { font-size: 15px; }
+.erp-alarm-summary span { color: #71717a; font-size: 12px; line-height: 1.5; }
+.erp-alarm-list { display: grid; gap: 10px; }
+.erp-alarm-item { display: grid; grid-template-columns: 9px 1fr; gap: 12px; padding: 18px; border: 1px solid #dedee3; border-radius: 18px; background: #fff; }
+.erp-alarm-unread { width: 8px; height: 8px; margin-top: 5px; border-radius: 3px; background: #ef5b36; }
+.erp-alarm-item p { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
+.erp-alarm-item p em { color: #ef5b36; font-size: 10px; font-style: normal; font-weight: 900; letter-spacing: .08em; }
+.erp-alarm-item time { color: #a1a1aa; font-size: 11px; }
+.erp-alarm-item h3 { margin: 0 0 6px; font-size: 15px; }
+.erp-alarm-item div > span { color: #71717a; font-size: 12px; line-height: 1.55; }
+@media (max-width: 760px) {
+  .erp-alarm-button > span:not(.erp-alarm-glyph) { display: none; }
+  .erp-alarm-panel { padding: 22px 18px; }
+}
+
 /* System-wide soft corner scale */
 .erp-top-brand .brand-mark { border-radius: 16px; }
 .erp-module-tabs { border-radius: 18px; }

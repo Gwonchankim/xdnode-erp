@@ -22,6 +22,9 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /2024~2026년 재무 데이터 연결 완료/);
   assert.match(html, /aria-label="재무회계 메뉴"/);
   assert.match(html, /XDNODE FINANCE/);
+  assert.match(html, /aria-label="알람 센터 열기"/);
+  assert.match(html, /2026년 8월/);
+  assert.match(html, /내보내기/);
   assert.match(html, /통합 대시보드/);
   assert.match(html, /손익·재무상태/);
   assert.match(html, /자금·채권채무/);

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import HRWorkspace from "./hr-workspace";
 import { financeCurrentData } from "./finance-current-data";
 import { financeHistoricalData } from "./finance-historical-data";
@@ -209,7 +209,7 @@ function formatCompactWon(value: number) {
   return formatWon(value);
 }
 
-function ERPTopNavigation({ active, onChange, onOpenAlert }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void }) {
+function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void; openRequestKey?: number }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
@@ -221,6 +221,10 @@ function ERPTopNavigation({ active, onChange, onOpenAlert }: { active: ModuleKey
     }
   });
   const visibleAlerts = erpAlerts.filter((alert) => !dismissedAlertIds.includes(alert.id));
+
+  useEffect(() => {
+    if (openRequestKey > 0) setAlertsOpen(true);
+  }, [openRequestKey]);
 
   function dismissAlert(alertId: string) {
     setDismissedAlertIds((current) => {
@@ -318,11 +322,31 @@ export default function Home() {
   const [active, setActive] = useState<ModuleKey>("finance");
   const [hrNavigation, setHrNavigation] = useState({ view: "dashboard", requestKey: 0 });
   const [search, setSearch] = useState("");
+  const [alertRequestKey, setAlertRequestKey] = useState(0);
+  const [periodMenuOpen, setPeriodMenuOpen] = useState(false);
+  const [financePeriod, setFinancePeriod] = useState<{ year: "2024" | "2025" | "2026"; label: string; requestKey: number }>({ year: "2026", label: "2026년 8월", requestKey: 0 });
+  const [financeWorkspaceRequest, setFinanceWorkspaceRequest] = useState<{ view: FinanceWorkspaceView; requestKey: number }>({ view: "overview", requestKey: 0 });
   const [quickOpen, setQuickOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [salePrice, setSalePrice] = useState(100000000);
   const [costPrice, setCostPrice] = useState(90000000);
   const [leadType, setLeadType] = useState<"outbound" | "inbound" | "ram">("outbound");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    function focusSearch(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+      }
+      if (event.key === "Escape" && document.activeElement === searchInputRef.current) {
+        setSearch("");
+        searchInputRef.current?.blur();
+      }
+    }
+    window.addEventListener("keydown", focusSearch);
+    return () => window.removeEventListener("keydown", focusSearch);
+  }, []);
 
   const incentive = useMemo(() => {
     const margin = salePrice - costPrice;
@@ -350,10 +374,41 @@ export default function Home() {
     window.setTimeout(() => setToast(""), 3200);
   }
 
+  function exportFinanceSnapshot() {
+    const rows = [
+      ["구분", "값", "기준일"],
+      ["매출 공급가액", financeCurrentData.sourceSummary.salesSupplyValue, financeCurrentData.asOf],
+      ["매입 공급가액", financeCurrentData.sourceSummary.purchaseSupplyValue, financeCurrentData.asOf],
+      ["매출 세금계산서", financeCurrentData.sourceSummary.salesInvoices, financeCurrentData.asOf],
+      ["매입 세금계산서", financeCurrentData.sourceSummary.purchaseInvoices, financeCurrentData.asOf],
+      ...financeCurrentData.accounts.map((account) => [`계좌 · ${account.name} (${account.last4})`, account.krwBalance, financeCurrentData.asOf]),
+    ];
+    const csv = `\uFEFF${rows.map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(",")).join("\r\n")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `XD_NODE_재무현황_${financeCurrentData.asOf}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setToast("현재 재무현황을 CSV 파일로 내보냈습니다.");
+    window.setTimeout(() => setToast(""), 3200);
+  }
+
+  function selectFinancePeriod(year: "2024" | "2025" | "2026", label: string) {
+    setFinancePeriod((current) => ({ year, label, requestKey: current.requestKey + 1 }));
+    setPeriodMenuOpen(false);
+    setActive("finance");
+  }
+
+  function requestFinanceWorkspace(view: FinanceWorkspaceView) {
+    setActive("finance");
+    setFinanceWorkspaceRequest((current) => ({ view, requestKey: current.requestKey + 1 }));
+  }
+
   if (active === "hr") {
     return (
       <div className="hr-module-shell">
-        <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} />
+        <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
         <HRWorkspace requestedView={hrNavigation.view} navigationRequestKey={hrNavigation.requestKey} />
       </div>
     );
@@ -361,24 +416,33 @@ export default function Home() {
 
   return (
     <div className="app-shell">
-      <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} />
+      <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
 
-      <main className="main">
+      <main className={`main ${active === "finance" ? "finance-main" : ""}`}>
         <header className="topbar">
           <div className="mobile-brand">XD NODE</div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
             <input
+              ref={searchInputRef}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder={copy.search}
               aria-label={copy.search}
             />
+            {search && <button type="button" className="search-clear" aria-label="검색어 지우기" onClick={() => { setSearch(""); searchInputRef.current?.focus(); }}>×</button>}
             <kbd>⌘ K</kbd>
           </label>
           <div className="top-actions">
-            <button className="period-button">2026년 8월 <span>⌄</span></button>
-            <button className="icon-button" aria-label="알림">●<span className="notification-ping" /></button>
+            <div className="period-picker">
+              <button type="button" className="period-button" aria-expanded={periodMenuOpen} onClick={() => setPeriodMenuOpen((open) => !open)}>{active === "finance" ? financePeriod.label : "2026년 8월"} <span>⌄</span></button>
+              {periodMenuOpen && <div className="period-menu" role="menu" aria-label="재무 조회 기간">
+                <button type="button" className={financePeriod.year === "2026" ? "active" : ""} onClick={() => selectFinancePeriod("2026", "2026년 8월")}><strong>2026년 8월</strong><small>Clobe 최신 스냅샷</small></button>
+                <button type="button" className={financePeriod.year === "2025" ? "active" : ""} onClick={() => selectFinancePeriod("2025", "2025년 결산")}><strong>2025년 결산</strong><small>이카운트 확정 자료</small></button>
+                <button type="button" className={financePeriod.year === "2024" ? "active" : ""} onClick={() => selectFinancePeriod("2024", "2024년 결산")}><strong>2024년 결산</strong><small>이카운트 확정 자료</small></button>
+              </div>}
+            </div>
+            <button type="button" className="icon-button" aria-label="알람 센터 열기" onClick={() => setAlertRequestKey((key) => key + 1)}>♢<span className="notification-ping" /></button>
           </div>
         </header>
 
@@ -389,7 +453,7 @@ export default function Home() {
             <p>{copy.desc}</p>
           </div>
           <div className="hero-actions">
-            <button className="secondary-button">내보내기</button>
+            <button type="button" className="secondary-button" onClick={active === "finance" ? exportFinanceSnapshot : () => { setToast("이 화면의 내보내기 기능은 준비 중입니다."); window.setTimeout(() => setToast(""), 3200); }}>내보내기</button>
             <button className="primary-button" onClick={() => setQuickOpen(true)}><span>＋</span>{copy.action}</button>
           </div>
         </section>
@@ -400,10 +464,10 @@ export default function Home() {
             <strong>{active === "finance" ? "2024~2026년 재무 데이터 연결 완료" : "월 마감 D-2"}</strong>
             <span>{active === "finance" ? "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 2,218원과 2025년 중복 후보 32행은 원문 확인이 필요합니다." : "7월 매입고지단가 오류 14건과 미증빙 8건의 확인이 필요합니다."}</span>
           </div>
-          <button onClick={() => setActive("finance")}>재무 점검 보기 →</button>
+          <button type="button" onClick={() => requestFinanceWorkspace("quality")}>재무 점검 보기 →</button>
         </div>
 
-        {active === "finance" && <FinanceDashboard search={search} />}
+        {active === "finance" && <FinanceDashboard search={search} requestedWorkspace={financeWorkspaceRequest.view} workspaceRequestKey={financeWorkspaceRequest.requestKey} requestedYear={financePeriod.year} yearRequestKey={financePeriod.requestKey} />}
         {active === "sales" && (
           <SalesDashboard
             search={search}
@@ -498,7 +562,13 @@ function accountBankName(code: string) {
   return ({ "004": "KB국민", "011": "NH농협", "020": "우리", "088": "신한" } as Record<string, string>)[code] ?? "은행";
 }
 
-function FinanceDashboard({ search }: { search: string }) {
+function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, requestedYear, yearRequestKey }: {
+  search: string;
+  requestedWorkspace: FinanceWorkspaceView;
+  workspaceRequestKey: number;
+  requestedYear: "2024" | "2025" | "2026";
+  yearRequestKey: number;
+}) {
   const [workspace, setWorkspace] = useState<FinanceWorkspaceView>("overview");
   const [overviewYear, setOverviewYear] = useState<"2024" | "2025" | "2026">("2026");
   const [statementYear, setStatementYear] = useState<"2024" | "2025">("2025");
@@ -517,6 +587,20 @@ function FinanceDashboard({ search }: { search: string }) {
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantAnswer, setAssistantAnswer] = useState("2024~2026년 재무 데이터 범위와 출처를 구분해 답변합니다. 궁금한 항목을 선택하거나 질문을 입력해 주세요.");
   const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
+
+  useEffect(() => {
+    if (workspaceRequestKey > 0) {
+      setWorkspace(requestedWorkspace);
+      if (requestedWorkspace === "receivables") void loadReceivableRecords();
+    }
+  }, [requestedWorkspace, workspaceRequestKey]);
+
+  useEffect(() => {
+    if (yearRequestKey > 0) {
+      setOverviewYear(requestedYear);
+      setWorkspace("overview");
+    }
+  }, [requestedYear, yearRequestKey]);
 
   const selectedHistorical = statementYear === "2024" ? financeHistoricalData.years["2024"] : financeHistoricalData.years["2025"];
   const trialBalanceSource = statementYear === "2024" ? financeHistoricalData.trialBalance2024 : financeHistoricalData.trialBalance2025;
@@ -686,6 +770,20 @@ function FinanceDashboard({ search }: { search: string }) {
     { label: "당기순이익", value: historicalOverview.netIncome, hint: overviewYear === "2025" ? "전년 대비 -68.2%" : "결산후 기준", trend: overviewYear === "2025" ? "down" as const : "neutral" as const },
     { label: "기말 보통예금", value: historicalOverview.cash, hint: overviewYear === "2025" ? "전년 대비 +65.8%" : "자금현황표 대사 완료", trend: overviewYear === "2025" ? "up" as const : "neutral" as const },
   ];
+  const normalizedSearch = search.trim().toLowerCase();
+  const financeSearchResults = useMemo(() => {
+    if (!normalizedSearch) return [];
+    const rows: Array<{ key: string; title: string; detail: string; view: FinanceWorkspaceView }> = [];
+    financeCurrentData.accounts.forEach((account) => rows.push({ key: `account-${account.id}`, title: account.name, detail: `${accountBankName(account.bankCode)} · 끝자리 ${account.last4} · ${formatWon(account.krwBalance)}`, view: "liquidity" }));
+    financeHistoricalData.trialBalance2025.forEach((account) => rows.push({ key: `ledger-${account.code}`, title: account.name, detail: `계정 ${account.code} · 2025년 기말 ${formatWon(account.endingDebit - account.endingCredit)}`, view: "statements" }));
+    financeHistoricalData.receivables.forEach((partner) => rows.push({ key: `receivable-${partner.index}`, title: partner.name, detail: `외상매출금 · 잔액 ${formatWon(partner.ending)}`, view: "receivables" }));
+    financeHistoricalData.payables.forEach((partner) => rows.push({ key: `payable-${partner.index}`, title: partner.name, detail: `매입채무 · 잔액 ${formatWon(partner.ending)}`, view: "liquidity" }));
+    const commercialPartners = new Map<string, { sales: number; purchases: number }>();
+    financeCurrentData.salesDaily2026.forEach((item) => { const value = commercialPartners.get(item.partner) ?? { sales: 0, purchases: 0 }; value.sales += item.amount; commercialPartners.set(item.partner, value); });
+    financeCurrentData.purchaseDaily2026.forEach((item) => { const value = commercialPartners.get(item.partner) ?? { sales: 0, purchases: 0 }; value.purchases += item.amount; commercialPartners.set(item.partner, value); });
+    commercialPartners.forEach((value, partner) => rows.push({ key: `commercial-${partner}`, title: partner, detail: `매출 ${formatWon(value.sales)} · 매입 ${formatWon(value.purchases)}`, view: "commercial" }));
+    return rows.filter((row) => `${row.title} ${row.detail}`.toLowerCase().includes(normalizedSearch)).slice(0, 12);
+  }, [normalizedSearch]);
 
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"]] },
@@ -717,6 +815,15 @@ function FinanceDashboard({ search }: { search: string }) {
       </aside>
 
       <div className="dashboard-stack finance-dashboard">
+
+      {normalizedSearch && (
+        <section className="panel finance-search-results" aria-live="polite">
+          <div className="finance-search-heading"><div><p>SEARCH RESULTS</p><h2>‘{search.trim()}’ 검색 결과</h2></div><span>{financeSearchResults.length}건 표시</span></div>
+          {financeSearchResults.length ? <div className="finance-search-list">{financeSearchResults.map((result) => (
+            <button type="button" key={result.key} onClick={() => selectWorkspace(result.view)}><span>⌕</span><p><strong>{result.title}</strong><small>{result.detail}</small></p><em>관련 화면 →</em></button>
+          ))}</div> : <div className="finance-empty">일치하는 계좌·거래처·계정과목이 없습니다.</div>}
+        </section>
+      )}
 
       {workspace === "overview" && (
         <>

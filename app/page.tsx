@@ -31,8 +31,8 @@ const erpAlerts = [
   { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘", destination: { module: "hr", hrView: "employees" } },
   { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
   { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
-  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 2,218원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
-  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 2,218원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.", time: "8월 13일", destination: { module: "finance" } },
+  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 31,190원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
+  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 31,190원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.", time: "8월 14일", destination: { module: "finance" } },
   { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
 ] satisfies ERPAlert[];
 
@@ -41,8 +41,8 @@ const financeChecks = [
   { label: "2025년 원장·시산표·자금현황 대사", owner: "27개 계정 전액 일치", done: true },
   { label: "2025년 분개장 15,510개 라인 반영", owner: "2025.01.02–12.31", done: true },
   { label: "은행 데이터 소스 11개 수집", owner: "Clobe · 정상", done: true },
-  { label: "2026년 분개장 17,373개 라인 반영", owner: "2026.01.01–08.13", done: true },
-  { label: "분개장 차대변 2,218원 차이 확인", owner: "재무 담당자", done: false },
+  { label: "2026년 분개장 17,467개 라인 반영", owner: "2026.01.01–08.14", done: true },
+  { label: "분개장 차대변 31,190원 차이 확인", owner: "재무 담당자", done: false },
   { label: "2025년 중복 후보 32행 원문 확인", owner: "자동 삭제하지 않음", done: false },
 ];
 
@@ -57,7 +57,7 @@ const cashTrend = [
   { date: "7/24", balance: 1175979470 },
   { date: "7/31", balance: 1692218331 },
   { date: "8/07", balance: 2220797669 },
-  { date: "8/13", balance: 1721282194 },
+  { date: "8/14", balance: 1632647344 },
 ];
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
@@ -106,18 +106,19 @@ const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ la
       { label: "8/10", value: 1716273550 },
       { label: "8/11", value: 1746986430 },
       { label: "8/12", value: 1721282194 },
-      { label: "8/13", value: 1721282194 },
+      { label: "8/13", value: 1632647344 },
+      { label: "8/14", value: 1632647344 },
     ],
     week: cashTrend.map((item) => ({ label: item.date, value: item.balance })),
     month: [
       { label: "5월", value: 90193013 },
       { label: "6월", value: 1242819712 },
       { label: "7월", value: 1692218331 },
-      { label: "8월", value: 1721282194 },
+      { label: "8월", value: 1632647344 },
     ],
     quarter: [
       { label: "2분기", value: 1242819712 },
-      { label: "3분기", value: 1721282194 },
+      { label: "3분기", value: 1632647344 },
     ],
   },
   sales: {
@@ -139,14 +140,14 @@ const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ la
 const financeAlerts = [
   { level: "critical", label: "분류 필요", title: "계정 없는 출금 68.45억원", detail: "최근 31일 · 40건의 출금 계정을 확인하세요." },
   { level: "warning", label: "확인 필요", title: "계정 없는 입금 71.28억원", detail: "최근 31일 · 매출 또는 자금이동 여부를 구분하세요." },
-  { level: "warning", label: "장부 점검", title: "차변·대변 2,218원 차이", detail: "2026년 분개장 마감 전 원인을 확인하세요." },
+  { level: "warning", label: "장부 점검", title: "차변·대변 31,190원 차이", detail: "2026년 분개장 마감 전 원인을 확인하세요." },
   { level: "info", label: "원문 확인", title: "2025년 중복 후보 32행", detail: "실제 반복 거래일 수 있어 자동 삭제하지 않고 원문 검토 대상으로 유지합니다." },
 ];
 
 const financeDailyBrief = [
-  "은행성 자산은 8월 7일 대비 4.99억원 감소해 17.21억원입니다.",
+  "은행성 자산은 8월 7일 대비 5.88억원 감소해 16.33억원입니다.",
   "최근 31일 입금 149.67억원, 출금 133.86억원으로 순유입은 15.82억원입니다.",
-  "외화 예금이 은행성 자산의 91.6%를 차지해 환율 변동 영향이 큽니다.",
+  "외화 예금이 은행성 자산의 96.6%를 차지해 환율 변동 영향이 큽니다.",
   "미분류 입출금 139.73억원과 기타 영업비용 61.68억원을 우선 검토해야 합니다.",
 ];
 
@@ -272,7 +273,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         <div className="erp-nav-spacer" />
         <div className="erp-sync-state">
           <span className="status-dot" />
-          <div><strong>Clobe · 2026 데이터</strong><small>8월 13일 수집</small></div>
+          <div><strong>Clobe · 2026 데이터</strong><small>8월 14일 수집</small></div>
         </div>
         <button
           type="button"
@@ -814,7 +815,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
         </nav>
         <div className="finance-side-footer">
           <button type="button" className="finance-side-alert" onClick={onOpenAlerts}><span>♢</span><strong>알림 센터</strong></button>
-          <div><span>마지막 동기화</span><strong>2026.08.13</strong><small>Clobe · 이카운트 자료 기준</small></div>
+          <div><span>마지막 동기화</span><strong>{financeCurrentData.asOf.replaceAll("-", ".")}</strong><small>Clobe · 이카운트 자료 기준</small></div>
         </div>
       </aside>
 
@@ -836,17 +837,17 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             <div className="finance-year-switch" aria-label="재무 기준연도">
               {(["2024", "2025", "2026"] as const).map((year) => <button type="button" key={year} className={overviewYear === year ? "active" : ""} onClick={() => setOverviewYear(year)}>{year}</button>)}
             </div>
-            <strong>{overviewYear === "2026" ? "2026.01.01–08.13" : `${overviewYear}.01.01–12.31`}</strong>
+            <strong>{overviewYear === "2026" ? `2026.01.01–${financeCurrentData.asOf.slice(5).replace("-", ".")}` : `${overviewYear}.01.01–12.31`}</strong>
             <p>{overviewYear === "2026" ? "Clobe 최신 스냅샷 · 매일 07:30 확인" : "이카운트 결산후 자료 · 원장/시산표 대사 완료"}</p>
           </div>
 
           <section className="kpi-grid">
             {overviewYear === "2026" ? (
               <>
-                <Metric label="은행성 자산" value="₩17.21억" delta="8월 13일 현재" trend="neutral" hint="원화·외화 원화환산 합계" />
+                <Metric label="은행성 자산" value={formatCompactWon(bankAssets)} delta="8월 14일 현재" trend="neutral" hint="원화·외화 원화환산 합계" />
                 <Metric label="최근 31일 순유입" value="+₩15.82억" delta="입금 149.67억 · 출금 133.86억" trend="up" hint="내부 대체거래 제외" />
-                <Metric label="외화 자산 비중" value="91.6%" delta="환율 변동 집중도" trend="down" hint="외화예금 ₩15.77억" />
-                <Metric label="대출 대비 유동성" value="97.3%" delta="대출 잔액 ₩17.69억" trend="down" hint="은행성 자산 ÷ 대출 잔액" />
+                <Metric label="외화 자산 비중" value={`${(fxConcentration * 100).toFixed(1)}%`} delta="환율 변동 집중도" trend="down" hint={`외화예금 ${formatCompactWon(financeCurrentData.accountSummary.fxBalanceSumKrw)}`} />
+                <Metric label="대출 대비 유동성" value={`${(liquidityCoverage * 100).toFixed(1)}%`} delta={`대출 잔액 ${formatCompactWon(bankLoans)}`} trend="down" hint="은행성 자산 ÷ 대출 잔액" />
               </>
             ) : historicalMetrics?.map((item) => <Metric key={item.label} label={item.label} value={formatCompactWon(item.value)} delta={item.hint} trend={item.trend} hint={`${overviewYear}년 결산 자료`} />)}
           </section>
@@ -1069,7 +1070,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             <Metric label="2025 기말 보통예금" value={formatCompactWon(financeHistoricalData.years["2025"].cash)} delta="전년 대비 +65.8%" trend="up" hint="자금현황표 일치" />
             <Metric label="2025 외상매출금" value={formatCompactWon(financeHistoricalData.years["2025"].ar)} delta="전년 대비 -22.3%" trend="up" hint="회수대상 잔액" />
             <Metric label="2025 외상매입금" value={formatCompactWon(financeHistoricalData.years["2025"].ap)} delta="전년 대비 +14.8%" trend="down" hint="지급대상 잔액" />
-            <Metric label="2026 은행성 자산" value="₩17.21억" delta="대출 대비 97.3%" trend="down" hint="8월 13일 Clobe" />
+            <Metric label="2026 은행성 자산" value={formatCompactWon(bankAssets)} delta={`대출 대비 ${(liquidityCoverage * 100).toFixed(1)}%`} trend="down" hint="8월 14일 Clobe" />
           </section>
           <section className="content-grid finance-liquidity-grid">
             <article className="panel finance-chart-panel">
@@ -1141,7 +1142,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             <article><span>2024</span><strong>결산 기준선</strong><p>재무상태표와 시산표 자산총계가 일치합니다.</p><em className="status-pass">PASS</em></article>
             <article><span>2025</span><strong>상세 이관</strong><p>원장 28개 구간과 시산표 27개 계정을 대사했습니다.</p><em className="status-pass">PASS</em></article>
             <article><span>2025</span><strong>분개장 품질</strong><p>15,510행 중 중복 후보 32행과 금액 0원 14행이 있습니다.</p><em className="status-watch">REVIEW</em></article>
-            <article><span>2026</span><strong>Clobe 최신 자료</strong><p>분개장 차대변 2,218원 차이가 남아 있습니다.</p><em className="status-watch">REVIEW</em></article>
+            <article><span>2026</span><strong>Clobe 최신 자료</strong><p>분개장 차대변 {financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이가 남아 있습니다.</p><em className="status-watch">REVIEW</em></article>
           </section>
           <section className="content-grid finance-quality-grid">
             <article className="panel close-panel finance-check-panel">

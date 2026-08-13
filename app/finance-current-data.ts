@@ -1,7 +1,7 @@
-// Snapshot from Clobe tax invoices and bank accounts, refreshed 2026-08-13.
+// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-14.
 // Sales/purchase values are supply values excluding VAT. Credit/cancellation invoices are netted.
 export const financeCurrentData = {
-  "asOf": "2026-08-13",
+  "asOf": "2026-08-14",
   "sourceSummary": {
     "salesInvoices": 1919,
     "purchaseInvoices": 567,
@@ -11944,8 +11944,8 @@ export const financeCurrentData = {
       "name": "ONE KB 사업자통장-기업자유",
       "type": "CHECKING",
       "currency": "KRW",
-      "balance": 114337664,
-      "krwBalance": 114337664
+      "balance": 2537814,
+      "krwBalance": 2537814
     },
     {
       "id": 162637,
@@ -11964,8 +11964,8 @@ export const financeCurrentData = {
       "name": "기업자유예금",
       "type": "CHECKING",
       "currency": "KRW",
-      "balance": 20711572,
-      "krwBalance": 20711572
+      "balance": 20696572,
+      "krwBalance": 20696572
     },
     {
       "id": 162639,
@@ -12044,8 +12044,8 @@ export const financeCurrentData = {
       "name": "ONE KB 사업자통장",
       "type": "CHECKING",
       "currency": "KRW",
-      "balance": 8711689,
-      "krwBalance": 8711689
+      "balance": 31891689,
+      "krwBalance": 31891689
     },
     {
       "id": 162646,
@@ -12089,16 +12089,34 @@ export const financeCurrentData = {
     }
   ],
   "accountSummary": {
-    "checkingBalanceSum": 143825068,
+    "checkingBalanceSum": 55190218,
     "savingsBalanceSum": 0,
     "loanBalanceSum": 1768750005,
     "fxBalanceSumKrw": 1577457126,
     "fundBalanceSumKrw": 0
   },
+  "journalSummary": {
+    "lineCount": 17467,
+    "debitAmountKrw": 266393314600,
+    "creditAmountKrw": 266393283410,
+    "differenceKrw": 31190,
+    "checkingAccount": {
+      "code": "10300",
+      "debitCount": 1840,
+      "creditCount": 1324,
+      "debitAmountKrw": 104720307505,
+      "creditAmountKrw": 103629279397,
+      "netChangeKrw": 1091028108
+    }
+  },
   "balanceTrend": [
     {
+      "date": "2026-08-14",
+      "balance": 1632647344
+    },
+    {
       "date": "2026-08-13",
-      "balance": 1721282194
+      "balance": 1632647344
     },
     {
       "date": "2026-08-12",

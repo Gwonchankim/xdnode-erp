@@ -885,3 +885,50 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .panel { border-radius: 22px; }
   .quick-modal { border-radius: 24px; }
 }
+
+/* 2026 Clobe finance snapshot */
+.finance-scope-note {
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid #d4d4d8;
+  border-radius: 18px;
+  background: #fff;
+}
+.finance-scope-note span {
+  padding: 5px 8px;
+  border-radius: 9px;
+  color: #fff;
+  background: #18181b;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+.finance-scope-note strong { font-size: 12px; }
+.finance-scope-note p { margin: 0 0 0 auto; color: #71717a; font-size: 10px; }
+.close-panel .progress-ring { background: conic-gradient(#18181b 0 60%, #ececee 60% 100%); }
+.accounts-table .data-row > div strong,
+.accounts-table .data-row > div small { display: block; }
+.accounts-table .data-row > div small { margin-top: 4px; color: #a1a1aa; font-size: 8px; }
+.finance-empty { padding: 30px 12px; color: #71717a; text-align: center; font-size: 10px; }
+.journal-summary-row {
+  min-height: 58px;
+  margin: 0 18px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 16px;
+  border-top: 1px solid #ececee;
+}
+.journal-summary-row span { color: #52525b; font-size: 10px; font-weight: 700; }
+.journal-summary-row strong { font-size: 13px; }
+.journal-summary-row small { grid-column: 1 / -1; margin-top: -12px; color: #a1a1aa; font-size: 8px; }
+.journal-summary-row.warning strong,
+.journal-summary-row.warning small { color: #c2410c; }
+
+@media (max-width: 760px) {
+  .finance-scope-note { align-items: flex-start; flex-wrap: wrap; }
+  .finance-scope-note p { width: 100%; margin-left: 0; }
+}

@@ -29,24 +29,43 @@ const erpAlerts = [
   { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘", destination: { module: "hr", hrView: "employees" } },
   { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
   { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
-  { id: "finance-close", category: "재무", title: "월 마감 검토", description: "미증빙 자료와 단가 오류 내역을 마감 전에 검토해 주세요.", time: "D-2", destination: { module: "finance" } },
-  { id: "sync-complete", category: "시스템", title: "마감 데이터 동기화 완료", description: "재무·영업 데이터가 최신 상태로 반영되었습니다.", time: "방금 전" },
+  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 2,218원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
+  { id: "sync-complete", category: "시스템", title: "Clobe 2026 데이터 반영", description: "은행계좌와 2026년 분개장 자료가 8월 13일 기준으로 반영되었습니다.", time: "8월 13일" },
   { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
 ] satisfies ERPAlert[];
 
 const accountRows = [
-  { bank: "KB국민 · 운영", balance: "₩1,284,500,000", move: "+4.2%", tone: "up" },
-  { bank: "KB국민 · 급여", balance: "₩186,240,000", move: "9/5 지급", tone: "neutral" },
-  { bank: "우리 · 외화", balance: "$348,200", move: "+1.8%", tone: "up" },
-  { bank: "KB증권 · CMA", balance: "₩524,000,000", move: "운용 중", tone: "neutral" },
+  { bank: "KB국민 · 007843", kind: "원화 운영계좌", balance: 114337664, icon: "KB" },
+  { bank: "우리 · 551647", kind: "원화 운영계좌", balance: 20711572, icon: "WO" },
+  { bank: "KB국민 · 439352", kind: "원화 운영계좌", balance: 8711689, icon: "KB" },
+  { bank: "KB국민 · 019895", kind: "외화 USD 1,114,410", balance: 1576890150, icon: "FX" },
+  { bank: "KB국민 · 012106", kind: "외화 USD 400.69", balance: 566976, icon: "FX" },
+  { bank: "신한 · 185539", kind: "원화 운영계좌", balance: 33671, icon: "SH" },
+  { bank: "KB국민 · 440068", kind: "원화 운영계좌", balance: 19237, icon: "KB" },
+  { bank: "우리 · 753188", kind: "원화 운영계좌", balance: 11138, icon: "WO" },
+  { bank: "NH농협 · 942591", kind: "원화 운영계좌", balance: 97, icon: "NH" },
 ];
 
-const financeTasks = [
-  { label: "7월 세금계산서 마감", owner: "회계", done: true },
-  { label: "매입고지단가 오류 14건 확인", owner: "구매·영업", done: false },
-  { label: "법인카드 미증빙 8건 보완", owner: "전사", done: false },
-  { label: "법인세 차감 전 이익 산출", owner: "재무", done: false },
-  { label: "급여·상여 최종 승인", owner: "대표", done: false },
+const financeChecks = [
+  { label: "은행 데이터 소스 11개 수집", owner: "Clobe · 정상", done: true },
+  { label: "2026년 분개장 17,373개 라인 반영", owner: "2026.01.01–08.13", done: true },
+  { label: "보통예금 계정 10300 연결", owner: "차변·대변 조회 완료", done: true },
+  { label: "분개장 차대변 2,218원 차이 확인", owner: "재무 담당자", done: false },
+  { label: "2025년 이전 원장 이관", owner: "별도 조사 예정", done: false },
+];
+
+const cashTrend = [
+  { date: "6/05", balance: 92151803 },
+  { date: "6/12", balance: 110625598 },
+  { date: "6/19", balance: 328227448 },
+  { date: "6/26", balance: 98166115 },
+  { date: "7/03", balance: 392253624 },
+  { date: "7/10", balance: 368571497 },
+  { date: "7/17", balance: 492885005 },
+  { date: "7/24", balance: 1175979470 },
+  { date: "7/31", balance: 1692218331 },
+  { date: "8/07", balance: 2220797669 },
+  { date: "8/13", balance: 1721282194 },
 ];
 
 const deals = [
@@ -73,8 +92,8 @@ const peopleRows = [
 
 const moduleCopy: Record<ModuleKey, { title: string; desc: string; action: string; search: string }> = {
   finance: {
-    title: "현금과 마감을 한 화면에서",
-    desc: "잔액, 채권·채무, 월 마감과 급여 집행까지 오늘의 재무 흐름을 확인합니다.",
+    title: "2026년 재무 흐름을 실제 데이터로",
+    desc: "Clobe MCP에서 조회한 은행 잔액과 분개장으로 현금 현황과 장부 점검 항목을 확인합니다. 2025년 이전 자료는 별도 이관 전까지 제외합니다.",
     action: "자금일보 작성",
     search: "계좌, 거래처, 전표 검색",
   },
@@ -98,6 +117,12 @@ function formatWon(value: number) {
     currency: "KRW",
     maximumFractionDigits: 0,
   }).format(Math.max(0, value));
+}
+
+function formatCompactWon(value: number) {
+  if (value >= 1_000_000_000) return `₩${(value / 1_000_000_000).toFixed(2)}B`;
+  if (value >= 1_000_000) return `₩${(value / 1_000_000).toFixed(1)}M`;
+  return formatWon(value);
 }
 
 function ERPTopNavigation({ active, onChange, onOpenAlert }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void }) {
@@ -160,7 +185,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert }: { active: ModuleKey
         <div className="erp-nav-spacer" />
         <div className="erp-sync-state">
           <span className="status-dot" />
-          <div><strong>마감 데이터 동기화</strong><small>방금 전 완료</small></div>
+          <div><strong>Clobe · 2026 데이터</strong><small>8월 13일 수집</small></div>
         </div>
         <button
           type="button"
@@ -289,10 +314,10 @@ export default function Home() {
         <div className="attention-strip">
           <span className="attention-icon">!</span>
           <div>
-            <strong>월 마감 D-2</strong>
-            <span>7월 매입고지단가 오류 14건과 미증빙 8건의 확인이 필요합니다.</span>
+            <strong>{active === "finance" ? "2026년 데이터 적용" : "월 마감 D-2"}</strong>
+            <span>{active === "finance" ? "2025년 이전 자료는 이관 대기 중이며, 분개장 차대변 2,218원 차이는 확인이 필요합니다." : "7월 매입고지단가 오류 14건과 미증빙 8건의 확인이 필요합니다."}</span>
           </div>
-          <button onClick={() => setActive("finance")}>검토 목록 열기 →</button>
+          <button onClick={() => setActive("finance")}>재무 점검 보기 →</button>
         </div>
 
         {active === "finance" && <FinanceDashboard search={search} />}
@@ -348,31 +373,43 @@ export default function Home() {
 
 function FinanceDashboard({ search }: { search: string }) {
   const rows = accountRows.filter((row) => row.bank.toLowerCase().includes(search.toLowerCase()));
-  const chart = [42, 48, 44, 55, 63, 58, 71, 68, 75, 79, 73, 86];
+  const trendMax = Math.max(...cashTrend.map((item) => item.balance));
   return (
     <div className="dashboard-stack">
+      <div className="finance-scope-note">
+        <span>DATA SCOPE</span>
+        <strong>2026.01.01–2026.08.13</strong>
+        <p>Clobe MCP 조회 스냅샷 · 은행 잔액은 8월 13일 수집 기준</p>
+      </div>
       <section className="kpi-grid">
-        <Metric label="가용 현금" value="₩2.46B" delta="전월 대비 +6.8%" trend="up" hint="4개 계좌 합계" />
-        <Metric label="이번 달 유입" value="₩1.84B" delta="목표의 82%" trend="up" hint="확정 매출 기준" />
-        <Metric label="예정 지출" value="₩924M" delta="급여 포함" trend="neutral" hint="30일 이내" />
-        <Metric label="미수금" value="₩186M" delta="연체 3건" trend="down" hint="회수율 91.4%" />
+        <Metric label="은행성 자산" value="₩1.72B" delta="8월 13일 현재" trend="neutral" hint="원화·외화 원화환산 합계" />
+        <Metric label="원화 예금" value="₩143.8M" delta="입출금계좌 합계" trend="neutral" hint="대출계좌 제외" />
+        <Metric label="외화 예금" value="₩1.58B" delta="원화환산액" trend="up" hint="USD 외화계좌 합계" />
+        <Metric label="대출 잔액" value="₩1.77B" delta="3개 대출계좌" trend="down" hint="현재 원금 기준" />
       </section>
 
       <section className="content-grid finance-grid">
         <article className="panel cash-panel">
-          <PanelHeader eyebrow="Cash position" title="12개월 현금 흐름" action="상세 보기" />
-          <div className="chart-summary"><strong>₩2.46B</strong><span>8월 예상 잔액</span><em>+₩158M</em></div>
-          <div className="bar-chart" aria-label="12개월 현금 흐름 막대 차트">
-            {chart.map((height, index) => <span key={index} style={{ height: `${height}%` }} className={index === 11 ? "current" : ""} />)}
+          <PanelHeader eyebrow="Cash position" title="최근 10주 은행 잔액" action="Clobe 기준" />
+          <div className="chart-summary"><strong>₩1.72B</strong><span>8월 13일 은행성 자산</span><em>7월 31일 ₩1.69B</em></div>
+          <div className="bar-chart" aria-label="2026년 최근 10주 은행 잔액 막대 차트">
+            {cashTrend.map((item, index) => (
+              <span
+                key={item.date}
+                title={`${item.date} · ${formatWon(item.balance)}`}
+                style={{ height: `${Math.max(5, (item.balance / trendMax) * 100)}%` }}
+                className={index === cashTrend.length - 1 ? "current" : ""}
+              />
+            ))}
           </div>
-          <div className="chart-labels"><span>9월</span><span>12월</span><span>3월</span><span>6월</span><span>8월</span></div>
+          <div className="chart-labels"><span>6/05</span><span>6/26</span><span>7/17</span><span>7/31</span><span>8/13</span></div>
         </article>
 
         <article className="panel close-panel">
-          <PanelHeader eyebrow="Monthly closing" title="7월 마감 진행률" action="전체 업무" />
-          <div className="progress-ring"><span>64<small>%</small></span></div>
+          <PanelHeader eyebrow="Data checks" title="2026년 반영 상태" action="3 / 5 완료" />
+          <div className="progress-ring"><span>60<small>%</small></span></div>
           <div className="task-list">
-            {financeTasks.map((task) => (
+            {financeChecks.map((task) => (
               <div className="task-row" key={task.label}>
                 <span className={task.done ? "check done" : "check"}>{task.done ? "✓" : ""}</span>
                 <div><strong>{task.label}</strong><small>{task.owner}</small></div>
@@ -384,24 +421,26 @@ function FinanceDashboard({ search }: { search: string }) {
 
       <section className="content-grid lower-grid">
         <article className="panel table-panel">
-          <PanelHeader eyebrow="Bank accounts" title="계좌 잔액" action="잔액 업데이트" />
+          <PanelHeader eyebrow="Bank accounts" title="실제 계좌 잔액" action={`${rows.length}개 표시`} />
           <div className="data-table accounts-table">
             {rows.map((row) => (
               <div className="data-row" key={row.bank}>
-                <span className="bank-icon">KB</span>
-                <strong>{row.bank}</strong>
-                <b>{row.balance}</b>
-                <em className={row.tone}>{row.move}</em>
+                <span className="bank-icon">{row.icon}</span>
+                <div><strong>{row.bank}</strong><small>{row.kind}</small></div>
+                <b title={formatWon(row.balance)}>{formatCompactWon(row.balance)}</b>
+                <em className="neutral">정상 수집</em>
                 <button aria-label={`${row.bank} 더보기`}>•••</button>
               </div>
             ))}
+            {rows.length === 0 && <div className="finance-empty">검색 조건에 맞는 계좌가 없습니다.</div>}
           </div>
         </article>
         <article className="panel deadline-panel">
-          <PanelHeader eyebrow="Upcoming" title="다가오는 자금 일정" action="캘린더" />
-          <div className="deadline-item"><span><b>12</b> AUG</span><div><strong>원천세·4대보험</strong><small>예상 ₩42,800,000</small></div></div>
-          <div className="deadline-item"><span><b>20</b> AUG</span><div><strong>구매대금 정기지급</strong><small>승인 대기 7건</small></div></div>
-          <div className="deadline-item"><span><b>05</b> SEP</span><div><strong>8월 급여 지급</strong><small>7월 인센티브 포함</small></div></div>
+          <PanelHeader eyebrow="Journal ledger" title="2026년 분개장" action="8월 13일 기준" />
+          <div className="journal-summary-row"><span>전체 라인</span><strong>17,373</strong><small>2026.01.01–08.13</small></div>
+          <div className="journal-summary-row"><span>보통예금 순증감</span><strong>+₩1.18B</strong><small>계정코드 10300</small></div>
+          <div className="journal-summary-row warning"><span>차대변 차이</span><strong>₩2,218</strong><small>확인 필요</small></div>
+          <div className="journal-summary-row"><span>과거 자료</span><strong>이관 대기</strong><small>2025년 이전 제외</small></div>
         </article>
       </section>
     </div>

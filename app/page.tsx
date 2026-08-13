@@ -419,9 +419,9 @@ export default function Home() {
       <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
 
       <main className={`main ${active === "finance" ? "finance-main" : ""}`}>
-        <header className="topbar">
+        {active !== "finance" && <header className="topbar">
           <div className="mobile-brand">XD NODE</div>
-          {active !== "finance" && <label className="search-box">
+          <label className="search-box">
             <span aria-hidden="true">⌕</span>
             <input
               ref={searchInputRef}
@@ -432,7 +432,7 @@ export default function Home() {
             />
             {search && <button type="button" className="search-clear" aria-label="검색어 지우기" onClick={() => { setSearch(""); searchInputRef.current?.focus(); }}>×</button>}
             <kbd>⌘ K</kbd>
-          </label>}
+          </label>
           <div className="top-actions">
             <div className="period-picker">
               <button type="button" className="period-button" aria-expanded={periodMenuOpen} onClick={() => setPeriodMenuOpen((open) => !open)}>{active === "finance" ? financePeriod.label : "2026년 8월"} <span>⌄</span></button>
@@ -444,7 +444,7 @@ export default function Home() {
             </div>
             <button type="button" className="icon-button" aria-label="알람 센터 열기" onClick={() => setAlertRequestKey((key) => key + 1)}>♢<span className="notification-ping" /></button>
           </div>
-        </header>
+        </header>}
 
         <section className={`module-hero ${active}`}>
           <div>
@@ -467,7 +467,7 @@ export default function Home() {
           <button type="button" onClick={() => requestFinanceWorkspace("quality")}>재무 점검 보기 →</button>
         </div>}
 
-        {active === "finance" && <FinanceDashboard search={search} requestedWorkspace={financeWorkspaceRequest.view} workspaceRequestKey={financeWorkspaceRequest.requestKey} requestedYear={financePeriod.year} yearRequestKey={financePeriod.requestKey} />}
+        {active === "finance" && <FinanceDashboard search={search} requestedWorkspace={financeWorkspaceRequest.view} workspaceRequestKey={financeWorkspaceRequest.requestKey} requestedYear={financePeriod.year} yearRequestKey={financePeriod.requestKey} onOpenAlerts={() => setAlertRequestKey((key) => key + 1)} />}
         {active === "sales" && (
           <SalesDashboard
             search={search}
@@ -562,12 +562,13 @@ function accountBankName(code: string) {
   return ({ "004": "KB국민", "011": "NH농협", "020": "우리", "088": "신한" } as Record<string, string>)[code] ?? "은행";
 }
 
-function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, requestedYear, yearRequestKey }: {
+function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, requestedYear, yearRequestKey, onOpenAlerts }: {
   search: string;
   requestedWorkspace: FinanceWorkspaceView;
   workspaceRequestKey: number;
   requestedYear: "2024" | "2025" | "2026";
   yearRequestKey: number;
+  onOpenAlerts: () => void;
 }) {
   const [workspace, setWorkspace] = useState<FinanceWorkspaceView>("overview");
   const [overviewYear, setOverviewYear] = useState<"2024" | "2025" | "2026">("2026");
@@ -811,7 +812,10 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             </div>
           ))}
         </nav>
-        <div className="finance-side-footer"><span>마지막 동기화</span><strong>2026.08.13</strong><small>Clobe · 이카운트 자료 기준</small></div>
+        <div className="finance-side-footer">
+          <button type="button" className="finance-side-alert" onClick={onOpenAlerts}><span>♢</span><strong>알림 센터</strong></button>
+          <div><span>마지막 동기화</span><strong>2026.08.13</strong><small>Clobe · 이카운트 자료 기준</small></div>
+        </div>
       </aside>
 
       <div className="dashboard-stack finance-dashboard">

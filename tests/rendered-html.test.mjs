@@ -21,11 +21,13 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /<title>XD NODE ERP · 통합 운영 관리<\/title>/);
   assert.match(html, /2024년부터 오늘까지, 하나의 재무 흐름으로/);
   assert.doesNotMatch(html, /class="attention-strip"/);
+  assert.doesNotMatch(html, /class="topbar"/);
   assert.doesNotMatch(html, /계좌, 거래처, 전표 검색/);
+  assert.doesNotMatch(html, /2026년 8월/);
   assert.match(html, /aria-label="재무회계 메뉴"/);
   assert.match(html, /XDNODE FINANCE/);
-  assert.match(html, /aria-label="알람 센터 열기"/);
-  assert.match(html, /2026년 8월/);
+  assert.match(html, /class="finance-side-alert"/);
+  assert.match(html, /알림 센터/);
   assert.match(html, /내보내기/);
   assert.match(html, /통합 대시보드/);
   assert.match(html, /손익·재무상태/);

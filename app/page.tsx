@@ -68,6 +68,75 @@ const cashTrend = [
   { date: "8/13", balance: 1721282194 },
 ];
 
+type FinancePeriod = "day" | "week" | "month" | "quarter";
+type FinanceMetric = "cash" | "sales";
+
+const financePeriodLabels: Record<FinancePeriod, string> = {
+  day: "일",
+  week: "주",
+  month: "월",
+  quarter: "분기",
+};
+
+const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ label: string; value: number }>>> = {
+  cash: {
+    day: [
+      { label: "8/01", value: 1692218331 },
+      { label: "8/02", value: 1692218331 },
+      { label: "8/03", value: 1857132856 },
+      { label: "8/04", value: 2238650482 },
+      { label: "8/05", value: 2189041634 },
+      { label: "8/06", value: 2234967908 },
+      { label: "8/07", value: 2220797669 },
+      { label: "8/08", value: 2220797669 },
+      { label: "8/09", value: 2220797669 },
+      { label: "8/10", value: 1716273550 },
+      { label: "8/11", value: 1746986430 },
+      { label: "8/12", value: 1721282194 },
+      { label: "8/13", value: 1721282194 },
+    ],
+    week: cashTrend.map((item) => ({ label: item.date, value: item.balance })),
+    month: [
+      { label: "5월", value: 90193013 },
+      { label: "6월", value: 1242819712 },
+      { label: "7월", value: 1692218331 },
+      { label: "8월", value: 1721282194 },
+    ],
+    quarter: [
+      { label: "2분기", value: 1242819712 },
+      { label: "3분기", value: 1721282194 },
+    ],
+  },
+  sales: {
+    day: [{ label: "6/01", value: 21510000 }],
+    week: [{ label: "6/01주", value: 21510000 }],
+    month: [
+      { label: "1월", value: 0 }, { label: "2월", value: 0 }, { label: "3월", value: 0 },
+      { label: "4월", value: 0 }, { label: "5월", value: 0 }, { label: "6월", value: 21510000 },
+      { label: "7월", value: 0 }, { label: "8월", value: 0 },
+    ],
+    quarter: [
+      { label: "1분기", value: 0 },
+      { label: "2분기", value: 21510000 },
+      { label: "3분기", value: 0 },
+    ],
+  },
+};
+
+const financeAlerts = [
+  { level: "critical", label: "분류 필요", title: "계정 없는 출금 68.45억원", detail: "최근 31일 · 40건의 출금 계정을 확인하세요." },
+  { level: "warning", label: "확인 필요", title: "계정 없는 입금 71.28억원", detail: "최근 31일 · 매출 또는 자금이동 여부를 구분하세요." },
+  { level: "warning", label: "장부 점검", title: "차변·대변 2,218원 차이", detail: "2026년 분개장 마감 전 원인을 확인하세요." },
+  { level: "info", label: "데이터 범위", title: "연동 매출 채널 1개", detail: "쿠팡 마켓플레이스 외 매출은 아직 채널 집계에 없습니다." },
+];
+
+const financeDailyBrief = [
+  "은행성 자산은 8월 7일 대비 4.99억원 감소해 17.21억원입니다.",
+  "최근 31일 입금 149.67억원, 출금 133.86억원으로 순유입은 15.82억원입니다.",
+  "외화 예금이 은행성 자산의 91.6%를 차지해 환율 변동 영향이 큽니다.",
+  "미분류 입출금 139.73억원과 기타 영업비용 61.68억원을 우선 검토해야 합니다.",
+];
+
 const deals = [
   { company: "네오클라우드", rep: "김민준", stage: "계약검토", amount: "₩420M", due: "8/14", health: "good" },
   { company: "브릿지AI", rep: "박서연", stage: "견적", amount: "₩285M", due: "8/16", health: "good" },
@@ -373,48 +442,156 @@ export default function Home() {
 
 function FinanceDashboard({ search }: { search: string }) {
   const rows = accountRows.filter((row) => row.bank.toLowerCase().includes(search.toLowerCase()));
-  const trendMax = Math.max(...cashTrend.map((item) => item.balance));
+  const [period, setPeriod] = useState<FinancePeriod>("week");
+  const [metric, setMetric] = useState<FinanceMetric>("cash");
+  const [assistantQuestion, setAssistantQuestion] = useState("");
+  const [assistantAnswer, setAssistantAnswer] = useState("궁금한 항목을 선택하거나 질문을 입력해 주세요. 현재 반영된 2026년 재무 데이터만 근거로 답변합니다.");
+  const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
+  const chartData = financeChartSeries[metric][period];
+  const trendMax = Math.max(1, ...chartData.map((item) => item.value));
+  const firstValue = chartData[0]?.value ?? 0;
+  const lastValue = chartData.at(-1)?.value ?? 0;
+  const changeRate = firstValue > 0 ? ((lastValue - firstValue) / firstValue) * 100 : 0;
+
+  async function askFinanceAssistant(question: string) {
+    const cleanQuestion = question.trim();
+    if (!cleanQuestion || assistantStatus === "loading") return;
+    setAssistantQuestion(cleanQuestion);
+    setAssistantStatus("loading");
+    setAssistantAnswer("2026년 재무 데이터를 확인하고 있습니다…");
+    try {
+      const response = await fetch("/api/finance/assistant", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: cleanQuestion }),
+      });
+      const data = await response.json() as { answer?: string; error?: string; quotaExceeded?: boolean };
+      if (!response.ok || !data.answer) {
+        throw new Error(data.quotaExceeded ? "오늘의 AI 무료 사용 한도를 초과했습니다. 내일 다시 이용해 주세요." : data.error || "답변을 만들지 못했습니다.");
+      }
+      setAssistantAnswer(data.answer);
+      setAssistantStatus("idle");
+    } catch (error) {
+      setAssistantStatus("error");
+      setAssistantAnswer(error instanceof Error ? error.message : "재무 어시스턴트에 연결할 수 없습니다.");
+    }
+  }
+
+  function submitAssistant(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void askFinanceAssistant(assistantQuestion);
+  }
+
   return (
-    <div className="dashboard-stack">
+    <div className="dashboard-stack finance-dashboard">
       <div className="finance-scope-note">
-        <span>DATA SCOPE</span>
+        <span>FINANCE CONTROL ROOM</span>
         <strong>2026.01.01–2026.08.13</strong>
-        <p>Clobe MCP 조회 스냅샷 · 은행 잔액은 8월 13일 수집 기준</p>
+        <p>Clobe MCP 조회 스냅샷 · 매일 오전 7시 30분 변경사항 확인</p>
       </div>
       <section className="kpi-grid">
-        <Metric label="은행성 자산" value="₩1.72B" delta="8월 13일 현재" trend="neutral" hint="원화·외화 원화환산 합계" />
-        <Metric label="원화 예금" value="₩143.8M" delta="입출금계좌 합계" trend="neutral" hint="대출계좌 제외" />
-        <Metric label="외화 예금" value="₩1.58B" delta="원화환산액" trend="up" hint="USD 외화계좌 합계" />
-        <Metric label="대출 잔액" value="₩1.77B" delta="3개 대출계좌" trend="down" hint="현재 원금 기준" />
+        <Metric label="은행성 자산" value="₩17.21억" delta="8월 13일 현재" trend="neutral" hint="원화·외화 원화환산 합계" />
+        <Metric label="최근 31일 순유입" value="+₩15.82억" delta="입금 149.67억 · 출금 133.86억" trend="up" hint="내부 대체거래 제외" />
+        <Metric label="외화 자산 비중" value="91.6%" delta="환율 변동 집중도" trend="down" hint="외화예금 ₩15.77억" />
+        <Metric label="대출 대비 유동성" value="97.3%" delta="대출 잔액 ₩17.69억" trend="down" hint="은행성 자산 ÷ 대출 잔액" />
       </section>
 
-      <section className="content-grid finance-grid">
-        <article className="panel cash-panel">
-          <PanelHeader eyebrow="Cash position" title="최근 10주 은행 잔액" action="Clobe 기준" />
-          <div className="chart-summary"><strong>₩1.72B</strong><span>8월 13일 은행성 자산</span><em>7월 31일 ₩1.69B</em></div>
-          <div className="bar-chart" aria-label="2026년 최근 10주 은행 잔액 막대 차트">
-            {cashTrend.map((item, index) => (
-              <span
-                key={item.date}
-                title={`${item.date} · ${formatWon(item.balance)}`}
-                style={{ height: `${Math.max(5, (item.balance / trendMax) * 100)}%` }}
-                className={index === cashTrend.length - 1 ? "current" : ""}
-              />
-            ))}
+      <section className="finance-alert-section" aria-label="재무 알림">
+        <div className="finance-section-heading">
+          <div><p>FINANCIAL ALERTS</p><h2>지금 확인할 재무 알림</h2></div>
+          <span>확인 필요 3건</span>
+        </div>
+        <div className="finance-alert-grid">
+          {financeAlerts.map((alert) => (
+            <article className={`finance-alert-card ${alert.level}`} key={alert.title}>
+              <span>{alert.label}</span>
+              <strong>{alert.title}</strong>
+              <p>{alert.detail}</p>
+              <button type="button">내역 확인 →</button>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="content-grid finance-insight-grid">
+        <article className="panel finance-chart-panel">
+          <div className="finance-chart-head">
+            <div><p>FINANCIAL TREND</p><h2>{metric === "cash" ? "자금 잔액 변화" : "연동 채널 매출"}</h2></div>
+            <div className="finance-chart-controls">
+              <div className="segment-control" aria-label="지표 선택">
+                <button className={metric === "cash" ? "active" : ""} onClick={() => setMetric("cash")}>자금</button>
+                <button className={metric === "sales" ? "active" : ""} onClick={() => setMetric("sales")}>매출</button>
+              </div>
+              <div className="segment-control period" aria-label="기간 선택">
+                {(Object.keys(financePeriodLabels) as FinancePeriod[]).map((key) => (
+                  <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{financePeriodLabels[key]}</button>
+                ))}
+              </div>
+            </div>
           </div>
-          <div className="chart-labels"><span>6/05</span><span>6/26</span><span>7/17</span><span>7/31</span><span>8/13</span></div>
+          <div className="finance-chart-summary">
+            <div><strong>{formatCompactWon(lastValue)}</strong><span>{metric === "cash" ? "선택 기간 말 잔액" : "선택 기간 연동 매출"}</span></div>
+            <em className={changeRate >= 0 ? "positive" : "negative"}>{firstValue > 0 ? `${changeRate >= 0 ? "+" : ""}${changeRate.toFixed(1)}%` : "비교 기준 없음"}</em>
+          </div>
+          <div className="finance-bar-stage" aria-label={`${financePeriodLabels[period]} 단위 ${metric === "cash" ? "자금 잔액" : "연동 채널 매출"} 그래프`}>
+            <div className="finance-grid-lines"><i /><i /><i /></div>
+            <div className="finance-bars">
+              {chartData.map((item, index) => (
+                <div className="finance-bar-item" key={`${item.label}-${index}`}>
+                  <span className={index === chartData.length - 1 ? "bar current" : "bar"} title={`${item.label} · ${formatWon(item.value)}`} style={{ height: `${item.value === 0 ? 2 : Math.max(8, (item.value / trendMax) * 100)}%` }} />
+                  <small>{item.label}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="chart-coverage-note">
+            <span>i</span>
+            {metric === "cash" ? "계좌 잔액은 수집일 말 기준이며 내부 대체거래와 무관한 잔액 스냅샷입니다." : "현재 연동 채널 매출은 쿠팡 마켓플레이스 2,151만원입니다. 은행의 ‘매출성 입금’과는 별도 지표입니다."}
+          </div>
         </article>
 
-        <article className="panel close-panel">
-          <PanelHeader eyebrow="Data checks" title="2026년 반영 상태" action="3 / 5 완료" />
-          <div className="progress-ring"><span>60<small>%</small></span></div>
-          <div className="task-list">
-            {financeChecks.map((task) => (
-              <div className="task-row" key={task.label}>
-                <span className={task.done ? "check done" : "check"}>{task.done ? "✓" : ""}</span>
-                <div><strong>{task.label}</strong><small>{task.owner}</small></div>
-              </div>
+        <article className="panel ai-daily-brief">
+          <div className="ai-brief-head">
+            <span>AI</span>
+            <div><p>DAILY CASH BRIEF</p><h2>오늘의 자금일보</h2></div>
+            <em>07:30 분석</em>
+          </div>
+          <div className="ai-brief-hero"><small>자금 상태</small><strong>주의</strong><p>유동성은 유지되고 있지만 미분류 거래와 외화 집중도를 확인해야 합니다.</p></div>
+          <ol className="ai-brief-list">
+            {financeDailyBrief.map((item, index) => <li key={item}><span>{index + 1}</span><p>{item}</p></li>)}
+          </ol>
+          <div className="ai-priority"><span>오늘의 우선순위</span><strong>미분류 출금 40건 계정 지정</strong></div>
+        </article>
+      </section>
+
+      <section className="content-grid finance-assistant-grid">
+        <article className="panel finance-assistant-panel">
+          <div className="assistant-heading">
+            <div className="assistant-mark">AI</div>
+            <div><p>FINANCE DATA ASSISTANT</p><h2>재무 데이터 어시스턴트</h2><span>현재 반영된 2026년 데이터에 근거해 답변합니다.</span></div>
+          </div>
+          <div className={assistantStatus === "error" ? "assistant-answer error" : "assistant-answer"}>{assistantAnswer}</div>
+          <div className="assistant-suggestions">
+            {["오늘 자금 상태 요약", "미분류 거래 위험", "대출 대비 유동성", "최근 자금 변동 원인"].map((question) => (
+              <button type="button" key={question} onClick={() => void askFinanceAssistant(question)}>{question}</button>
             ))}
+          </div>
+          <form className="assistant-form" onSubmit={submitAssistant}>
+            <input value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} maxLength={300} placeholder="예: 최근 출금 증가의 주요 원인은 무엇인가요?" aria-label="재무 데이터 질문" />
+            <button type="submit" disabled={assistantStatus === "loading"}>{assistantStatus === "loading" ? "분석 중" : "질문하기"}</button>
+          </form>
+        </article>
+
+        <article className="panel cashflow-breakdown-panel">
+          <PanelHeader eyebrow="31-day cash flow" title="자금 유출 상위 항목" action="7/14–8/13" />
+          <div className="cashflow-total"><span>출금 합계</span><strong>₩133.86억</strong><small>Clobe 분류 기준</small></div>
+          <div className="cashflow-breakdown">
+            {[
+              { label: "계정 없는 출금", value: 6845402364, width: 100 },
+              { label: "기타 영업비용", value: 6167766052, width: 90 },
+              { label: "세금과공과", value: 308196930, width: 18 },
+              { label: "카드·수수료 등", value: 41811258, width: 9 },
+            ].map((item) => <div key={item.label}><p><span>{item.label}</span><strong>{formatCompactWon(item.value)}</strong></p><i><b style={{ width: `${item.width}%` }} /></i></div>)}
           </div>
         </article>
       </section>
@@ -435,12 +612,17 @@ function FinanceDashboard({ search }: { search: string }) {
             {rows.length === 0 && <div className="finance-empty">검색 조건에 맞는 계좌가 없습니다.</div>}
           </div>
         </article>
-        <article className="panel deadline-panel">
-          <PanelHeader eyebrow="Journal ledger" title="2026년 분개장" action="8월 13일 기준" />
-          <div className="journal-summary-row"><span>전체 라인</span><strong>17,373</strong><small>2026.01.01–08.13</small></div>
-          <div className="journal-summary-row"><span>보통예금 순증감</span><strong>+₩1.18B</strong><small>계정코드 10300</small></div>
-          <div className="journal-summary-row warning"><span>차대변 차이</span><strong>₩2,218</strong><small>확인 필요</small></div>
-          <div className="journal-summary-row"><span>과거 자료</span><strong>이관 대기</strong><small>2025년 이전 제외</small></div>
+        <article className="panel close-panel finance-check-panel">
+          <PanelHeader eyebrow="Data checks" title="2026년 반영 상태" action="3 / 5 완료" />
+          <div className="progress-ring"><span>60<small>%</small></span></div>
+          <div className="task-list">
+            {financeChecks.map((task) => (
+              <div className="task-row" key={task.label}>
+                <span className={task.done ? "check done" : "check"}>{task.done ? "✓" : ""}</span>
+                <div><strong>{task.label}</strong><small>{task.owner}</small></div>
+              </div>
+            ))}
+          </div>
         </article>
       </section>
     </div>

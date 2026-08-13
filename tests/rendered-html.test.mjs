@@ -24,6 +24,8 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /손익·재무상태/);
   assert.match(html, /자금·채권채무/);
   assert.match(html, /원장·데이터 점검/);
+  assert.match(html, /매입·매출 분석/);
+  assert.match(html, /외상·미수 관리/);
   assert.match(html, /재무 데이터 어시스턴트/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site|codex-preview/);
 });

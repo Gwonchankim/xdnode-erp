@@ -2,6 +2,7 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import HRWorkspace from "./hr-workspace";
+import { financeCurrentData } from "./finance-current-data";
 import { financeHistoricalData } from "./finance-historical-data";
 
 type ModuleKey = "finance" | "sales" | "hr";
@@ -61,8 +62,27 @@ const cashTrend = [
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
+type ReceivableStatus = "UNSET" | "PLANNED" | "PARTIAL" | "OVERDUE" | "HOLD" | "COMPLETE";
+type ReceivableManagementRecord = {
+  partnerName: string;
+  outstandingAmount: number;
+  owner: string;
+  dueDate: string;
+  status: ReceivableStatus;
+  memo: string;
+  updatedAt?: number;
+};
+
+const receivableStatusLabels: Record<ReceivableStatus, string> = {
+  UNSET: "확인 필요",
+  PLANNED: "회수 예정",
+  PARTIAL: "일부 회수",
+  OVERDUE: "연체",
+  HOLD: "분쟁·보류",
+  COMPLETE: "회수 완료",
+};
 
 const financePeriodLabels: Record<FinancePeriod, string> = {
   day: "일",
@@ -456,6 +476,28 @@ function FinanceBars({ data, currentLabel }: { data: Array<{ label: string; valu
   );
 }
 
+function aggregateCommercialRows(
+  rows: ReadonlyArray<{ date: string; partner: string; amount: number; count: number }>,
+  startDate: string,
+  endDate: string,
+  search: string,
+) {
+  const grouped = new Map<string, { partner: string; amount: number; count: number }>();
+  for (const row of rows) {
+    if (row.date < startDate || row.date > endDate) continue;
+    if (search && !row.partner.toLowerCase().includes(search.toLowerCase())) continue;
+    const current = grouped.get(row.partner) ?? { partner: row.partner, amount: 0, count: 0 };
+    current.amount += row.amount;
+    current.count += row.count;
+    grouped.set(row.partner, current);
+  }
+  return [...grouped.values()].filter((row) => row.amount !== 0).sort((a, b) => b.amount - a.amount);
+}
+
+function accountBankName(code: string) {
+  return ({ "004": "KB국민", "011": "NH농협", "020": "우리", "088": "신한" } as Record<string, string>)[code] ?? "은행";
+}
+
 function FinanceDashboard({ search }: { search: string }) {
   const [workspace, setWorkspace] = useState<FinanceWorkspaceView>("overview");
   const [overviewYear, setOverviewYear] = useState<"2024" | "2025" | "2026">("2026");
@@ -465,6 +507,13 @@ function FinanceDashboard({ search }: { search: string }) {
   const [historicalMetric, setHistoricalMetric] = useState<HistoricalMetric>("revenue");
   const [exposureType, setExposureType] = useState<"receivables" | "payables">("receivables");
   const [liquidityMetric, setLiquidityMetric] = useState<"cash" | "ar" | "ap">("cash");
+  const [commercialStartDate, setCommercialStartDate] = useState("2026-01-01");
+  const [commercialEndDate, setCommercialEndDate] = useState(financeCurrentData.asOf);
+  const [receivableRecords, setReceivableRecords] = useState<Record<string, ReceivableManagementRecord>>({});
+  const [receivablesLoaded, setReceivablesLoaded] = useState(false);
+  const [receivableLoading, setReceivableLoading] = useState(false);
+  const [receivableDraft, setReceivableDraft] = useState<ReceivableManagementRecord | null>(null);
+  const [receivableMessage, setReceivableMessage] = useState("");
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantAnswer, setAssistantAnswer] = useState("2024~2026년 재무 데이터 범위와 출처를 구분해 답변합니다. 궁금한 항목을 선택하거나 질문을 입력해 주세요.");
   const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -477,6 +526,60 @@ function FinanceDashboard({ search }: { search: string }) {
   const exposureExceptions = exposureType === "receivables" ? financeHistoricalData.receivableExceptions : financeHistoricalData.payableExceptions;
   const grossProfit = selectedHistorical.revenue - selectedHistorical.cogs;
   const grossMargin = selectedHistorical.revenue ? (grossProfit / selectedHistorical.revenue) * 100 : 0;
+  const commercialPeriodValid = commercialStartDate <= commercialEndDate;
+  const commercialSalesRows = useMemo(
+    () => commercialPeriodValid ? aggregateCommercialRows(financeCurrentData.salesDaily2026, commercialStartDate, commercialEndDate, search) : [],
+    [commercialEndDate, commercialPeriodValid, commercialStartDate, search],
+  );
+  const commercialPurchaseRows = useMemo(
+    () => commercialPeriodValid ? aggregateCommercialRows(financeCurrentData.purchaseDaily2026, commercialStartDate, commercialEndDate, search) : [],
+    [commercialEndDate, commercialPeriodValid, commercialStartDate, search],
+  );
+  const selectedSalesTotal = commercialSalesRows.reduce((sum, row) => sum + row.amount, 0);
+  const selectedPurchaseTotal = commercialPurchaseRows.reduce((sum, row) => sum + row.amount, 0);
+  const selectedSalesCount = commercialSalesRows.reduce((sum, row) => sum + row.count, 0);
+  const selectedPurchaseCount = commercialPurchaseRows.reduce((sum, row) => sum + row.count, 0);
+  const currentSalesYtd = financeCurrentData.sourceSummary.salesSupplyValue;
+  const elapsedDays2026 = 225;
+  const projectedAnnualSales = Math.round((currentSalesYtd / elapsedDays2026) * 365);
+  const priorYearSales = financeHistoricalData.years["2025"].revenue;
+  const monthlySalesChart = financeCurrentData.salesMonthly2026.map((row) => ({
+    label: `${Number(row.month.slice(5))}월`,
+    value: row.amount,
+  }));
+  const managedReceivables = financeHistoricalData.receivables.map((row) => (
+    receivableRecords[row.name] ?? {
+      partnerName: row.name,
+      outstandingAmount: row.ending,
+      owner: "",
+      dueDate: "",
+      status: "UNSET" as ReceivableStatus,
+      memo: "",
+    }
+  )).sort((a, b) => b.outstandingAmount - a.outstandingAmount);
+  const receivableOutstandingTotal = managedReceivables.reduce((sum, row) => sum + row.outstandingAmount, 0);
+  const receivableOverdueAmount = managedReceivables.reduce((sum, row) => (
+    row.status !== "COMPLETE" && (row.status === "OVERDUE" || (row.dueDate && row.dueDate < financeCurrentData.asOf))
+      ? sum + row.outstandingAmount
+      : sum
+  ), 0);
+  const missingCollectionPlan = managedReceivables.filter((row) => row.status !== "COMPLETE" && !row.dueDate).length;
+  const bankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
+  const bankLoans = financeCurrentData.accountSummary.loanBalanceSum;
+  const liquidityCoverage = bankLoans ? bankAssets / bankLoans : 0;
+  const fxConcentration = bankAssets ? financeCurrentData.accountSummary.fxBalanceSumKrw / bankAssets : 0;
+  const lowBalanceAccounts = financeCurrentData.accounts.filter((row) => row.type === "CHECKING" && row.krwBalance < 100_000).length;
+  const latestBankBalance = financeCurrentData.balanceTrend[0]?.balance ?? 0;
+  const peakBankBalance = Math.max(...financeCurrentData.balanceTrend.map((row) => row.balance));
+  const bankDrawdown = peakBankBalance ? (peakBankBalance - latestBankBalance) / peakBankBalance : 0;
+  const accountRiskScore = Math.min(100,
+    (liquidityCoverage < 1 ? 25 : liquidityCoverage < 1.25 ? 12 : 0)
+    + (fxConcentration > .7 ? 20 : fxConcentration > .4 ? 10 : 0)
+    + (financeCurrentData.accountSummary.checkingBalanceSum < 300_000_000 ? 15 : 0)
+    + (lowBalanceAccounts >= 3 ? 10 : 0)
+    + (bankDrawdown > .2 ? 10 : 0)
+  );
+  const accountRiskLevel = accountRiskScore >= 60 ? "높음" : accountRiskScore >= 30 ? "주의" : "안정";
 
   const historicalChartData = overviewYear === "2025"
     ? financeHistoricalData.monthly2025.map((item) => ({
@@ -496,6 +599,57 @@ function FinanceDashboard({ search }: { search: string }) {
     label: `${item.month}월`,
     value: liquidityMetric === "cash" ? item.cashBalance : liquidityMetric === "ar" ? item.arBalance : item.apBalance,
   }));
+
+  async function loadReceivableRecords() {
+    if (receivablesLoaded || receivableLoading) return;
+    setReceivableLoading(true);
+    setReceivableMessage("");
+    try {
+      const response = await fetch("/api/finance/receivables");
+      const data = await response.json() as { records?: ReceivableManagementRecord[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "외상·미수 관리 기록을 불러오지 못했습니다.");
+      const records = Object.fromEntries((data.records ?? []).map((record) => [record.partnerName, record]));
+      setReceivableRecords(records);
+      setReceivablesLoaded(true);
+    } catch (error) {
+      setReceivableMessage(error instanceof Error ? error.message : "외상·미수 관리 기록을 불러오지 못했습니다.");
+    } finally {
+      setReceivableLoading(false);
+    }
+  }
+
+  function selectWorkspace(next: FinanceWorkspaceView) {
+    setWorkspace(next);
+    if (next === "receivables") void loadReceivableRecords();
+  }
+
+  function editReceivable(record: ReceivableManagementRecord) {
+    setReceivableDraft({ ...record });
+    setReceivableMessage("");
+  }
+
+  async function saveReceivable(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!receivableDraft || receivableLoading) return;
+    setReceivableLoading(true);
+    setReceivableMessage("");
+    try {
+      const response = await fetch("/api/finance/receivables", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(receivableDraft),
+      });
+      const data = await response.json() as { record?: ReceivableManagementRecord; error?: string };
+      if (!response.ok || !data.record) throw new Error(data.error || "회수 관리 기록을 저장하지 못했습니다.");
+      setReceivableRecords((current) => ({ ...current, [data.record!.partnerName]: data.record! }));
+      setReceivableDraft(data.record);
+      setReceivableMessage("변경내용을 저장했습니다.");
+    } catch (error) {
+      setReceivableMessage(error instanceof Error ? error.message : "회수 관리 기록을 저장하지 못했습니다.");
+    } finally {
+      setReceivableLoading(false);
+    }
+  }
 
   async function askFinanceAssistant(question: string) {
     const cleanQuestion = question.trim();
@@ -538,11 +692,13 @@ function FinanceDashboard({ search }: { search: string }) {
       <div className="finance-workspace-tabs" role="tablist" aria-label="재무회계 보기">
         {([
           ["overview", "통합 대시보드"],
+          ["commercial", "매입·매출 분석"],
+          ["receivables", "외상·미수 관리"],
           ["statements", "손익·재무상태"],
           ["liquidity", "자금·채권채무"],
           ["quality", "원장·데이터 점검"],
         ] as Array<[FinanceWorkspaceView, string]>).map(([key, label]) => (
-          <button type="button" role="tab" aria-selected={workspace === key} className={workspace === key ? "active" : ""} key={key} onClick={() => setWorkspace(key)}>{label}</button>
+          <button type="button" role="tab" aria-selected={workspace === key} className={workspace === key ? "active" : ""} key={key} onClick={() => selectWorkspace(key)}>{label}</button>
         ))}
       </div>
 
@@ -631,6 +787,123 @@ function FinanceDashboard({ search }: { search: string }) {
         </>
       )}
 
+      {workspace === "commercial" && (
+        <>
+          <div className="finance-subpage-heading">
+            <div><p>SALES & PURCHASE ANALYTICS</p><h2>매입·매출 분석</h2><span>세금계산서 공급가액 기준으로 수정·취소분을 순액 반영합니다.</span></div>
+            <span className="finance-data-badge">Clobe · {financeCurrentData.asOf} 기준</span>
+          </div>
+          <section className="panel commercial-period-panel">
+            <div>
+              <span>분석 기간</span>
+              <strong>{commercialPeriodValid ? `${commercialStartDate} → ${commercialEndDate}` : "시작일과 종료일을 확인해 주세요."}</strong>
+            </div>
+            <div className="commercial-date-controls">
+              <label>시작일<input type="date" min="2026-01-01" max={financeCurrentData.asOf} value={commercialStartDate} onChange={(event) => setCommercialStartDate(event.target.value)} /></label>
+              <label>종료일<input type="date" min="2026-01-01" max={financeCurrentData.asOf} value={commercialEndDate} onChange={(event) => setCommercialEndDate(event.target.value)} /></label>
+              <div className="commercial-presets" aria-label="기간 빠른 선택">
+                <button type="button" onClick={() => { setCommercialStartDate("2026-01-01"); setCommercialEndDate(financeCurrentData.asOf); }}>올해 누적</button>
+                <button type="button" onClick={() => { setCommercialStartDate("2026-08-01"); setCommercialEndDate(financeCurrentData.asOf); }}>이번 달</button>
+                <button type="button" onClick={() => { setCommercialStartDate("2026-07-15"); setCommercialEndDate(financeCurrentData.asOf); }}>최근 30일</button>
+              </div>
+            </div>
+          </section>
+          <section className="kpi-grid">
+            <Metric label="선택기간 매출" value={formatCompactWon(selectedSalesTotal)} delta={`${selectedSalesCount.toLocaleString("ko-KR")}건`} trend="up" hint="공급가액 · 취소분 순액" />
+            <Metric label="선택기간 매입" value={formatCompactWon(selectedPurchaseTotal)} delta={`${selectedPurchaseCount.toLocaleString("ko-KR")}건`} trend="down" hint="공급가액 · 취소분 순액" />
+            <Metric label="매출 - 매입" value={formatCompactWon(selectedSalesTotal - selectedPurchaseTotal)} delta={selectedSalesTotal >= selectedPurchaseTotal ? "매출 우위" : "매입 우위"} trend={selectedSalesTotal >= selectedPurchaseTotal ? "up" : "down"} hint="재고·비용을 반영한 이익이 아님" />
+            <Metric label="조회 거래처" value={`${new Set([...commercialSalesRows.map((row) => row.partner), ...commercialPurchaseRows.map((row) => row.partner)]).size}곳`} delta="검색어 필터 연동" trend="neutral" hint="매출·매입 거래처 합산" />
+          </section>
+          <section className="content-grid commercial-ranking-grid">
+            <article className="panel commercial-ranking-panel">
+              <PanelHeader eyebrow="Sales ranking" title="매출 거래처 순위" action={`${commercialSalesRows.length}곳`} />
+              <div className="commercial-ranking-list">
+                {commercialSalesRows.slice(0, 15).map((row, index) => <div key={row.partner}>
+                  <span>{index + 1}</span>
+                  <p><strong>{row.partner}</strong><small>{row.count.toLocaleString("ko-KR")}건</small><i><b style={{ width: `${Math.max(3, (row.amount / Math.max(commercialSalesRows[0]?.amount ?? 1, 1)) * 100)}%` }} /></i></p>
+                  <em>{formatCompactWon(row.amount)}</em>
+                </div>)}
+                {commercialSalesRows.length === 0 && <div className="finance-empty">선택한 기간에 매출 자료가 없습니다.</div>}
+              </div>
+            </article>
+            <article className="panel commercial-ranking-panel purchase">
+              <PanelHeader eyebrow="Purchase ranking" title="매입 거래처 순위" action={`${commercialPurchaseRows.length}곳`} />
+              <div className="commercial-ranking-list">
+                {commercialPurchaseRows.slice(0, 15).map((row, index) => <div key={row.partner}>
+                  <span>{index + 1}</span>
+                  <p><strong>{row.partner}</strong><small>{row.count.toLocaleString("ko-KR")}건</small><i><b style={{ width: `${Math.max(3, (row.amount / Math.max(commercialPurchaseRows[0]?.amount ?? 1, 1)) * 100)}%` }} /></i></p>
+                  <em>{formatCompactWon(row.amount)}</em>
+                </div>)}
+                {commercialPurchaseRows.length === 0 && <div className="finance-empty">선택한 기간에 매입 자료가 없습니다.</div>}
+              </div>
+            </article>
+          </section>
+          <section className="content-grid commercial-forecast-grid">
+            <article className="panel finance-chart-panel">
+              <div className="finance-chart-head"><div><p>MONTHLY SALES TREND</p><h2>2026년 월간 매출 추이</h2></div><span className="finance-data-badge">8월 13일까지</span></div>
+              <div className="finance-chart-summary"><div><strong>{formatCompactWon(currentSalesYtd)}</strong><span>현재까지 누적 매출액</span></div><em className="positive">2025 연간 대비 {((currentSalesYtd / priorYearSales - 1) * 100).toFixed(1)}%</em></div>
+              <FinanceBars data={monthlySalesChart} currentLabel="8월" />
+              <div className="chart-coverage-note"><span>i</span>8월은 13일까지의 부분 실적이며 공급가액 기준입니다.</div>
+            </article>
+            <article className="panel annual-forecast-panel">
+              <p>YEAR-END RUN RATE</p>
+              <h2>연말 예상 총 매출액</h2>
+              <strong>{formatCompactWon(projectedAnnualSales)}</strong>
+              <div className="forecast-meter"><i style={{ width: `${Math.min(100, (currentSalesYtd / projectedAnnualSales) * 100)}%` }} /></div>
+              <dl><div><dt>누적 실적</dt><dd>{formatCompactWon(currentSalesYtd)}</dd></div><div><dt>경과일</dt><dd>{elapsedDays2026}일 / 365일</dd></div><div><dt>2025 연간 매출</dt><dd>{formatCompactWon(priorYearSales)}</dd></div></dl>
+              <small>1월 1일~8월 13일의 일평균 매출을 365일로 연환산한 단순 예측입니다. 계절성·수주잔고·반품 가능성은 반영하지 않습니다.</small>
+            </article>
+          </section>
+        </>
+      )}
+
+      {workspace === "receivables" && (
+        <>
+          <div className="finance-subpage-heading">
+            <div><p>ACCOUNTS RECEIVABLE CONTROL</p><h2>외상·미수 매출 관리</h2><span>2025년 결산잔액을 기준선으로 두고 현재 회수잔액·담당자·예정일·메모를 저장합니다.</span></div>
+            <span className="finance-data-badge warning">만기일 원천자료 미연동</span>
+          </div>
+          <section className="kpi-grid">
+            <Metric label="관리대상 미수잔액" value={formatCompactWon(receivableOutstandingTotal)} delta={`${managedReceivables.length}개 거래처`} trend="down" hint="저장된 현재잔액 우선" />
+            <Metric label="연체·기한경과" value={formatCompactWon(receivableOverdueAmount)} delta={receivableOverdueAmount ? "즉시 확인 필요" : "기한경과 없음"} trend={receivableOverdueAmount ? "down" : "up"} hint="회수예정일·상태 기준" />
+            <Metric label="회수계획 미설정" value={`${missingCollectionPlan}곳`} delta="예정일 입력 필요" trend={missingCollectionPlan ? "down" : "up"} hint="회수완료 거래처 제외" />
+            <Metric label="관리기록 저장" value={`${Object.keys(receivableRecords).length}곳`} delta="비공개 서버 저장" trend="neutral" hint="새로고침 후에도 유지" />
+          </section>
+          <section className="content-grid receivable-control-grid">
+            <article className="panel receivable-list-panel">
+              <PanelHeader eyebrow="Collection queue" title="거래처별 회수 현황" action={receivableLoading ? "불러오는 중" : `${managedReceivables.length}곳`} />
+              {receivableMessage && <div className={receivableMessage.includes("저장") ? "finance-inline-message success" : "finance-inline-message"}>{receivableMessage}</div>}
+              <div className="receivable-list">
+                {managedReceivables.map((record) => {
+                  const displayedStatus = record.status !== "COMPLETE" && record.dueDate && record.dueDate < financeCurrentData.asOf ? "OVERDUE" : record.status;
+                  return <button type="button" key={record.partnerName} className={receivableDraft?.partnerName === record.partnerName ? "active" : ""} onClick={() => editReceivable(record)}>
+                    <span className={`receivable-status ${displayedStatus.toLowerCase()}`}>{receivableStatusLabels[displayedStatus]}</span>
+                    <p><strong>{record.partnerName}</strong><small>{record.owner || "담당자 미지정"} · {record.dueDate || "회수예정일 미설정"}</small></p>
+                    <b>{formatCompactWon(record.outstandingAmount)}</b>
+                  </button>;
+                })}
+              </div>
+            </article>
+            <article className="panel receivable-editor-panel">
+              {receivableDraft ? (
+                <form onSubmit={saveReceivable}>
+                  <p>COLLECTION RECORD</p><h2>{receivableDraft.partnerName}</h2>
+                  <label>현재 미수잔액<input type="number" min="0" step="1" value={receivableDraft.outstandingAmount} onChange={(event) => setReceivableDraft({ ...receivableDraft, outstandingAmount: Number(event.target.value) })} /></label>
+                  <div className="receivable-form-grid">
+                    <label>회수 담당자<input value={receivableDraft.owner} maxLength={50} placeholder="담당자 이름" onChange={(event) => setReceivableDraft({ ...receivableDraft, owner: event.target.value })} /></label>
+                    <label>회수 예정일<input type="date" value={receivableDraft.dueDate} onChange={(event) => setReceivableDraft({ ...receivableDraft, dueDate: event.target.value })} /></label>
+                  </div>
+                  <label>회수 상태<select value={receivableDraft.status} onChange={(event) => setReceivableDraft({ ...receivableDraft, status: event.target.value as ReceivableStatus })}>{(Object.keys(receivableStatusLabels) as ReceivableStatus[]).map((status) => <option key={status} value={status}>{receivableStatusLabels[status]}</option>)}</select></label>
+                  <label>특이사항·회수 메모<textarea value={receivableDraft.memo} maxLength={1000} rows={7} placeholder="입금 약정, 연락 내역, 분쟁 사유 등을 기록하세요." onChange={(event) => setReceivableDraft({ ...receivableDraft, memo: event.target.value })} /></label>
+                  <button type="submit" className="receivable-save-button" disabled={receivableLoading}>{receivableLoading ? "저장 중…" : "변경내용 저장"}</button>
+                  <small>결산 기준 잔액과 다르면 현재 미수잔액을 직접 수정해 주세요. 저장값은 원천 회계자료를 변경하지 않고 관리기록으로 별도 보관됩니다.</small>
+                </form>
+              ) : <div className="receivable-empty-editor"><span>₩</span><strong>관리할 거래처를 선택하세요.</strong><p>왼쪽 목록에서 거래처를 선택하면 회수계획과 메모를 기록할 수 있습니다.</p></div>}
+            </article>
+          </section>
+        </>
+      )}
+
       {workspace === "statements" && (
         <>
           <div className="finance-subpage-heading"><div><p>FINANCIAL STATEMENTS</p><h2>손익·재무상태</h2><span>결산후 합계잔액시산표 기준입니다.</span></div><div className="segment-control"><button className={statementYear === "2024" ? "active" : ""} onClick={() => setStatementYear("2024")}>2024</button><button className={statementYear === "2025" ? "active" : ""} onClick={() => setStatementYear("2025")}>2025</button></div></div>
@@ -690,6 +963,47 @@ function FinanceDashboard({ search }: { search: string }) {
               {exposureExceptions.map((row) => <div className="finance-table-row" key={row.name}><strong>{row.name}</strong><span>{formatWon(row.opening)}</span><span>{formatWon(row.increase)}</span><span>{formatWon(row.decrease)}</span><b className="negative-number">{formatWon(row.ending)}</b><em>선수·선급/오분류 확인</em></div>)}
             </div>
           </section>
+          <section className="content-grid account-risk-grid">
+            <article className={`panel account-risk-hero ${accountRiskLevel === "높음" ? "high" : accountRiskLevel === "주의" ? "watch" : "stable"}`}>
+              <p>ACCOUNT LIQUIDITY SIGNAL</p>
+              <div className="account-risk-score"><strong>{accountRiskScore}</strong><span>/ 100</span></div>
+              <h2>계좌금액 위험도 · {accountRiskLevel}</h2>
+              <p>은행성 자산, 대출잔액, 원화 가용자금, 외화 집중도와 최근 고점 대비 감소폭을 조합한 운영 신호입니다.</p>
+              <div className="risk-factor-list">
+                <div><span>대출 대비 은행성 자산</span><b>{(liquidityCoverage * 100).toFixed(1)}%</b></div>
+                <div><span>외화자산 집중도</span><b>{(fxConcentration * 100).toFixed(1)}%</b></div>
+                <div><span>원화 입출금계좌 잔액</span><b>{formatCompactWon(financeCurrentData.accountSummary.checkingBalanceSum)}</b></div>
+                <div><span>최근 고점 대비 감소</span><b>{(bankDrawdown * 100).toFixed(1)}%</b></div>
+              </div>
+              <small>이 점수는 지급예정표·확정 수금일을 포함하지 않은 내부 조기경보 지표이며 신용평가나 지급불능 판정이 아닙니다.</small>
+            </article>
+            <article className="panel account-risk-detail">
+              <PanelHeader eyebrow="Risk drivers" title="위험 신호 해석" action={`${financeCurrentData.asOf} 기준`} />
+              <div className="account-risk-signals">
+                <div className={liquidityCoverage < 1 ? "high" : "stable"}><span>01</span><p><strong>유동성 커버리지</strong><small>은행성 자산이 대출잔액의 {(liquidityCoverage * 100).toFixed(1)}%입니다.</small></p></div>
+                <div className={fxConcentration > .7 ? "high" : "watch"}><span>02</span><p><strong>외화 집중</strong><small>은행성 자산 중 외화 비중이 {(fxConcentration * 100).toFixed(1)}%입니다.</small></p></div>
+                <div className={lowBalanceAccounts >= 3 ? "watch" : "stable"}><span>03</span><p><strong>소액 잔액 계좌</strong><small>10만원 미만 입출금계좌가 {lowBalanceAccounts}개입니다.</small></p></div>
+                <div className={bankDrawdown > .2 ? "watch" : "stable"}><span>04</span><p><strong>잔액 변동성</strong><small>최근 10주 고점 대비 {(bankDrawdown * 100).toFixed(1)}% 낮습니다.</small></p></div>
+              </div>
+            </article>
+          </section>
+          <section className="panel account-register-panel">
+            <PanelHeader eyebrow="Account register" title="계좌별 위험 신호" action={`${financeCurrentData.accounts.length}개 계좌`} />
+            <div className="account-register-list">
+              {financeCurrentData.accounts.map((account) => {
+                const isConcentratedFx = account.type === "FX" && account.krwBalance > bankAssets * .5;
+                const isLowChecking = account.type === "CHECKING" && account.krwBalance < 100_000;
+                const signal = account.type === "LOAN" ? "대출잔액" : isConcentratedFx ? "환율 집중" : isLowChecking ? "잔액 점검" : account.type === "FX" ? "외화계좌" : "정상";
+                const signalClass = account.type === "LOAN" || isConcentratedFx ? "high" : isLowChecking ? "watch" : "stable";
+                return <div key={account.id}>
+                  <span className="account-bank-mark">{accountBankName(account.bankCode).slice(0, 2)}</span>
+                  <p><strong>{accountBankName(account.bankCode)} ····{account.last4}</strong><small>{account.name} · {account.currency}</small></p>
+                  <b>{account.currency === "USD" ? `$${account.balance.toLocaleString("en-US")}` : formatWon(account.krwBalance)}</b>
+                  <em className={signalClass}>{signal}</em>
+                </div>;
+              })}
+            </div>
+          </section>
         </>
       )}
 
@@ -734,7 +1048,7 @@ function FinanceDashboard({ search }: { search: string }) {
         </>
       )}
 
-      {workspace !== "overview" && <button type="button" className="finance-back-overview" onClick={() => setWorkspace("overview")}>← 통합 대시보드로 돌아가기</button>}
+      {workspace !== "overview" && <button type="button" className="finance-back-overview" onClick={() => selectWorkspace("overview")}>← 통합 대시보드로 돌아가기</button>}
     </div>
   );
 }

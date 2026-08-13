@@ -57,6 +57,13 @@
       "when": 1786432662967,
       "tag": "0007_fixed_captain_universe",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1786601530923,
+      "tag": "0008_square_sunfire",
+      "breakpoints": true
     }
   ]
 }

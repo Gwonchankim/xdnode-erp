@@ -9,6 +9,13 @@ async function loadFinanceData() {
   return JSON.parse(match[1]);
 }
 
+async function loadCurrentFinanceData() {
+  const source = await readFile(new URL("../app/finance-current-data.ts", import.meta.url), "utf8");
+  const match = source.match(/export const financeCurrentData = ([\s\S]+) as const;/);
+  assert.ok(match, "current finance data export not found");
+  return JSON.parse(match[1]);
+}
+
 test("2024 and 2025 trial balances remain balanced", async () => {
   const data = await loadFinanceData();
   for (const year of ["2024", "2025"]) {
@@ -40,4 +47,24 @@ test("source-quality exceptions are retained for review", async () => {
   assert.equal(data.sourceChecks.zeroValueJournalRows, 14);
   assert.ok(data.receivableExceptions.every((row) => row.ending < 0));
   assert.ok(data.payableExceptions.every((row) => row.ending < 0));
+});
+
+test("2026 tax-invoice aggregates reconcile to the Clobe source totals", async () => {
+  const data = await loadCurrentFinanceData();
+  assert.equal(data.salesMonthly2026.reduce((sum, row) => sum + row.amount, 0), data.sourceSummary.salesSupplyValue);
+  assert.equal(data.purchaseMonthly2026.reduce((sum, row) => sum + row.amount, 0), data.sourceSummary.purchaseSupplyValue);
+  assert.equal(data.salesDaily2026.reduce((sum, row) => sum + row.amount, 0), data.sourceSummary.salesSupplyValue);
+  assert.equal(data.purchaseDaily2026.reduce((sum, row) => sum + row.amount, 0), data.sourceSummary.purchaseSupplyValue);
+  assert.equal(data.salesMonthly2026.length, 8);
+  assert.equal(data.accounts.length, 15);
+});
+
+test("account-risk source totals stay internally consistent", async () => {
+  const data = await loadCurrentFinanceData();
+  const checking = data.accounts.filter((row) => row.type === "CHECKING").reduce((sum, row) => sum + row.krwBalance, 0);
+  const loans = data.accounts.filter((row) => row.type === "LOAN").reduce((sum, row) => sum + row.krwBalance, 0);
+  const fx = data.accounts.filter((row) => row.type === "FX").reduce((sum, row) => sum + row.krwBalance, 0);
+  assert.equal(checking, data.accountSummary.checkingBalanceSum);
+  assert.equal(loans, data.accountSummary.loanBalanceSum);
+  assert.equal(fx, data.accountSummary.fxBalanceSumKrw);
 });

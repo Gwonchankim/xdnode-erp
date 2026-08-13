@@ -119,3 +119,15 @@ export const hrPayrollRecords = sqliteTable("hr_payroll_records", {
 }, (table) => [
   index("idx_hr_payroll_records_month_name").on(table.yearMonth, table.employeeName),
 ]);
+
+export const financeReceivableManagement = sqliteTable("finance_receivable_management", {
+  partnerName: text("partner_name").primaryKey(),
+  outstandingAmount: integer("outstanding_amount").notNull(),
+  owner: text("owner").notNull().default(""),
+  dueDate: text("due_date").notNull().default(""),
+  status: text("status").notNull().default("UNSET"),
+  memo: text("memo").notNull().default(""),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_receivable_status_due").on(table.status, table.dueDate),
+]);

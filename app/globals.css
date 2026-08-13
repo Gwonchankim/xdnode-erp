@@ -1229,3 +1229,156 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .account-register-list > div > b { grid-column: 2; text-align: left; }
   .account-register-list > div > em { grid-column: 3; grid-row: 1 / span 2; }
 }
+
+/* Finance workspace: HR-aligned left navigation and full-width content rhythm */
+.finance-workspace-layout {
+  width: 100%;
+  padding: 0 24px 80px;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.finance-side-navigation {
+  position: sticky;
+  top: 112px;
+  min-height: 560px;
+  max-height: calc(100vh - 136px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden auto;
+  border: 1px solid #ececee;
+  border-radius: 24px;
+  background: #fff;
+}
+
+.finance-side-brand {
+  min-height: 86px;
+  padding: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid #ececee;
+}
+.finance-side-brand > span {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  color: #fff;
+  background: #18181b;
+  font-size: 15px;
+  font-weight: 900;
+}
+.finance-side-brand strong,
+.finance-side-brand small { display: block; }
+.finance-side-brand strong { font-size: 13px; letter-spacing: -.02em; }
+.finance-side-brand small { margin-top: 4px; color: #8b8b94; font-size: 8px; font-weight: 800; letter-spacing: .12em; }
+
+.finance-side-navigation nav { padding: 14px 12px; display: grid; gap: 18px; }
+.finance-side-group { display: grid; gap: 5px; }
+.finance-side-group > p { margin: 0 8px 3px; color: #8b8b94; font-size: 10px; font-weight: 800; }
+.finance-side-group > button {
+  width: 100%;
+  min-height: 44px;
+  padding: 7px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 14px;
+  color: #52525b;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.finance-side-group > button:hover { color: #18181b; background: #f4f4f5; }
+.finance-side-group > button.active { color: #fff; background: #18181b; }
+.finance-side-group > button > span {
+  width: 27px;
+  height: 27px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 1px solid #d4d4d8;
+  border-radius: 10px;
+  color: #52525b;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 900;
+}
+.finance-side-group > button.active > span { color: #18181b; border-color: #fff; }
+.finance-side-group > button > strong { font-size: 13px; font-weight: 750; white-space: nowrap; }
+.finance-side-footer { margin-top: auto; padding: 16px 18px 18px; border-top: 1px solid #ececee; }
+.finance-side-footer span,
+.finance-side-footer strong,
+.finance-side-footer small { display: block; }
+.finance-side-footer span { color: #8b8b94; font-size: 10px; }
+.finance-side-footer strong { margin-top: 5px; font-size: 13px; }
+.finance-side-footer small { margin-top: 4px; color: #a1a1aa; font-size: 9px; }
+
+.finance-workspace-layout > .finance-dashboard {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  gap: 24px;
+}
+
+/* Finance typography follows the more legible HR workspace scale. */
+.finance-dashboard .finance-section-heading p,
+.finance-dashboard .finance-chart-head p,
+.finance-dashboard .assistant-heading p,
+.finance-dashboard .ai-brief-head p,
+.finance-dashboard .finance-subpage-heading p { font-size: 10px; }
+.finance-dashboard .finance-section-heading h2,
+.finance-dashboard .finance-chart-head h2,
+.finance-dashboard .assistant-heading h2,
+.finance-dashboard .ai-brief-head h2 { font-size: 20px; }
+.finance-dashboard .finance-subpage-heading h2 { font-size: 30px; }
+.finance-dashboard .finance-subpage-heading span,
+.finance-dashboard .finance-scope-note p,
+.finance-dashboard .finance-alert-card p,
+.finance-dashboard .ai-brief-hero p,
+.finance-dashboard .ai-brief-list p,
+.finance-dashboard .assistant-answer,
+.finance-dashboard .chart-coverage-note,
+.finance-dashboard .commercial-ranking-list strong,
+.finance-dashboard .receivable-list > button strong,
+.finance-dashboard .account-register-list strong { font-size: 11px; }
+.finance-dashboard .finance-alert-card strong,
+.finance-dashboard .finance-quality-cards article > strong { font-size: 14px; }
+.finance-dashboard .finance-alert-card button,
+.finance-dashboard .segment-control button,
+.finance-dashboard .assistant-suggestions button,
+.finance-dashboard .assistant-form input,
+.finance-dashboard .assistant-form button,
+.finance-dashboard .finance-table-row,
+.finance-dashboard .commercial-period-panel > div:first-child span,
+.finance-dashboard .commercial-date-controls label,
+.finance-dashboard .commercial-presets button,
+.finance-dashboard .commercial-ranking-list em,
+.finance-dashboard .receivable-list > button b,
+.finance-dashboard .receivable-status,
+.finance-dashboard .receivable-editor-panel form label,
+.finance-dashboard .receivable-save-button,
+.finance-dashboard .account-risk-signals strong,
+.finance-dashboard .account-register-list > div > b { font-size: 10px; }
+.finance-dashboard .finance-table-row.header { font-size: 9px; }
+
+@media (max-width: 1180px) {
+  .finance-workspace-layout { grid-template-columns: 210px minmax(0, 1fr); padding-right: 20px; padding-left: 20px; gap: 20px; }
+}
+
+@media (max-width: 900px) {
+  .finance-workspace-layout { grid-template-columns: 1fr; padding-right: 16px; padding-left: 16px; }
+  .finance-side-navigation { position: static; min-height: 0; max-height: none; border-radius: 22px; overflow: hidden; }
+  .finance-side-brand, .finance-side-footer, .finance-side-group > p { display: none; }
+  .finance-side-navigation nav { padding: 8px; display: flex; gap: 6px; overflow-x: auto; }
+  .finance-side-group { display: contents; }
+  .finance-side-group > button { width: auto; min-width: max-content; }
+}

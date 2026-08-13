@@ -687,20 +687,36 @@ function FinanceDashboard({ search }: { search: string }) {
     { label: "기말 보통예금", value: historicalOverview.cash, hint: overviewYear === "2025" ? "전년 대비 +65.8%" : "자금현황표 대사 완료", trend: overviewYear === "2025" ? "up" as const : "neutral" as const },
   ];
 
+  const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
+    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"]] },
+    { title: "거래 관리", items: [["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
+    { title: "재무 분석", items: [["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
+    { title: "데이터 관리", items: [["quality", "원장·데이터 점검", "원"]] },
+  ];
+
   return (
-    <div className="dashboard-stack finance-dashboard">
-      <div className="finance-workspace-tabs" role="tablist" aria-label="재무회계 보기">
-        {([
-          ["overview", "통합 대시보드"],
-          ["commercial", "매입·매출 분석"],
-          ["receivables", "외상·미수 관리"],
-          ["statements", "손익·재무상태"],
-          ["liquidity", "자금·채권채무"],
-          ["quality", "원장·데이터 점검"],
-        ] as Array<[FinanceWorkspaceView, string]>).map(([key, label]) => (
-          <button type="button" role="tab" aria-selected={workspace === key} className={workspace === key ? "active" : ""} key={key} onClick={() => selectWorkspace(key)}>{label}</button>
-        ))}
-      </div>
+    <div className="finance-workspace-layout">
+      <aside className="finance-side-navigation" aria-label="재무회계 메뉴">
+        <div className="finance-side-brand">
+          <span>₩</span>
+          <div><strong>XDNODE FINANCE</strong><small>FINANCE &amp; ACCOUNTING</small></div>
+        </div>
+        <nav>
+          {financeNavigation.map((group) => (
+            <div className="finance-side-group" key={group.title}>
+              <p>{group.title}</p>
+              {group.items.map(([key, label, icon]) => (
+                <button type="button" aria-current={workspace === key ? "page" : undefined} className={workspace === key ? "active" : ""} key={key} onClick={() => selectWorkspace(key)}>
+                  <span>{icon}</span><strong>{label}</strong>
+                </button>
+              ))}
+            </div>
+          ))}
+        </nav>
+        <div className="finance-side-footer"><span>마지막 동기화</span><strong>2026.08.13</strong><small>Clobe · 이카운트 자료 기준</small></div>
+      </aside>
+
+      <div className="dashboard-stack finance-dashboard">
 
       {workspace === "overview" && (
         <>
@@ -1048,7 +1064,8 @@ function FinanceDashboard({ search }: { search: string }) {
         </>
       )}
 
-      {workspace !== "overview" && <button type="button" className="finance-back-overview" onClick={() => selectWorkspace("overview")}>← 통합 대시보드로 돌아가기</button>}
+        {workspace !== "overview" && <button type="button" className="finance-back-overview" onClick={() => selectWorkspace("overview")}>← 통합 대시보드로 돌아가기</button>}
+      </div>
     </div>
   );
 }

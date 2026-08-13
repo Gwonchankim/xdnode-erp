@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function render(pathname = "/") {
@@ -19,7 +20,8 @@ test("renders the integrated ERP finance workspace", async () => {
   const html = await response.text();
   assert.match(html, /<title>XD NODE ERP · 통합 운영 관리<\/title>/);
   assert.match(html, /2024년부터 오늘까지, 하나의 재무 흐름으로/);
-  assert.match(html, /2024~2026년 재무 데이터 연결 완료/);
+  assert.doesNotMatch(html, /class="attention-strip"/);
+  assert.doesNotMatch(html, /계좌, 거래처, 전표 검색/);
   assert.match(html, /aria-label="재무회계 메뉴"/);
   assert.match(html, /XDNODE FINANCE/);
   assert.match(html, /aria-label="알람 센터 열기"/);
@@ -33,6 +35,12 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /외상·미수 관리/);
   assert.match(html, /재무 데이터 어시스턴트/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site|codex-preview/);
+});
+
+test("keeps the finance connection notice in the alarm center configuration", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /title: "2024~2026년 재무 데이터 연결 완료"/);
+  assert.match(source, /destination: \{ module: "finance" \}/);
 });
 
 test("renders the incentive calculator after the Excel import compatibility fix", async () => {

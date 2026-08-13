@@ -32,7 +32,7 @@ const erpAlerts = [
   { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
   { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
   { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 2,218원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
-  { id: "sync-complete", category: "시스템", title: "Clobe 2026 데이터 반영", description: "은행계좌와 2026년 분개장 자료가 8월 13일 기준으로 반영되었습니다.", time: "8월 13일" },
+  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 2,218원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.", time: "8월 13일", destination: { module: "finance" } },
   { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
 ] satisfies ERPAlert[];
 
@@ -421,7 +421,7 @@ export default function Home() {
       <main className={`main ${active === "finance" ? "finance-main" : ""}`}>
         <header className="topbar">
           <div className="mobile-brand">XD NODE</div>
-          <label className="search-box">
+          {active !== "finance" && <label className="search-box">
             <span aria-hidden="true">⌕</span>
             <input
               ref={searchInputRef}
@@ -432,7 +432,7 @@ export default function Home() {
             />
             {search && <button type="button" className="search-clear" aria-label="검색어 지우기" onClick={() => { setSearch(""); searchInputRef.current?.focus(); }}>×</button>}
             <kbd>⌘ K</kbd>
-          </label>
+          </label>}
           <div className="top-actions">
             <div className="period-picker">
               <button type="button" className="period-button" aria-expanded={periodMenuOpen} onClick={() => setPeriodMenuOpen((open) => !open)}>{active === "finance" ? financePeriod.label : "2026년 8월"} <span>⌄</span></button>
@@ -458,14 +458,14 @@ export default function Home() {
           </div>
         </section>
 
-        <div className="attention-strip">
+        {active !== "finance" && <div className="attention-strip">
           <span className="attention-icon">!</span>
           <div>
-            <strong>{active === "finance" ? "2024~2026년 재무 데이터 연결 완료" : "월 마감 D-2"}</strong>
-            <span>{active === "finance" ? "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 2,218원과 2025년 중복 후보 32행은 원문 확인이 필요합니다." : "7월 매입고지단가 오류 14건과 미증빙 8건의 확인이 필요합니다."}</span>
+            <strong>월 마감 D-2</strong>
+            <span>7월 매입고지단가 오류 14건과 미증빙 8건의 확인이 필요합니다.</span>
           </div>
           <button type="button" onClick={() => requestFinanceWorkspace("quality")}>재무 점검 보기 →</button>
-        </div>
+        </div>}
 
         {active === "finance" && <FinanceDashboard search={search} requestedWorkspace={financeWorkspaceRequest.view} workspaceRequestKey={financeWorkspaceRequest.requestKey} requestedYear={financePeriod.year} yearRequestKey={financePeriod.requestKey} />}
         {active === "sales" && (

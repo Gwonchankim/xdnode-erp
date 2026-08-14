@@ -1550,3 +1550,14 @@ test("finance assistant answers from posted evidence and discloses source lineag
   assert.match(style,/assistant-trust-line/);assert.match(style,/assistant-limitations/);
   assert.match(plan,/AI는 구조화된 근거 JSON을 설명만/);assert.match(plan,/규칙 기반 답변/);
 });
+
+test("finance assistant audit history freezes evidence and restores prior answers without mutation routes",async()=>{
+  const[api,history,page,style,schema,migration,plan]=await Promise.all([read("app/api/finance/assistant/route.ts"),read("app/finance-assistant-history.ts"),read("app/page.tsx"),read("app/globals.css"),read("db/schema.ts"),read("drizzle/0058_finance_assistant_history.sql"),read("docs/finance-assistant-history-plan.md")]);
+  for(const source of[history,schema,migration])assert.match(source,/finance_assistant_answers/);
+  assert.match(api,/export async function GET/);assert.match(api,/saveFinanceAssistantAnswer/);assert.match(api,/responseWithHistory/);
+  assert.match(history,/evidenceHash/);assert.match(history,/answerHash/);assert.match(history,/FINANCE_ASSISTANT_PROMPT_VERSION/);
+  assert.match(history,/ORDER BY created_at DESC LIMIT/);assert.match(history,/Math\.min\(Math\.max\(limit, 1\), 50\)/);
+  assert.doesNotMatch(api,/DELETE FROM finance_assistant_answers|UPDATE finance_assistant_answers/);
+  assert.match(page,/답변 감사이력/);assert.match(page,/restoreFinanceAssistantAnswer/);assert.match(page,/evidenceHash\.slice/);
+  assert.match(style,/assistant-history-list/);assert.match(plan,/수정·삭제 API는 만들지 않는다/);assert.match(plan,/저장에 실패한 답변은 화면에 성공한 답변으로 반환하지 않는다/);
+});

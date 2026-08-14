@@ -8,6 +8,8 @@ import { loadFinanceRiskPolicy } from "../../../finance-risk-policy-server";
 import { buildFinanceLedgerSnapshot, buildFinancePeriodStatementSnapshot } from "../../../finance-ledger-snapshot";
 import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../../finance-ledger-integrity";
 import { buildFinanceAssistantFallback, buildFinanceAssistantPrompt, type FinanceAssistantEvidence } from "../../../finance-assistant-evidence";
+import { listFinanceAssistantAnswers, saveFinanceAssistantAnswer,
+  type FinanceAssistantAnswerPayload } from "../../../finance-assistant-history";
 
 type AiBindings = { DB: D1Database; CLOUDFLARE_ACCOUNT_ID?: string; CLOUDFLARE_API_TOKEN?: string; CLOUDFLARE_AI_MODEL?: string };
 type CloudflareEnvelope = { success?: boolean; errors?: Array<{ message?: string }>;
@@ -103,10 +105,27 @@ async function buildEvidence(db: D1Database): Promise<FinanceAssistantEvidence> 
   };
 }
 
-function fallbackPayload(question: string, evidence: FinanceAssistantEvidence, limitation: string, quota = false) {
+function fallbackPayload(question: string, evidence: FinanceAssistantEvidence, limitation: string, quota = false): FinanceAssistantAnswerPayload {
   return { answer: buildFinanceAssistantFallback(question, evidence), provider: "RULE_BASED_FALLBACK", evidenceStatus: evidence.quality.status,
     evidenceLabel: evidence.quality.label, basisAsOf: evidence.operational2026.to, sources: evidence.sources,
     limitations: [limitation, ...evidence.limitations], quotaExceeded: quota };
+}
+
+async function responseWithHistory(db: D1Database, principal: Parameters<typeof saveFinanceAssistantAnswer>[1],
+  question: string, evidence: FinanceAssistantEvidence, payload: FinanceAssistantAnswerPayload) {
+  try {
+    const historyEntry = await saveFinanceAssistantAnswer(db, principal, question, evidence, payload);
+    return Response.json({ ...payload, historyEntry });
+  } catch {
+    return Response.json({ error: "답변 감사기록을 저장하지 못했습니다. 기록 저장 상태를 확인한 뒤 다시 질문해 주세요." }, { status: 503 });
+  }
+}
+
+export async function GET() {
+  const bindings = env as unknown as AiBindings;
+  const auth = await authorizeErpRequest(bindings.DB, "finance", "read");
+  if (auth.response) return auth.response;
+  return Response.json({ history: await listFinanceAssistantAnswers(bindings.DB, 20) });
 }
 
 export async function POST(request: Request) {
@@ -122,7 +141,8 @@ export async function POST(request: Request) {
   const evidence = await buildEvidence(bindings.DB);
   const accountId = bindings.CLOUDFLARE_ACCOUNT_ID?.trim(); const apiToken = bindings.CLOUDFLARE_API_TOKEN?.trim();
   const model = bindings.CLOUDFLARE_AI_MODEL?.trim() || "@cf/qwen/qwen3-30b-a3b-fp8";
-  if (!accountId || !apiToken) return Response.json(fallbackPayload(question, evidence, "AI 설정이 없어 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
+  if (!accountId || !apiToken) return responseWithHistory(bindings.DB, auth.principal, question, evidence,
+    fallbackPayload(question, evidence, "AI 설정이 없어 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
 
   let response: Response;
   try {
@@ -131,15 +151,22 @@ export async function POST(request: Request) {
       body: JSON.stringify({ messages: [{ role: "system", content: buildFinanceAssistantPrompt(evidence) }, { role: "user", content: question }],
         temperature: 0.05, max_tokens: 500 }), signal: AbortSignal.timeout(30_000),
     });
-  } catch { return Response.json(fallbackPayload(question, evidence, "AI 연결에 실패해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다.")); }
+  } catch { return responseWithHistory(bindings.DB, auth.principal, question, evidence,
+    fallbackPayload(question, evidence, "AI 연결에 실패해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다.")); }
   let data: CloudflareEnvelope;
   try { data = await response.json() as CloudflareEnvelope; }
-  catch { return Response.json(fallbackPayload(question, evidence, "AI 응답을 읽지 못해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다.")); }
-  if (quotaExceeded(response, data)) return Response.json(fallbackPayload(question, evidence, "AI 무료 사용 한도가 부족해 기본 원장 분석으로 답변했습니다.", true));
-  if (!response.ok || data.success === false) return Response.json(fallbackPayload(question, evidence, "AI 분석 요청이 실패해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
+  catch { return responseWithHistory(bindings.DB, auth.principal, question, evidence,
+    fallbackPayload(question, evidence, "AI 응답을 읽지 못해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다.")); }
+  if (quotaExceeded(response, data)) return responseWithHistory(bindings.DB, auth.principal, question, evidence,
+    fallbackPayload(question, evidence, "AI 무료 사용 한도가 부족해 기본 원장 분석으로 답변했습니다.", true));
+  if (!response.ok || data.success === false) return responseWithHistory(bindings.DB, auth.principal, question, evidence,
+    fallbackPayload(question, evidence, "AI 분석 요청이 실패해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
   const content = data.result?.response ?? data.result?.choices?.[0]?.message?.content;
   const answer = typeof content === "string" ? content.trim().slice(0, 2000) : "";
-  if (!answer) return Response.json(fallbackPayload(question, evidence, "AI가 빈 답변을 반환해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
-  return Response.json({ answer, provider: "AI", evidenceStatus: evidence.quality.status, evidenceLabel: evidence.quality.label,
-    basisAsOf: evidence.operational2026.to, sources: evidence.sources, limitations: evidence.limitations, quotaExceeded: false });
+  if (!answer) return responseWithHistory(bindings.DB, auth.principal, question, evidence,
+    fallbackPayload(question, evidence, "AI가 빈 답변을 반환해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
+  const payload: FinanceAssistantAnswerPayload = { answer, provider: "AI", evidenceStatus: evidence.quality.status,
+    evidenceLabel: evidence.quality.label, basisAsOf: evidence.operational2026.to, sources: evidence.sources,
+    limitations: evidence.limitations, quotaExceeded: false };
+  return responseWithHistory(bindings.DB, auth.principal, question, evidence, payload);
 }

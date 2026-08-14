@@ -2168,3 +2168,16 @@ export const salesIncentivePayrollLinks = sqliteTable("sales_incentive_payroll_l
   appliedBy: text("applied_by").notNull(), appliedAt: integer("applied_at").notNull(),
 }, (table) => [uniqueIndex("idx_sales_incentive_payroll_result").on(table.resultId),
   index("idx_sales_incentive_payroll_period").on(table.payrollPeriod, table.payrollRecordId)]);
+
+export const financeAssistantAnswers = sqliteTable("finance_assistant_answers", {
+  id: text("id").primaryKey(), question: text("question").notNull(), answer: text("answer").notNull(),
+  provider: text("provider").notNull(), evidenceStatus: text("evidence_status").notNull(),
+  basisAsOf: text("basis_as_of").notNull(), evidenceJson: text("evidence_json").notNull(),
+  evidenceHash: text("evidence_hash").notNull(), answerHash: text("answer_hash").notNull(),
+  promptVersion: text("prompt_version").notNull(), createdByEmployeeId: text("created_by_employee_id").notNull(),
+  createdByUserId: text("created_by_user_id").notNull(), createdByName: text("created_by_name").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_finance_assistant_created").on(table.createdAt),
+  index("idx_finance_assistant_actor_created").on(table.createdByEmployeeId, table.createdAt),
+]);

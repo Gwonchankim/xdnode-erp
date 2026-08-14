@@ -1116,6 +1116,22 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .status-pass, .status-watch { width: fit-content; padding: 6px 8px; border-radius: 9px; font-size: 8px; font-style: normal; font-weight: 900; }
 .status-pass { color: #166534; background: #dcfce7; }
 .status-watch { color: #9a3412; background: #ffedd5; }
+.assistant-history-heading { margin: 18px 18px 9px; padding-top: 15px; border-top: 1px solid #ececee; }
+.assistant-history-heading p, .assistant-history-heading strong, .assistant-history-heading span { display: block; margin: 0; }
+.assistant-history-heading p { color: #8b9491; font-size: 8px; font-weight: 900; letter-spacing: .12em; }
+.assistant-history-heading strong { margin-top: 4px; font-size: 13px; }
+.assistant-history-heading span { margin-top: 3px; color: #8b9491; font-size: 8px; }
+.assistant-history-list { padding: 0 18px; display: grid; gap: 7px; }
+.assistant-history-list > button { width: 100%; padding: 10px; display: grid; grid-template-columns: 28px 1fr auto; align-items: center; gap: 9px; border: 1px solid #e4e4e7; border-radius: 13px; color: inherit; background: #fff; text-align: left; cursor: pointer; }
+.assistant-history-list > button:hover { border-color: #a1a1aa; background: #fafafa; }
+.assistant-history-list > button > span { width: 27px; height: 27px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: #18181b; font-size: 8px; font-weight: 900; }
+.assistant-history-list p { min-width: 0; margin: 0; }
+.assistant-history-list strong, .assistant-history-list small { display: block; }
+.assistant-history-list strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
+.assistant-history-list small { margin-top: 3px; color: #8b9491; font-size: 8px; line-height: 1.4; }
+.assistant-history-list em { padding: 5px 7px; border-radius: 8px; color: #52525b; background: #f4f4f5; font-size: 8px; font-style: normal; font-weight: 900; }
+.assistant-history-empty, .assistant-history-error { margin: 0; padding: 14px; border-radius: 12px; background: #f4f4f5; color: #71717a; font-size: 9px; text-align: center; }
+.assistant-history-error { color: #b91c1c; background: #fff1f2; }
 .finance-subpage-heading { padding: 6px 4px 2px; display: flex; align-items: end; justify-content: space-between; gap: 20px; }
 .finance-subpage-heading p { margin: 0 0 5px; color: #8b9491; font-size: 8px; letter-spacing: .16em; font-weight: 900; }
 .finance-subpage-heading h2 { margin: 0; font-size: 27px; letter-spacing: -.05em; }

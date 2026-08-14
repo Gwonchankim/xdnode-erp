@@ -137,6 +137,11 @@ type FinanceAssistantMeta = {
   sources: FinanceAssistantSourceView[];
   limitations: string[];
 };
+
+type FinanceAssistantHistoryView = FinanceAssistantMeta & {
+  id: string; question: string; answer: string; evidenceHash: string; answerHash: string; promptVersion: string;
+  createdByEmployeeId: string; createdByName: string; createdAt: number;
+};
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
   "overview", "risk-actions", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
@@ -684,6 +689,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       { id: "posted-ledger-2026", label: "2026 운영 원장", period: `기준일 ${financeCurrentData.asOf}`, basis: "질문 시 POSTED 전표를 재계산", status: "REVIEW", destination: "ledger" },
     ],
   });
+  const [assistantHistory, setAssistantHistory] = useState<FinanceAssistantHistoryView[]>([]);
+  const [assistantHistoryError, setAssistantHistoryError] = useState("");
   const [financeOverviewRefreshKey, setFinanceOverviewRefreshKey] = useState(0);
   const [riskPolicy, setRiskPolicy] = useState<FinanceRiskPolicy>(DEFAULT_FINANCE_RISK_POLICY);
   const [financeOverview, setFinanceOverview] = useState<{
@@ -737,6 +744,15 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       .then((response) => financeResponseJson<{ policy: FinanceRiskPolicy }>(response))
       .then((result) => { if (!cancelled) setRiskPolicy(result.policy); })
       .catch(() => { /* 초기 정책으로 화면을 유지하고 정책 화면에서 오류를 상세 표시합니다. */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/finance/assistant", { cache: "no-store" })
+      .then((response) => financeResponseJson<{ history: FinanceAssistantHistoryView[] }>(response))
+      .then((result) => { if (!cancelled) setAssistantHistory(result.history); })
+      .catch((error) => { if (!cancelled) setAssistantHistoryError(error instanceof Error ? error.message : "답변 이력을 불러오지 못했습니다."); });
     return () => { cancelled = true; };
   }, []);
 
@@ -861,7 +877,9 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: cleanQuestion }),
       });
-      const data = await response.json() as Partial<FinanceAssistantMeta> & { answer?: string; error?: string; quotaExceeded?: boolean };
+      const data = await response.json() as Partial<FinanceAssistantMeta> & {
+        answer?: string; error?: string; quotaExceeded?: boolean; historyEntry?: FinanceAssistantHistoryView;
+      };
       if (!response.ok || !data.answer) {
         throw new Error(data.quotaExceeded ? "오늘의 AI 무료 사용 한도를 초과했습니다. 내일 다시 이용해 주세요." : data.error || "답변을 만들지 못했습니다.");
       }
@@ -869,6 +887,10 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       if (data.provider && data.evidenceStatus && data.evidenceLabel && data.basisAsOf && data.sources && data.limitations) {
         setAssistantMeta({ provider: data.provider, evidenceStatus: data.evidenceStatus, evidenceLabel: data.evidenceLabel,
           basisAsOf: data.basisAsOf, sources: data.sources, limitations: data.limitations });
+      }
+      if (data.historyEntry) {
+        setAssistantHistory((current) => [data.historyEntry!, ...current.filter((item) => item.id !== data.historyEntry!.id)].slice(0, 20));
+        setAssistantHistoryError("");
       }
       setAssistantStatus("idle");
     } catch (error) {
@@ -880,6 +902,12 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   function submitAssistant(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     void askFinanceAssistant(assistantQuestion);
+  }
+
+  function restoreFinanceAssistantAnswer(entry: FinanceAssistantHistoryView) {
+    setAssistantQuestion(entry.question); setAssistantAnswer(entry.answer); setAssistantStatus("idle");
+    setAssistantMeta({ provider: entry.provider, evidenceStatus: entry.evidenceStatus, evidenceLabel: entry.evidenceLabel,
+      basisAsOf: entry.basisAsOf, sources: entry.sources, limitations: entry.limitations });
   }
 
   const historicalMetrics = overviewYear === "2026" ? null : [
@@ -1043,6 +1071,16 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
                   <span className="source-year">{source.id.includes("2024") ? "24" : source.id.includes("2025") ? "25" : source.id.includes("close") ? "마" : "26"}</span>
                   <p><strong>{source.label}</strong><small>{source.period}<br />{source.basis}</small></p>
                   <em className={source.status === "CONFIRMED" ? "status-pass" : "status-watch"}>{source.status === "CONFIRMED" ? "확인" : "검토"}</em>
+                </button>)}
+              </div>
+              <div className="assistant-history-heading"><p>RECENT ANSWERS</p><strong>답변 감사이력</strong><span>수정·삭제 없이 추가 기록</span></div>
+              <div className="assistant-history-list">
+                {assistantHistoryError && <p className="assistant-history-error">{assistantHistoryError}</p>}
+                {!assistantHistoryError && assistantHistory.length === 0 && <p className="assistant-history-empty">저장된 답변이 없습니다.</p>}
+                {assistantHistory.slice(0, 6).map((entry) => <button type="button" key={entry.id} onClick={() => restoreFinanceAssistantAnswer(entry)}>
+                  <span>{entry.evidenceStatus === "VERIFIED" ? "확" : "검"}</span>
+                  <p><strong>{entry.question}</strong><small>{entry.createdByName} · {new Date(entry.createdAt).toLocaleString("ko-KR")}<br />근거 {entry.evidenceHash.slice(0, 10)}…</small></p>
+                  <em>{entry.provider === "AI" ? "AI" : "기본"}</em>
                 </button>)}
               </div>
             </article>

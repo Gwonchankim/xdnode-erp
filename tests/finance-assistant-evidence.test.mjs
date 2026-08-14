@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildFinanceAssistantFallback, buildFinanceAssistantPrompt } from "../app/finance-assistant-evidence.ts";
+import { buildFinanceAssistantHashes, FINANCE_ASSISTANT_PROMPT_VERSION } from "../app/finance-assistant-history.ts";
 
 const evidence = {
   generatedAt: "2026-08-15T00:00:00.000Z",
@@ -51,4 +52,12 @@ test("fallback preserves explainable forecast and account risk models", () => {
   assert.match(buildFinanceAssistantFallback("연말 매출 전망", evidence), /기준 150원/);
   const risk = buildFinanceAssistantFallback("계좌 위험은 어때", evidence);
   assert.match(risk, /37\/100점/); assert.match(risk, /지급불능 판정이나 신용평가가 아닙니다/);
+});
+
+test("assistant audit hashes freeze the exact question, answer, provider and evidence", async () => {
+  const first = await buildFinanceAssistantHashes("질문", "답변", "AI", evidence);
+  const second = await buildFinanceAssistantHashes("질문", "답변", "AI", evidence);
+  assert.deepEqual(first, second); assert.equal(first.evidenceHash.length, 64); assert.equal(first.answerHash.length, 64);
+  assert.notEqual(first.answerHash, (await buildFinanceAssistantHashes("다른 질문", "답변", "AI", evidence)).answerHash);
+  assert.equal(FINANCE_ASSISTANT_PROMPT_VERSION, "finance-evidence-v2");
 });

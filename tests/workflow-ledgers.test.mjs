@@ -1247,3 +1247,15 @@ test("finance posting ledgers prevent source reposting and duplicate reversals",
 });
 
 test("opening balance ledgers preserve one official baseline and unique account lines",async()=>{const db=await migratedDatabase();const now=Date.now();const insert=db.prepare(`INSERT INTO finance_opening_balance_sets(id,fiscal_year,version,status,source_label,source_as_of,source_checksum,line_count,total_debit,total_credit,difference_amount,prepared_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);insert.run("open-1",2026,1,"APPROVED","2025 TB","2025-12-31","hash-1",2,100,100,0,"gc.kim",now,now);assert.throws(()=>insert.run("open-2",2026,2,"APPROVED","2025 TB revised","2025-12-31","hash-2",2,100,100,0,"gc.kim",now,now),/UNIQUE constraint failed/);const line=db.prepare(`INSERT INTO finance_opening_balance_lines(id,set_id,line_number,account_code,account_name,account_category,normal_balance,debit_amount,credit_amount,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)`);line.run("ol-1","open-1",1,"101","현금","ASSET","DEBIT",100,0,now);assert.throws(()=>line.run("ol-2","open-1",2,"101","현금","ASSET","DEBIT",100,0,now),/UNIQUE constraint failed/);db.close();});
+
+test("finance assistant audit history appends frozen evidence in newest-first order",async()=>{
+  const db=await migratedDatabase();const insert=db.prepare(`INSERT INTO finance_assistant_answers
+    (id,question,answer,provider,evidence_status,basis_as_of,evidence_json,evidence_hash,answer_hash,prompt_version,
+      created_by_employee_id,created_by_user_id,created_by_name,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insert.run("answer-1","자금 상태","첫 답변","AI","VERIFIED","2026-08-13","{\"v\":1}","evidence-1","answer-hash-1","finance-evidence-v2","gc.kim","user-1","김권찬",100);
+  insert.run("answer-2","자금 상태","재질문 답변","RULE_BASED_FALLBACK","REVIEW_REQUIRED","2026-08-13","{\"v\":2}","evidence-2","answer-hash-2","finance-evidence-v2","gc.kim","user-1","김권찬",200);
+  const rows=db.prepare("SELECT id,evidence_hash FROM finance_assistant_answers ORDER BY created_at DESC").all();
+  assert.deepEqual(rows.map((row)=>({...row})),[{id:"answer-2",evidence_hash:"evidence-2"},{id:"answer-1",evidence_hash:"evidence-1"}]);
+  const plan=db.prepare("EXPLAIN QUERY PLAN SELECT * FROM finance_assistant_answers WHERE created_by_employee_id=? ORDER BY created_at DESC").all("gc.kim");
+  assert.match(plan.map((row)=>row.detail).join(" "),/idx_finance_assistant_actor_created/);db.close();
+});

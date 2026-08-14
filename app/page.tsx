@@ -965,7 +965,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
 
       {workspace === "control" && <FinanceOperationsCenter onOpenBudget={() => setWorkspace("budget")} />}
 
-      {workspace === "daily-report" && <DailyTreasuryWorkspace />}
+      {workspace === "daily-report" && <DailyTreasuryWorkspace onNavigate={(view) => selectWorkspace(view as FinanceWorkspaceView)} />}
 
       {workspace === "report" && <ManagementReportWorkspace onNavigate={(view) => {
         if (!view.startsWith("hr:")) selectWorkspace(view as FinanceWorkspaceView);

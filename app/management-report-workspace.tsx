@@ -6,6 +6,7 @@ import { companyEmployees } from "./hr-company-data";
 type SourceStatus = "CONFIRMED" | "PARTIAL" | "MISSING" | "REVIEW";
 type ReportStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "SUPERSEDED";
 type ReportActionStatus = "OPEN" | "IN_PROGRESS" | "WAITING" | "DONE";
+type AlertActionItem = { id: string; title: string; priority: string; status: string; ownerEmployeeId: string; dueDate: string; evidenceCount: number };
 type Snapshot = {
   period: string; asOf: string; generatedAt: string;
   sections: {
@@ -15,6 +16,7 @@ type Snapshot = {
     payroll: { status: SourceStatus; runStatus: string | null; employeeCount: number | null; grossPay: number | null; deductions: number | null; netPay: number | null; updatedAt: number | null };
     budget: { status: SourceStatus; plan: { id: string; name: string; version: number } | null; lines: number; budget: number; actual: number; variance: number; alertCount: number; unmappedCount: number; mappedCount?: number };
     close: { status: SourceStatus; runStatus: string | null; periodEnd?: string; controlPassCount?: number; controlFailCount?: number; manualCompletedCount?: number; manualTotalCount?: number; evidenceCount?: number; version?: number };
+    alertActions?: { cutoffDate: string; capturedAt: string; totalCount: number; unresolvedCount: number; highCriticalUnresolvedCount: number; reviewCount: number; closedCount: number; overdueCount: number; items: AlertActionItem[] };
     quality: { status: SourceStatus; warningCount: number; journal: { scope: string; lineCount: number; debitAmountKrw: number; creditAmountKrw: number; differenceKrw: number }; warnings: QualityWarning[] };
   };
   sources: Array<{ key: string; label: string; status: SourceStatus; statusLabel: string; asOf: string; destination: string; note: string }>;
@@ -153,6 +155,8 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
   if (!snapshot) return <div className="management-report-loading">{message || "경영보고 원천을 불러오지 못했습니다."}</div>;
 
   const { commerce, cash, receivables, payroll, budget, close, quality } = snapshot.sections;
+  const alertActionsConnected = Boolean(snapshot.sections.alertActions);
+  const alertActions = snapshot.sections.alertActions ?? { cutoffDate: `${period}-01`, capturedAt: "", totalCount: 0, unresolvedCount: 0, highCriticalUnresolvedCount: 0, reviewCount: 0, closedCount: 0, overdueCount: 0, items: [] };
   return (
     <div className="management-report-workspace">
       <section className="management-report-hero">
@@ -199,6 +203,12 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
           <header><div><p>CONTROL &amp; QUALITY</p><h2>제출 전 확인사항</h2></div><span>{quality.warningCount}건</span></header>
           {quality.warnings.length ? <div>{quality.warnings.map((warning) => <button type="button" key={warning.code} onClick={() => onNavigate(warning.destination)}><em>{sectionLabels[warning.section] ?? warning.section}</em><p>{warning.message}</p><span>확인 →</span></button>)}</div> : <div className="management-report-empty">현재 연결 원천에서 추가 품질경고가 없습니다.</div>}
           <footer><span>최신 누적 분개 {quality.journal.lineCount.toLocaleString("ko-KR")}행</span><strong>차대변 차이 {won(quality.journal.differenceKrw)}</strong></footer>
+        </article>
+        <article className="panel management-alert-action-panel">
+          <header><div><p>ALERT ACTION CONTROL</p><h2>재무 경보 조치현황</h2></div><button type="button" onClick={() => onNavigate("risk-actions")}>조치센터 →</button></header>
+          {!alertActionsConnected && <p className="alert-lineage-legacy">이 저장본은 재무 경보 연계 전에 생성되어 당시 상태를 확정할 수 없습니다. 새 버전부터 기준일 경보 상태가 함께 동결됩니다.</p>}
+          <div className="management-alert-summary"><span>기준일 미해결 <strong>{alertActionsConnected ? alertActions.unresolvedCount : "-"}</strong></span><span>중요 <strong>{alertActionsConnected ? alertActions.highCriticalUnresolvedCount : "-"}</strong></span><span>종료 검토 <strong>{alertActionsConnected ? alertActions.reviewCount : "-"}</strong></span><span>기한 경과 <strong>{alertActionsConnected ? alertActions.overdueCount : "-"}</strong></span><span>종료 <strong>{alertActionsConnected ? alertActions.closedCount : "-"}</strong></span></div>
+          <div className="management-alert-list">{alertActions.items.filter((item) => item.status !== "CLOSED").slice(0, 8).map((item) => <button type="button" key={item.id} onClick={() => onNavigate("risk-actions")}><em className={item.priority.toLowerCase()}>{item.priority}</em><p><strong>{item.title}</strong><small>{(companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId) || "담당자 미지정"} · {item.dueDate || "기한 미정"} · 증빙 {item.evidenceCount}건</small></p><span>{statusLabels[item.status] ?? item.status}</span></button>)}{alertActionsConnected && alertActions.unresolvedCount === 0 && <p className="management-report-empty">기준일 현재 미해결 재무 경보가 없습니다.</p>}</div>
         </article>
       </section>
 

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
+import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -55,6 +56,7 @@ async function seedClose(period: string) {
   const templates = [
     ["BANK", "은행·외화예금 잔액 대사"],
     ["TREASURY", "월 최신 기준일 자금일보 확정 확인"],
+    ["ALERT", "재무 경보 조치·종료 승인 확인"],
     ["JOURNAL", "분개장 차변·대변 및 미전기 전표 확인"],
     ["EVIDENCE", "지출·지급 증빙 누락 확인"],
     ["EXPENSE_CONTROL", "법인카드·지출증빙 대사"],
@@ -243,6 +245,8 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     && (financeCurrentData.accounts.find((account) => String(account.id) === row.source_account_id)?.krwBalance ?? 0) > 0).length;
   const debtIssueCount = unmappedDebt + maturedDebt + Number(debtSchedule?.unpaid_count ?? 0)
     + Number(debtCovenants?.due_count ?? 0) + Number(debtCovenants?.breach_count ?? 0);
+  const alertCutoff = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
+  const alertActions = await buildFinanceAlertReportSnapshot(db, alertCutoff);
   const controls: CloseControl[] = [
     { key: "BANK_RECONCILIATION", category: "BANK", title: "원화 은행거래 대사",
       status: bankTotal > 0 && bankPending === 0 ? "PASS" : "FAIL",
@@ -255,6 +259,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
         : `${treasuryTargetDate} 기준 확정 자금일보가 없습니다.`,
       count: treasuryReport?.report_date === treasuryTargetDate && treasuryReport.status === "FINAL"
         && (period !== currentPeriod || treasuryReport.source_as_of === financeCurrentData.asOf) ? 0 : 1 },
+    { key: "FINANCE_ALERT_ACTIONS", category: "ALERT", title: "재무 경보 조치",
+      status: alertActions.highCriticalUnresolvedCount > 0 ? "FAIL" : alertActions.unresolvedCount > 0 ? "REVIEW" : "PASS",
+      message: `${alertCutoff} 기준 미해결 ${alertActions.unresolvedCount}건 · 중요 ${alertActions.highCriticalUnresolvedCount}건 · 종료검토 ${alertActions.reviewCount}건 · 기한경과 ${alertActions.overdueCount}건`,
+      count: alertActions.unresolvedCount },
     { key: "ERP_UNPOSTED_JOURNALS", category: "JOURNAL", title: "ERP 미전기 회계전표",
       status: Number(unposted?.count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `미전기 전표 ${Number(unposted?.count ?? 0)}건`, count: Number(unposted?.count ?? 0) },
@@ -324,7 +332,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "TREASURY", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "DEBT", "TAX"];
+  const categories = ["BANK", "TREASURY", "ALERT", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "DEBT", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

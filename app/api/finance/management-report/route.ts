@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
+import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -141,11 +142,12 @@ async function buildSnapshot(period: string) {
   const sales = monthInvoiceSummary(period, "sales");
   const purchases = monthInvoiceSummary(period, "purchase");
   const periodEnd = lastDay(period);
+  const alertCutoff = period === currentPeriod ? financeCurrentData.asOf : periodEnd;
   const trend = financeCurrentData.balanceTrend.filter((item) => item.date.startsWith(period));
   const balancePoint = financeCurrentData.balanceTrend.find((item) => item.date <= periodEnd && item.date.startsWith(period)) ?? null;
   const currentCash = period === currentPeriod;
   const cashStatus = !balancePoint ? "MISSING" : (balancePoint.date === periodEnd || (currentCash && balancePoint.date === financeCurrentData.asOf)) ? "CONFIRMED" : "PARTIAL";
-  const [receivables, payroll, budget, close] = await Promise.all([
+  const [receivables, payroll, budget, close, alertActions] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS record_count, COALESCE(SUM(outstanding_amount), 0) AS outstanding,
       COALESCE(SUM(CASE WHEN status <> 'COMPLETE' AND (status = 'OVERDUE' OR (due_date <> '' AND due_date < ?)) THEN outstanding_amount ELSE 0 END), 0) AS overdue,
       COALESCE(SUM(CASE WHEN status <> 'COMPLETE' AND due_date = '' THEN 1 ELSE 0 END), 0) AS missing_plan,
@@ -159,6 +161,7 @@ async function buildSnapshot(period: string) {
     db.prepare(`SELECT period, period_end, status, control_pass_count, control_fail_count,
       manual_completed_count, manual_total_count, evidence_count, version, updated_at
       FROM finance_close_runs WHERE period = ?`).bind(period).first<Record<string, string | number>>(),
+    buildFinanceAlertReportSnapshot(db, alertCutoff),
   ]);
   const receivableStatus = (receivables?.record_count ?? 0) > 0 ? "PARTIAL" : "MISSING";
   const payrollStatus = !payroll ? "MISSING" : ["APPROVED", "LOCKED"].includes(payroll.status) ? "CONFIRMED" : "PARTIAL";
@@ -175,6 +178,8 @@ async function buildSnapshot(period: string) {
   if (budget.status !== "CONFIRMED") qualityWarnings.push({ code: "BUDGET_COVERAGE", section: "BUDGET", message: budget.status === "MISSING" ? "해당 월 승인 예산이 없습니다." : `예산 실적 자동 매핑이 ${budget.unmappedCount}개 누락되었습니다.`, destination: "budget" });
   if (budget.alertCount > 0) qualityWarnings.push({ code: "BUDGET_ALERT", section: "BUDGET", message: `예산 허용범위를 벗어난 항목 ${budget.alertCount}개가 있습니다.`, destination: "budget" });
   if (closeStatus !== "CONFIRMED") qualityWarnings.push({ code: "CLOSE_STATUS", section: "CLOSE", message: close ? `월마감 상태가 ${String(close.status)}입니다.` : "해당 월 월마감 원장이 없습니다.", destination: "close" });
+  if (alertActions.unresolvedCount > 0) qualityWarnings.push({ code: "ALERT_ACTIONS_OPEN", section: "QUALITY",
+    message: `${alertCutoff} 기준 미해결 재무 경보 ${alertActions.unresolvedCount}건(중요 ${alertActions.highCriticalUnresolvedCount}건·기한경과 ${alertActions.overdueCount}건)이 있습니다.`, destination: "risk-actions" });
 
   const sections = {
     commerce: { status: "CONFIRMED", sales, purchases, netSupplyDifference: sales.amount - purchases.amount },
@@ -201,6 +206,7 @@ async function buildSnapshot(period: string) {
       controlFailCount: close.control_fail_count, manualCompletedCount: close.manual_completed_count,
       manualTotalCount: close.manual_total_count, evidenceCount: close.evidence_count, version: close.version,
     } : { status: "MISSING", runStatus: null },
+    alertActions,
     quality: {
       status: qualityWarnings.length ? "REVIEW" : "CONFIRMED", warningCount: qualityWarnings.length,
       journal: { scope: `2026-01-01~${financeCurrentData.asOf}`, lineCount: financeCurrentData.journalSummary.lineCount,
@@ -215,12 +221,14 @@ async function buildSnapshot(period: string) {
     { key: "payroll", label: "ERP 급여 실행원장", status: payrollStatus, asOf: period, destination: "hr:payroll", note: "해당 월 급여 상태·합계" },
     { key: "budget", label: "ERP 승인 예산·실적", status: budget.status, asOf: period, destination: "budget", note: "승인 예산과 자동 연결 실적" },
     { key: "close", label: "ERP 월마감 통제", status: closeStatus, asOf: String(close?.period_end ?? ""), destination: "close", note: "통제·체크리스트·증빙" },
+    { key: "alert-actions", label: "ERP 재무 경보 조치원장", status: alertActions.unresolvedCount ? "REVIEW" : "CONFIRMED", asOf: alertCutoff, destination: "risk-actions", note: `미해결 ${alertActions.unresolvedCount}건 · 종료 ${alertActions.closedCount}건` },
     { key: "journal", label: "Clobe 분개장 품질", status: financeCurrentData.journalSummary.differenceKrw ? "REVIEW" : "CONFIRMED", asOf: financeCurrentData.asOf, destination: "quality", note: "2026년 최신 누적 품질" },
   ].map((source) => ({ ...source, statusLabel: statusLabel(source.status) }));
   const highlights = [
     `${period} 연동 매출 공급가액은 ${sales.amount.toLocaleString("ko-KR")}원, 매입 공급가액은 ${purchases.amount.toLocaleString("ko-KR")}원이며 공급가액 순차이는 ${(sales.amount - purchases.amount).toLocaleString("ko-KR")}원입니다.`,
     balancePoint ? `자금 기준일 ${balancePoint.date}의 은행 잔액 추이 값은 ${balancePoint.balance.toLocaleString("ko-KR")}원입니다.` : "해당 월의 은행 잔액 기준점은 현재 자동 연결되지 않았습니다.",
     payroll ? `급여 실행원장은 ${payroll.employee_count}명, 지급총액 ${payroll.gross_pay.toLocaleString("ko-KR")}원, 실지급 ${payroll.net_pay.toLocaleString("ko-KR")}원입니다.` : "해당 월 급여 실행원장이 아직 연결되지 않았습니다.",
+    `${alertCutoff} 기준 재무 경보는 미해결 ${alertActions.unresolvedCount}건, 종료 ${alertActions.closedCount}건이며 중요 미해결은 ${alertActions.highCriticalUnresolvedCount}건입니다.`,
   ].join("\n");
   const risks = qualityWarnings.length ? qualityWarnings.map((warning) => `- ${warning.message}`).join("\n") : "- 현재 연결 원천에서 추가 확인이 필요한 품질경고가 없습니다.";
   const decisions = qualityWarnings.length

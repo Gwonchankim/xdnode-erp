@@ -1,6 +1,9 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import { companyEmployees } from "./hr-company-data";
+
+type AlertActionItem = { id: string; title: string; priority: string; status: string; ownerEmployeeId: string; dueDate: string; evidenceCount: number };
 
 type Snapshot = {
   reportDate: string; sourceAsOf: string; horizonEnd: string;
@@ -13,6 +16,7 @@ type Snapshot = {
     debt: { dueAmount: number; dueCount: number };
   };
   journal: { lineCount: number; debitAmountKrw: number; creditAmountKrw: number; differenceKrw: number; checkingAccount: { netChangeKrw: number } };
+  alertActions?: { cutoffDate: string; capturedAt: string; totalCount: number; unresolvedCount: number; highCriticalUnresolvedCount: number; reviewCount: number; closedCount: number; overdueCount: number; items: AlertActionItem[] };
   warnings: Array<{ code: string; message: string; destination: string }>;
 };
 type Report = {
@@ -25,8 +29,9 @@ type Data = { asOf: string; reportDate: string; preview: Snapshot; reports: Repo
 
 const won = (value: number | null | undefined) => value == null ? "해당일 상세 없음" : `${Math.round(value).toLocaleString("ko-KR")}원`;
 const statusLabel = { DRAFT: "작성 중", REVIEWED: "검토 완료", FINAL: "확정" } as const;
+const alertStatusLabel: Record<string, string> = { OPEN: "조치 대기", IN_PROGRESS: "조치 중", REVIEW: "종료 검토", CLOSED: "종료" };
 
-export default function DailyTreasuryWorkspace() {
+export default function DailyTreasuryWorkspace({ onNavigate }: { onNavigate: (view: string) => void }) {
   const [data, setData] = useState<Data | null>(null);
   const [reportDate, setReportDate] = useState("");
   const [selectedId, setSelectedId] = useState("");
@@ -85,6 +90,8 @@ export default function DailyTreasuryWorkspace() {
   if (!data) return <div className="treasury-loading">{message || "자금일보 원천을 불러오는 중입니다."}</div>;
   const report = data.selected;
   const snapshot = report?.snapshot ?? data.preview;
+  const alertActionsConnected = Boolean(snapshot.alertActions);
+  const alertActions = snapshot.alertActions ?? { cutoffDate: snapshot.reportDate, capturedAt: "", totalCount: 0, unresolvedCount: 0, highCriticalUnresolvedCount: 0, reviewCount: 0, closedCount: 0, overdueCount: 0, items: [] };
   const projectedNet = snapshot.next7Days.explicitForecast.net + snapshot.next7Days.receivables.dueAmount - snapshot.next7Days.payables.dueAmount - snapshot.next7Days.debt.dueAmount;
 
   return (
@@ -109,7 +116,7 @@ export default function DailyTreasuryWorkspace() {
         <article><small>당일 은행성 자산</small><strong>{won(snapshot.balances.closingBankAssets)}</strong><span>직전 관측일 대비 {won(snapshot.balances.movement)}</span></article>
         <article><small>당일 순현금흐름</small><strong>{won(snapshot.actualCash.net)}</strong><span>입금 {won(snapshot.actualCash.inflow)} · 출금 {won(snapshot.actualCash.outflow)}</span></article>
         <article><small>향후 7일 순예정액</small><strong>{won(projectedNet)}</strong><span>명시 예측 + 채권 − 채무 − 차입 일정</span></article>
-        <article className={snapshot.warnings.length ? "warning" : ""}><small>통제 경고</small><strong>{snapshot.warnings.length}건</strong><span>미분류·기한·분개장 품질</span></article>
+        <article className={snapshot.warnings.length ? "warning" : ""}><small>통제 경고</small><strong>{snapshot.warnings.length}건</strong><span>{alertActionsConnected ? `재무 경보 미해결 ${alertActions.unresolvedCount}건` : "경보 원장 연계 전 저장본"}</span></article>
       </div>
 
       <div className="treasury-grid">
@@ -141,6 +148,13 @@ export default function DailyTreasuryWorkspace() {
         <header><div><p>AI ANALYSIS</p><h2>동결 스냅샷 분석</h2></div>{report ? <span className={report.analysisSource === "AI" ? "ai" : "fallback"}>{report.analysisSource === "AI" ? "AI 분석" : `규칙 기반 · ${report.aiStatus}`}</span> : <span>생성 전</span>}</header>
         <div className="treasury-analysis-text">{report?.analysisText || "자금일보를 생성하면 AI 또는 규칙 기반 분석이 동결 스냅샷과 함께 저장됩니다."}</div>
         {snapshot.warnings.length > 0 && <div className="treasury-warning-list">{snapshot.warnings.map((warning) => <div key={warning.code}><strong>{warning.code}</strong><span>{warning.message}</span></div>)}</div>}
+      </article>
+
+      <article className="panel treasury-alert-actions">
+        <header><div><p>ALERT ACTION LEDGER</p><h2>재무 경보 조치현황</h2></div><button type="button" onClick={() => onNavigate("risk-actions")}>조치센터 열기 →</button></header>
+        {!alertActionsConnected && <p className="alert-lineage-legacy">이 저장본은 재무 경보 연계 전에 생성되어 당시 경보 상태를 확정할 수 없습니다. 새 버전을 생성하면 기준일 상태가 동결됩니다.</p>}
+        <div className="treasury-alert-summary"><span>미해결 <strong>{alertActionsConnected ? alertActions.unresolvedCount : "-"}</strong></span><span>중요 <strong>{alertActionsConnected ? alertActions.highCriticalUnresolvedCount : "-"}</strong></span><span>종료 검토 <strong>{alertActionsConnected ? alertActions.reviewCount : "-"}</strong></span><span>기한 경과 <strong>{alertActionsConnected ? alertActions.overdueCount : "-"}</strong></span></div>
+        <div className="treasury-alert-list">{alertActions.items.filter((item) => item.status !== "CLOSED").slice(0, 6).map((item) => <button type="button" key={item.id} onClick={() => onNavigate("risk-actions")}><em className={item.priority.toLowerCase()}>{item.priority}</em><p><strong>{item.title}</strong><small>{(companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId) || "담당자 미지정"} · {item.dueDate || "기한 미정"} · 증빙 {item.evidenceCount}건</small></p><span>{alertStatusLabel[item.status] ?? item.status}</span></button>)}{alertActionsConnected && alertActions.unresolvedCount === 0 && <p className="treasury-empty">보고일 기준 미해결 재무 경보가 없습니다.</p>}</div>
       </article>
 
       <div className="treasury-grid review">

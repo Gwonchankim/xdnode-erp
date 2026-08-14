@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
+import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
 
 type Bindings = {
   DB: D1Database;
@@ -68,7 +69,7 @@ async function buildSnapshot(reportDate: string) {
   const closingPoint = trend.find((item) => item.date <= reportDate) ?? null;
   const openingPoint = trend.find((item) => item.date < reportDate) ?? null;
   const current = reportDate === financeCurrentData.asOf;
-  const [cashRows, forecastRows, receivables, payables, debt] = await Promise.all([
+  const [cashRows, forecastRows, receivables, payables, debt, alertActions] = await Promise.all([
     db.prepare(`SELECT direction, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count,
       COALESCE(SUM(CASE WHEN is_unclassified = 1 THEN amount ELSE 0 END), 0) AS unclassified_amount,
       COALESCE(SUM(CASE WHEN is_unclassified = 1 THEN 1 ELSE 0 END), 0) AS unclassified_count
@@ -103,6 +104,7 @@ async function buildSnapshot(reportDate: string) {
       }>(),
     db.prepare(`SELECT COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count FROM finance_debt_schedule_items
       WHERE due_date > ? AND due_date <= ? AND status NOT IN ('PAID','CANCELLED')`).bind(reportDate, next7).first<AmountCount>(),
+    buildFinanceAlertReportSnapshot(db, reportDate),
   ]);
   const cash = { inflow: 0, outflow: 0, count: 0, unclassifiedAmount: 0, unclassifiedCount: 0 };
   for (const row of cashRows.results) {
@@ -125,6 +127,7 @@ async function buildSnapshot(reportDate: string) {
   if (Number(receivables?.overdue_amount ?? 0) > 0) warnings.push({ code: "OVERDUE_RECEIVABLE", message: `기한 경과 채권 ${Number(receivables?.overdue_amount ?? 0).toLocaleString("ko-KR")}원`, destination: "receivables" });
   if (Number(receivables?.missing_due_count ?? 0) + Number(payables?.missing_due_count ?? 0) > 0) warnings.push({ code: "MISSING_DUE_DATE", message: "회수·지급 예정일 누락이 있습니다.", destination: "forecast" });
   if (financeCurrentData.journalSummary.differenceKrw !== 0) warnings.push({ code: "JOURNAL_DIFFERENCE", message: `분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이`, destination: "quality" });
+  if (alertActions.highCriticalUnresolvedCount > 0) warnings.push({ code: "FINANCE_ALERT_ACTION", message: `미해결 중요 재무 경보 ${alertActions.highCriticalUnresolvedCount}건`, destination: "risk-actions" });
   return {
     reportDate, sourceAsOf: financeCurrentData.asOf, generatedAt: new Date().toISOString(), horizonEnd: next7,
     balances: {
@@ -145,12 +148,13 @@ async function buildSnapshot(reportDate: string) {
       creditAmountKrw: financeCurrentData.journalSummary.creditAmountKrw, differenceKrw: financeCurrentData.journalSummary.differenceKrw,
       checkingAccount: financeCurrentData.journalSummary.checkingAccount,
     },
+    alertActions,
     warnings,
   };
 }
 
 function fallbackAnalysis(snapshot: Awaited<ReturnType<typeof buildSnapshot>>) {
-  const { balances, actualCash, next7Days, warnings } = snapshot;
+  const { balances, actualCash, next7Days, alertActions, warnings } = snapshot;
   const movement = balances.movement >= 0 ? `증가 ${balances.movement.toLocaleString("ko-KR")}원` : `감소 ${Math.abs(balances.movement).toLocaleString("ko-KR")}원`;
   const projected = next7Days.explicitForecast.inflow + next7Days.receivables.dueAmount
     - next7Days.explicitForecast.outflow - next7Days.payables.dueAmount - next7Days.debt.dueAmount;
@@ -158,6 +162,7 @@ function fallbackAnalysis(snapshot: Awaited<ReturnType<typeof buildSnapshot>>) {
     `${snapshot.reportDate} 은행성 자산은 ${balances.closingBankAssets.toLocaleString("ko-KR")}원이며 직전 관측일보다 ${movement}했습니다.`,
     `당일 은행거래는 입금 ${actualCash.inflow.toLocaleString("ko-KR")}원, 출금 ${actualCash.outflow.toLocaleString("ko-KR")}원, 순증감 ${actualCash.net.toLocaleString("ko-KR")}원입니다.`,
     `향후 7일 명시 예측과 채권·채무·차입 일정을 단순 합산한 순예정액은 ${projected.toLocaleString("ko-KR")}원입니다.`,
+    `보고일 기준 재무 경보는 미해결 ${alertActions.unresolvedCount}건, 종료 검토 ${alertActions.reviewCount}건, 기한 경과 ${alertActions.overdueCount}건입니다.`,
     warnings.length ? `확인할 통제 신호는 ${warnings.map((item) => item.message).join(" · ")}입니다.` : "현재 연결된 원천에서 추가 통제 경고가 없습니다.",
   ].join("\n");
 }

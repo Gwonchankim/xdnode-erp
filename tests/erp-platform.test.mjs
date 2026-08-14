@@ -899,3 +899,31 @@ test("financial system alerts require evidence, finance review and controlled cl
   assert.match(page, /"조치 등록 →"/);
   assert.match(plan, /OPEN → IN_PROGRESS → REVIEW → CLOSED/);
 });
+
+test("financial alert outcomes are frozen into treasury, management reporting and month close", async () => {
+  const [reporting, model, treasuryApi, treasuryView, managementApi, managementView, closeApi, plan, page] = await Promise.all([
+    read("app/finance-alert-reporting.ts"), read("app/finance-alert-reporting-model.ts"),
+    read("app/api/finance/daily-treasury/route.ts"), read("app/daily-treasury-workspace.tsx"),
+    read("app/api/finance/management-report/route.ts"), read("app/management-report-workspace.tsx"),
+    read("app/api/finance/close/route.ts"), read("docs/finance-alert-reporting-integration-plan.md"), read("app/page.tsx"),
+  ]);
+  assert.match(reporting, /alert\.created_at <= \?/);
+  assert.match(reporting, /document\.created_at <= \?/);
+  assert.match(model, /CLOSURE_APPROVED: "CLOSED"/);
+  assert.match(model, /CASE_REOPENED: "IN_PROGRESS"/);
+  assert.match(model, /item\.dueDate < cutoffDate/);
+  assert.match(treasuryApi, /buildFinanceAlertReportSnapshot\(db, reportDate\)/);
+  assert.match(treasuryApi, /FINANCE_ALERT_ACTION/);
+  assert.match(treasuryApi, /alertActions,/);
+  assert.match(treasuryView, /재무 경보 조치현황/);
+  assert.match(treasuryView, /snapshot\.alertActions \?\?/);
+  assert.match(managementApi, /ALERT_ACTIONS_OPEN/);
+  assert.match(managementApi, /ERP 재무 경보 조치원장/);
+  assert.match(managementView, /ALERT ACTION CONTROL/);
+  assert.match(managementView, /snapshot\.sections\.alertActions \?\?/);
+  assert.match(closeApi, /FINANCE_ALERT_ACTIONS/);
+  assert.match(closeApi, /highCriticalUnresolvedCount > 0 \? "FAIL"/);
+  assert.match(closeApi, /alertActions\.unresolvedCount > 0 \? "REVIEW"/);
+  assert.match(plan, /현재 진행 중인 월은 미래 월말이 아니라 최신 재무 원천 기준일/);
+  assert.match(page, /DailyTreasuryWorkspace onNavigate/);
+});

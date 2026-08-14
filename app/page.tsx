@@ -20,6 +20,7 @@ import DebtManagementWorkspace from "./debt-management-workspace";
 import DailyTreasuryWorkspace from "./daily-treasury-workspace";
 import FinanceRiskPolicyWorkspace from "./finance-risk-policy-workspace";
 import FinanceAlertActionCenter from "./finance-alert-action-center";
+import GeneralLedgerWorkspace from "./general-ledger-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import OperationsWorkbench from "./operations-workbench";
@@ -121,12 +122,12 @@ const financeChecks = [
 ];
 
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "risk-actions" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality" | "policy";
+type FinanceWorkspaceView = "overview" | "risk-actions" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "ledger" | "statements" | "liquidity" | "quality" | "policy";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
   "overview", "risk-actions", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
   "project-costing", "expense-control", "debt", "reconciliation", "forecast", "budget", "close", "master",
-  "commercial", "receivables", "statements", "liquidity", "quality", "policy",
+  "commercial", "receivables", "ledger", "statements", "liquidity", "quality", "policy",
 ]);
 const treasuryStatusLabels: Record<TreasuryOverviewReport["status"], string> = {
   DRAFT: "작성 중",
@@ -878,7 +879,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["risk-actions", "재무 경보 조치", "경"], ["daily-report", "일일 자금일보", "일"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["expense-control", "법인카드·지출증빙", "증"], ["inventory", "재고·상품원가", "재"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
-    { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
+    { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["ledger", "총계정원장·시산표", "장"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"], ["policy", "회사 재무정책", "설"]] },
   ];
 
@@ -1130,6 +1131,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       )}
 
       {workspace === "receivables" && <ReceivablesWorkspace />}
+
+      {workspace === "ledger" && <GeneralLedgerWorkspace />}
 
       {workspace === "statements" && (
         <>

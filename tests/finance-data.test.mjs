@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { calculateStraightLineDepreciation } from "../app/fixed-asset-calculation.mjs";
+import { buildLedgerAccountSummaries } from "../app/finance-general-ledger.ts";
 
 async function loadFinanceData() {
   const source = await readFile(new URL("../app/finance-historical-data.ts", import.meta.url), "utf8");
@@ -83,6 +84,26 @@ test("2026 Clobe snapshot date, balance trend, and journal summary stay reconcil
     data.journalSummary.checkingAccount.debitAmountKrw - data.journalSummary.checkingAccount.creditAmountKrw,
     data.journalSummary.checkingAccount.netChangeKrw,
   );
+});
+
+test("general ledger carries pre-period postings into opening balances", () => {
+  const opening = [{ code: "101", name: "현금", endingDebit: 100, endingCredit: 0 },
+    { code: "301", name: "자본", endingDebit: 0, endingCredit: 100 }];
+  const base = { sourceType: "CONTROLLED_POSTING", sourceId: "batch", voucherNumber: "V", accountId: "",
+    partnerName: "", departmentName: "", description: "", postedAt: 1 };
+  const rows = [
+    { ...base, id: "1", voucherDate: "2026-01-10", lineNumber: 1, accountCode: "101", accountName: "현금", debitAmount: 30, creditAmount: 0 },
+    { ...base, id: "2", voucherDate: "2026-01-10", lineNumber: 2, accountCode: "301", accountName: "자본", debitAmount: 0, creditAmount: 30 },
+    { ...base, id: "3", voucherDate: "2026-02-10", lineNumber: 1, accountCode: "101", accountName: "현금", debitAmount: 0, creditAmount: 20 },
+    { ...base, id: "4", voucherDate: "2026-02-10", lineNumber: 2, accountCode: "301", accountName: "자본", debitAmount: 20, creditAmount: 0 },
+  ];
+  const summaries = buildLedgerAccountSummaries(opening, rows, "2026-02-01");
+  const cash = summaries.find((row) => row.accountCode === "101"); const capital = summaries.find((row) => row.accountCode === "301");
+  assert.deepEqual({ openingDebit: cash.openingDebit, periodCredit: cash.periodCredit, endingDebit: cash.endingDebit }, { openingDebit: 130, periodCredit: 20, endingDebit: 110 });
+  assert.deepEqual({ openingCredit: capital.openingCredit, periodDebit: capital.periodDebit, endingCredit: capital.endingCredit }, { openingCredit: 130, periodDebit: 20, endingCredit: 110 });
+  assert.equal(summaries.reduce((sum, row) => sum + row.openingDebit - row.openingCredit, 0), 0);
+  assert.equal(summaries.reduce((sum, row) => sum + row.periodDebit - row.periodCredit, 0), 0);
+  assert.equal(summaries.reduce((sum, row) => sum + row.endingDebit - row.endingCredit, 0), 0);
 });
 
 test("August management-report commerce inputs reconcile without treating supply difference as profit", async () => {

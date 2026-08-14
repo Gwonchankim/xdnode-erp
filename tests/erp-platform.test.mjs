@@ -1477,3 +1477,20 @@ test("finance posting control preserves multi-line lineage and requires tax, per
   assert.match(workspace, /금액 수정 금지/); assert.match(workspace, /수정분개만 허용/); assert.match(workspace, /승인본 전기/); assert.match(integration, /FinancePostingWorkspace/);
   assert.match(migration, /WHERE `source_canonical_row_id` <> ''/); assert.match(migration, /WHERE `reversal_of_batch_id` <> ''/); assert.match(plan, /전기된 전표는 수정·삭제하지 않는다/); assert.match(plan, /현재 월이 아닌데 마감 원장 자체가 없는 기간도 미개방/);
 });
+
+test("general ledger joins both posted ledgers to the immutable 2025 closing baseline", async () => {
+  const [api, server, workspace, page, plan] = await Promise.all([
+    read("app/api/finance/general-ledger/route.ts"), read("app/finance-general-ledger.ts"),
+    read("app/general-ledger-workspace.tsx"), read("app/page.tsx"), read("docs/finance-general-ledger-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "finance", "read"\)/);
+  assert.match(api, /financeHistoricalData\.trialBalance2025/);
+  assert.match(api, /finance_posting_batches batch ON batch\.id=voucher\.batch_id AND batch\.status='POSTED'/);
+  assert.match(api, /finance_journal_entries WHERE status='POSTED'/);
+  assert.match(api, /openingDifference/); assert.match(api, /periodDifference/); assert.match(api, /endingDifference/);
+  assert.match(server, /row\.voucherDate < from/); assert.match(api, /ledgerRows\("2026-01-01", to\)/);
+  assert.match(api, /stagedOrClobeRowsIncluded: false/); assert.match(api, /Content-Disposition/); assert.match(api, /\^\[=\+\\-@\]/);
+  assert.match(workspace, /총계정원장·2026 시산표/); assert.match(workspace, /CSV 내려받기/); assert.match(workspace, /검증 스테이징과 Clobe 원문은 포함하지 않습니다/);
+  assert.match(page, /GeneralLedgerWorkspace/); assert.match(page, /총계정원장·시산표/);
+  assert.match(plan, /지급 전표.*외부 다행 분개/); assert.match(plan, /초안·결재 중·승인 후 미전기/);
+});

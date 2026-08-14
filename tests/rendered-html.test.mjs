@@ -30,6 +30,7 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /알림 센터/);
   assert.match(html, /내보내기/);
   assert.match(html, /통합 대시보드/);
+  assert.match(html, /일일 자금일보/);
   assert.match(html, /손익·재무상태/);
   assert.match(html, /자금·채권채무/);
   assert.match(html, /원장·데이터 점검/);
@@ -43,7 +44,7 @@ test("renders the integrated ERP finance workspace", async () => {
 test("keeps the finance connection notice in the alarm center configuration", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(source, /title: "2024~2026년 재무 데이터 연결 완료"/);
-  assert.match(source, /destination: \{ module: "finance" \}/);
+  assert.match(source, /destination: \{ module: "finance", financeView: "quality" \}/);
 });
 
 test("renders the incentive calculator after the Excel import compatibility fix", async () => {

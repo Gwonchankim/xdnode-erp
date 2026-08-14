@@ -17,6 +17,7 @@ import FixedAssetsWorkspace from "./fixed-assets-workspace";
 import ProjectCostingWorkspace from "./project-costing-workspace";
 import ExpenseControlWorkspace from "./expense-control-workspace";
 import DebtManagementWorkspace from "./debt-management-workspace";
+import DailyTreasuryWorkspace from "./daily-treasury-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
@@ -62,8 +63,8 @@ const erpAlerts = [
   { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘", destination: { module: "hr", hrView: "employees" } },
   { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
   { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
-  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 4,010원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
-  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 4,010원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.", time: "8월 14일", destination: { module: "finance" } },
+  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: `분개장 차변과 대변 사이의 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이를 확인해 주세요.`, time: "확인 필요", destination: { module: "finance", financeView: "quality" } },
+  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: `2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.`, time: "8월 14일", destination: { module: "finance", financeView: "quality" } },
   { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
 ] satisfies ERPAlert[];
 
@@ -72,8 +73,8 @@ const financeChecks = [
   { label: "2025년 원장·시산표·자금현황 대사", owner: "27개 계정 전액 일치", done: true },
   { label: "2025년 분개장 15,510개 라인 반영", owner: "2025.01.02–12.31", done: true },
   { label: "은행 데이터 소스 11개 수집", owner: "Clobe · 정상", done: true },
-  { label: "2026년 분개장 17,466개 라인 반영", owner: "2026.01.01–08.14", done: true },
-  { label: "분개장 차대변 4,010원 차이 확인", owner: "재무 담당자", done: false },
+  { label: `2026년 분개장 ${financeCurrentData.journalSummary.lineCount.toLocaleString("ko-KR")}개 라인 반영`, owner: `2026.01.01–${financeCurrentData.asOf.slice(5)}`, done: true },
+  { label: `분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이 확인`, owner: "재무 담당자", done: financeCurrentData.journalSummary.differenceKrw === 0 },
   { label: "2025년 중복 후보 32행 원문 확인", owner: "자동 삭제하지 않음", done: false },
 ];
 
@@ -88,12 +89,12 @@ const cashTrend = [
   { date: "7/24", balance: 1175979470 },
   { date: "7/31", balance: 1692218331 },
   { date: "8/07", balance: 2220797669 },
-  { date: "8/14", balance: 1632647344 },
+  { date: "8/14", balance: 1632535863 },
 ];
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financePeriodLabels: Record<FinancePeriod, string> = {
   day: "일",
@@ -118,18 +119,18 @@ const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ la
       { label: "8/11", value: 1746986430 },
       { label: "8/12", value: 1721282194 },
       { label: "8/13", value: 1632647344 },
-      { label: "8/14", value: 1632647344 },
+      { label: "8/14", value: 1632535863 },
     ],
     week: cashTrend.map((item) => ({ label: item.date, value: item.balance })),
     month: [
       { label: "5월", value: 90193013 },
       { label: "6월", value: 1242819712 },
       { label: "7월", value: 1692218331 },
-      { label: "8월", value: 1632647344 },
+      { label: "8월", value: 1632535863 },
     ],
     quarter: [
       { label: "2분기", value: 1242819712 },
-      { label: "3분기", value: 1632647344 },
+      { label: "3분기", value: 1632535863 },
     ],
   },
   sales: {
@@ -151,7 +152,7 @@ const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ la
 const financeAlerts = [
   { level: "critical", label: "분류 필요", title: "계정 없는 출금 68.45억원", detail: "최근 31일 · 40건의 출금 계정을 확인하세요." },
   { level: "warning", label: "확인 필요", title: "계정 없는 입금 71.28억원", detail: "최근 31일 · 매출 또는 자금이동 여부를 구분하세요." },
-  { level: "warning", label: "장부 점검", title: "차변·대변 4,010원 차이", detail: "2026년 분개장 마감 전 원인을 확인하세요." },
+  { level: "warning", label: "장부 점검", title: `차변·대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이`, detail: "2026년 분개장 마감 전 원인을 확인하세요." },
   { level: "info", label: "원문 확인", title: "2025년 중복 후보 32행", detail: "실제 반복 거래일 수 있어 자동 삭제하지 않고 원문 검토 대상으로 유지합니다." },
 ];
 
@@ -423,7 +424,7 @@ export default function Home() {
   const [periodMenuOpen, setPeriodMenuOpen] = useState(false);
   const [financePeriod, setFinancePeriod] = useState<{ year: "2024" | "2025" | "2026"; label: string; requestKey: number }>({ year: "2026", label: "2026년 8월", requestKey: 0 });
   const [financeWorkspaceRequest, setFinanceWorkspaceRequest] = useState<{ view: FinanceWorkspaceView; requestKey: number }>({ view: "overview", requestKey: 0 });
-  const [quickOpen, setQuickOpen] = useState(false);
+  const [salesCreateRequestKey, setSalesCreateRequestKey] = useState(0);
   const [toast, setToast] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -454,13 +455,6 @@ export default function Home() {
     }
     setActive(alert.destination.module);
     setSearch("");
-  }
-
-  function saveQuick(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setQuickOpen(false);
-    setToast(`${copy.action} 항목을 임시 저장했습니다.`);
-    window.setTimeout(() => setToast(""), 3200);
   }
 
   function exportFinanceSnapshot() {
@@ -543,54 +537,14 @@ export default function Home() {
           </div>
           <div className="hero-actions">
             <button type="button" className="secondary-button" onClick={active === "finance" ? exportFinanceSnapshot : () => { setToast("이 화면의 내보내기 기능은 준비 중입니다."); window.setTimeout(() => setToast(""), 3200); }}>내보내기</button>
-            <button className="primary-button" onClick={() => setQuickOpen(true)}><span>＋</span>{copy.action}</button>
+            <button className="primary-button" onClick={() => active === "finance" ? requestFinanceWorkspace("daily-report") : setSalesCreateRequestKey((key) => key + 1)}><span>＋</span>{copy.action}</button>
           </div>
         </section>
 
-        {active !== "finance" && <div className="attention-strip">
-          <span className="attention-icon">!</span>
-          <div>
-            <strong>월 마감 D-2</strong>
-            <span>7월 매입고지단가 오류 14건과 미증빙 8건의 확인이 필요합니다.</span>
-          </div>
-          <button type="button" onClick={() => requestFinanceWorkspace("quality")}>재무 점검 보기 →</button>
-        </div>}
-
         {active === "finance" && <FinanceDashboard search={search} requestedWorkspace={financeWorkspaceRequest.view} workspaceRequestKey={financeWorkspaceRequest.requestKey} requestedYear={financePeriod.year} yearRequestKey={financePeriod.requestKey} onOpenAlerts={() => setAlertRequestKey((key) => key + 1)} />}
-        {active === "sales" && <SalesWorkspace search={search} />}
+        {active === "sales" && <SalesWorkspace search={search} createRequestKey={salesCreateRequestKey} />}
         {active === "hr" && <HrDashboard search={search} />}
       </main>
-
-      {quickOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={copy.action}>
-          <button type="button" className="modal-click-catcher" aria-label="창 닫기" onClick={() => setQuickOpen(false)} />
-          <form className="quick-modal" onSubmit={saveQuick}>
-            <div className="modal-heading">
-              <div>
-                <p className="eyebrow">Quick create</p>
-                <h2>{copy.action}</h2>
-              </div>
-              <button type="button" aria-label="닫기" onClick={() => setQuickOpen(false)}>×</button>
-            </div>
-            <label>
-              제목
-              <input required placeholder={`${copy.action} 제목을 입력하세요`} />
-            </label>
-            <div className="form-row">
-              <label>담당자<input placeholder="담당자 선택" /></label>
-              <label>기준일<input type="date" defaultValue="2026-08-10" /></label>
-            </div>
-            <label>
-              메모
-              <textarea rows={4} placeholder="검토 배경이나 전달사항을 기록하세요" />
-            </label>
-            <div className="modal-actions">
-              <button className="secondary-button" type="button" onClick={() => setQuickOpen(false)}>취소</button>
-              <button className="primary-button" type="submit">임시 저장</button>
-            </div>
-          </form>
-        </div>
-      )}
 
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>
@@ -795,7 +749,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   }, [normalizedSearch]);
 
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
-    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
+    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["daily-report", "일일 자금일보", "일"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["expense-control", "법인카드·지출증빙", "증"], ["inventory", "재고·상품원가", "재"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
     { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"]] },
@@ -923,6 +877,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       )}
 
       {workspace === "control" && <FinanceOperationsCenter onOpenBudget={() => setWorkspace("budget")} />}
+
+      {workspace === "daily-report" && <DailyTreasuryWorkspace />}
 
       {workspace === "report" && <ManagementReportWorkspace onNavigate={(view) => {
         if (!view.startsWith("hr:")) selectWorkspace(view as FinanceWorkspaceView);

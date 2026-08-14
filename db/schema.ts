@@ -634,6 +634,32 @@ export const financeManagementReportActions = sqliteTable("finance_management_re
   index("idx_finance_management_report_action_status_due").on(table.reportId, table.status, table.dueDate),
 ]);
 
+export const financeDailyTreasuryReports = sqliteTable("finance_daily_treasury_reports", {
+  id: text("id").primaryKey(),
+  reportDate: text("report_date").notNull(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("DRAFT"),
+  sourceAsOf: text("source_as_of").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  analysisText: text("analysis_text").notNull().default(""),
+  analysisSource: text("analysis_source").notNull().default("RULE_BASED_FALLBACK"),
+  aiStatus: text("ai_status").notNull().default("NOT_REQUESTED"),
+  aiModel: text("ai_model").notNull().default(""),
+  managementNote: text("management_note").notNull().default(""),
+  actionItemsJson: text("action_items_json").notNull().default("[]"),
+  generatedBy: text("generated_by").notNull(),
+  reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at"),
+  finalizedBy: text("finalized_by").notNull().default(""),
+  finalizedAt: integer("finalized_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_daily_treasury_report_date_version").on(table.reportDate, table.version),
+  index("idx_finance_daily_treasury_report_date_status").on(table.reportDate, table.status),
+  index("idx_finance_daily_treasury_report_source_asof").on(table.sourceAsOf),
+]);
+
 export const financeMasterAccounts = sqliteTable("finance_master_accounts", {
   id: text("id").primaryKey(),
   code: text("code").notNull(),

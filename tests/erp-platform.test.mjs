@@ -15,6 +15,39 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
   for (const source of files) assert.match(source, /writeErpAudit/);
 });
 
+test("daily treasury reports freeze source data, survive AI outages and require human review before finalization", async () => {
+  const [api, view, schema, migration, page, operations, close, plan] = await Promise.all([
+    read("app/api/finance/daily-treasury/route.ts"), read("app/daily-treasury-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0034_daily_treasury_reporting.sql"), read("app/page.tsx"),
+    read("app/api/operations/route.ts"), read("app/api/finance/close/route.ts"),
+    read("docs/finance-daily-treasury-report-plan.md"),
+  ]);
+  assert.match(schema, /financeDailyTreasuryReports/);
+  assert.match(migration, /idx_finance_daily_treasury_report_date_version/);
+  assert.match(api, /finance_bank_transactions/);
+  assert.match(api, /finance_cash_forecast_items/);
+  assert.match(api, /sales_payment_allocations/);
+  assert.match(api, /finance_purchase_invoices/);
+  assert.match(api, /finance_debt_schedule_items/);
+  assert.match(api, /action === "FINALIZE" \? "approve" : "write"/);
+  assert.match(api, /analysis_source = \?/);
+  assert.match(api, /RULE_BASED_FALLBACK/);
+  assert.match(api, /status: "QUOTA"/);
+  assert.match(api, /managementNote\.length < 10 \|\| actionItems\.length < 1/);
+  assert.match(api, /WHERE id = \? AND status = 'REVIEWED'/);
+  assert.match(view, /동결 스냅샷 분석/);
+  assert.match(view, /AI 결과는 참고자료/);
+  assert.match(page, /\["daily-report", "일일 자금일보", "일"\]/);
+  assert.match(page, /requestFinanceWorkspace\("daily-report"\)/);
+  assert.doesNotMatch(page, /임시 저장/);
+  assert.match(operations, /daily-treasury-report-due/);
+  assert.match(operations, /destination: "finance:daily-report"/);
+  assert.match(close, /DAILY_TREASURY_REPORT/);
+  assert.match(close, /category: "TREASURY"/);
+  assert.match(plan, /`FINAL` 보고서는 수정하지 않고 다음 버전으로만 개정/);
+  assert.match(plan, /AI 설정 누락·무료한도 초과·통신 실패/);
+});
+
 test("finance master changes are approval-gated and new finance inputs validate active master records", async () => {
   const [api, workspace, engine, operations, budget, sales, purchasing, page, plan, taskRoute] = await Promise.all([
     read("app/api/finance/master-data/route.ts"), read("app/finance-master-workspace.tsx"),

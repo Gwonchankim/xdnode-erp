@@ -651,6 +651,24 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const dailyReport = await db.prepare(`SELECT id, status, version, analysis_source, ai_status, source_as_of
+      FROM finance_daily_treasury_reports WHERE report_date = ? ORDER BY version DESC LIMIT 1`)
+      .bind(financeCurrentData.asOf).first<{ id: string; status: string; version: number; analysis_source: string; ai_status: string; source_as_of: string }>();
+    if (!dailyReport || dailyReport.status !== "FINAL" || dailyReport.source_as_of !== financeCurrentData.asOf) await upsertRuleTask({
+      id: "daily-treasury-report-due", module: "finance", category: "자금일보",
+      title: `${financeCurrentData.asOf} 자금일보 ${dailyReport ? "확정" : "작성"} 필요`,
+      description: dailyReport
+        ? `v${dailyReport.version} · ${dailyReport.status} · ${dailyReport.analysis_source === "AI" ? "AI 분석" : `규칙 기반(${dailyReport.ai_status})`} 상태입니다. 담당자 검토와 최종 확정을 완료해 주세요.`
+        : "은행 실적과 향후 7일 채권·채무·차입 일정을 동결한 일일 자금일보를 생성해 주세요.",
+      dueDate: financeCurrentData.asOf, priority: "HIGH", destination: "finance:daily-report",
+      sourceId: `${financeCurrentData.asOf}:${dailyReport?.status ?? "MISSING"}:${dailyReport?.version ?? 0}:${dailyReport?.source_as_of ?? ""}`,
+    });
+    else await closeRuleTask("daily-treasury-report-due");
+  } catch {
+    // 일일 자금일보 원장이 배포된 뒤부터 작성·확정 상태를 평가합니다.
+  }
+
+  try {
     const asOf = new Date(`${financeCurrentData.asOf}T00:00:00Z`);
     asOf.setUTCDate(1); asOf.setUTCDate(0);
     const reportPeriod = asOf.toISOString().slice(0, 7);

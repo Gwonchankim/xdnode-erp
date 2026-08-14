@@ -37,6 +37,23 @@ test("new workflow ledgers migrate cleanly and enforce one payment per request",
   assert.throws(() => insertJournal.run("journal-2", "expense-1", "2026-08-14", "중복", "소모품비", "보통예금", 10000, "gc.kim", now, now), /UNIQUE constraint failed/);
 });
 
+test("daily treasury reports keep immutable-style versions unique per report date", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insert = db.prepare(`INSERT INTO finance_daily_treasury_reports
+    (id, report_date, version, status, source_as_of, snapshot_json, analysis_text, analysis_source,
+      ai_status, generated_by, created_at, updated_at)
+    VALUES (?, '2026-08-14', ?, ?, '2026-08-14', ?, ?, ?, ?, 'gc.kim', ?, ?)`);
+  insert.run("daily-1", 1, "FINAL", '{"balances":{"closingBankAssets":1632535863}}', "규칙 기반 분석", "RULE_BASED_FALLBACK", "QUOTA", now, now);
+  assert.throws(() => insert.run("daily-duplicate", 1, "DRAFT", "{}", "분석", "AI", "SUCCESS", now, now), /UNIQUE constraint failed/);
+  insert.run("daily-2", 2, "DRAFT", '{"balances":{"closingBankAssets":1632535863}}', "AI 분석", "AI", "SUCCESS", now, now);
+  const rows = db.prepare("SELECT version, status, analysis_source FROM finance_daily_treasury_reports WHERE report_date = ? ORDER BY version").all("2026-08-14");
+  assert.deepEqual(rows.map((row) => ({ ...row })), [
+    { version: 1, status: "FINAL", analysis_source: "RULE_BASED_FALLBACK" },
+    { version: 2, status: "DRAFT", analysis_source: "AI" },
+  ]);
+});
+
 test("fixed asset ledgers keep source registration and monthly depreciation unique", async () => {
   const db = await migratedDatabase(); const now = Date.now();
   const insertAsset = db.prepare(`INSERT INTO finance_fixed_assets

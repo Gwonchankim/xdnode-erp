@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import IncentiveGovernance from "./incentive-governance";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
@@ -19,12 +19,14 @@ const availableDocumentStatuses = (document: SalesDocument) => document.document
     ? [["COMPLETED", "완료"]]
     : Object.entries(salesDocumentStatusLabels);
 
-export default function SalesWorkspace({ search }: { search: string }) {
+export default function SalesWorkspace({ search, createRequestKey = 0 }: { search: string; createRequestKey?: number }) {
   const [data, setData] = useState<SalesData | null>(null);
   const [message, setMessage] = useState("");
   const [accountDraft, setAccountDraft] = useState({ name: "", businessNumber: "", industry: "", memo: "" });
   const [opportunityDraft, setOpportunityDraft] = useState({ accountId: "", title: "", leadType: "OUTBOUND", stage: "LEAD", expectedRevenue: "", expectedCost: "", probability: "10", expectedCloseDate: "", nextAction: "", nextActionDate: "" });
   const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
+  const opportunityPanelRef = useRef<HTMLElement>(null);
+  const opportunityTitleRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     try {
@@ -40,6 +42,11 @@ export default function SalesWorkspace({ search }: { search: string }) {
   }
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    if (!createRequestKey) return;
+    opportunityPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => opportunityTitleRef.current?.focus(), 350);
+  }, [createRequestKey]);
 
   const opportunities = useMemo(() => (data?.opportunities ?? []).filter((item) => `${item.accountName} ${item.title}`.toLowerCase().includes(search.toLowerCase())), [data, search]);
   const open = opportunities.filter((item) => item.status === "OPEN");
@@ -105,11 +112,11 @@ export default function SalesWorkspace({ search }: { search: string }) {
         <div className="sales-account-list">{(data?.accounts ?? []).map((item) => <div key={item.id}><strong>{item.name}</strong><span>{item.industry || "업종 미입력"}</span><em>{item.status}</em></div>)}{!data?.accounts.length && <p>등록된 거래처가 없습니다.</p>}</div>
       </article>
 
-      <article className="panel sales-entry-panel opportunity-entry">
+      <article className="panel sales-entry-panel opportunity-entry" ref={opportunityPanelRef}>
         <header><div><p>OPPORTUNITY</p><h2>영업 건 등록</h2></div><span>원가 포함</span></header>
         <form onSubmit={(event) => void create(event, "opportunity")}>
           <label>거래처<select required value={opportunityDraft.accountId} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, accountId: event.target.value })}><option value="">선택</option>{(data?.accounts ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>영업 건명<input required value={opportunityDraft.title} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, title: event.target.value })} /></label>
+          <label>영업 건명<input ref={opportunityTitleRef} required value={opportunityDraft.title} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, title: event.target.value })} /></label>
           <label>유형<select value={opportunityDraft.leadType} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, leadType: event.target.value })}><option value="OUTBOUND">아웃바운드</option><option value="INBOUND">인바운드</option><option value="RAM">RAM 단독</option></select></label>
           <label>예상 매출<input required type="number" min="0" value={opportunityDraft.expectedRevenue} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, expectedRevenue: event.target.value })} /></label>
           <label>예상 원가<input required type="number" min="0" value={opportunityDraft.expectedCost} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, expectedCost: event.target.value })} /></label>

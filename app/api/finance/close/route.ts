@@ -54,6 +54,7 @@ async function seedClose(period: string) {
   const now = Date.now();
   const templates = [
     ["BANK", "은행·외화예금 잔액 대사"],
+    ["TREASURY", "월 최신 기준일 자금일보 확정 확인"],
     ["JOURNAL", "분개장 차변·대변 및 미전기 전표 확인"],
     ["EVIDENCE", "지출·지급 증빙 누락 확인"],
     ["EXPENSE_CONTROL", "법인카드·지출증빙 대사"],
@@ -85,7 +86,8 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   nextPeriodDate.setUTCMonth(nextPeriodDate.getUTCMonth() + 1); const periodEndExclusive = nextPeriodDate.toISOString().slice(0, 10);
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
-  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, incentiveSettlement, tax] = await Promise.all([
+  const treasuryTargetDate = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
+  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, incentiveSettlement, treasuryReport, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -222,6 +224,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
         AND COALESCE(json_extract(result.calculation_json, '$.clawbackCandidate'), 0) < 0) AS clawback_count`)
       .bind(periodEndExclusive, periodStart, periodStart, periodStart, periodEndExclusive, period, period, period, period, period)
       .first<{ eligible_source_count: number; missing_result_count: number; unresolved_count: number; fallback_count: number; clawback_count: number }>(),
+    db.prepare(`SELECT report_date, status, version, source_as_of, analysis_source, ai_status
+      FROM finance_daily_treasury_reports WHERE report_date LIKE ? AND report_date <= ?
+      ORDER BY report_date DESC, version DESC LIMIT 1`).bind(like, treasuryTargetDate)
+      .first<{ report_date: string; status: string; version: number; source_as_of: string; analysis_source: string; ai_status: string }>(),
     db.prepare(`SELECT tax_period.status, tax_period.source_as_of, tax_period.source_sales_supply, tax_period.source_purchase_supply,
         (SELECT COUNT(*) FROM erp_documents document WHERE document.module = 'finance'
           AND document.entity_type = 'financeTaxPeriod' AND document.entity_id = ? AND document.deleted_at IS NULL) AS evidence_count
@@ -241,6 +247,14 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     { key: "BANK_RECONCILIATION", category: "BANK", title: "원화 은행거래 대사",
       status: bankTotal > 0 && bankPending === 0 ? "PASS" : "FAIL",
       message: bankTotal ? `${bankTotal}건 중 미대사 ${bankPending}건` : "해당 월 은행 거래 원문이 없습니다.", count: bankPending },
+    { key: "DAILY_TREASURY_REPORT", category: "TREASURY", title: "최신 기준일 자금일보",
+      status: treasuryReport?.report_date === treasuryTargetDate && treasuryReport.status === "FINAL"
+        && (period !== currentPeriod || treasuryReport.source_as_of === financeCurrentData.asOf) ? "PASS" : "FAIL",
+      message: treasuryReport
+        ? `${treasuryReport.report_date} v${treasuryReport.version} · ${treasuryReport.status} · ${treasuryReport.analysis_source === "AI" ? "AI 분석" : `규칙 기반(${treasuryReport.ai_status})`}`
+        : `${treasuryTargetDate} 기준 확정 자금일보가 없습니다.`,
+      count: treasuryReport?.report_date === treasuryTargetDate && treasuryReport.status === "FINAL"
+        && (period !== currentPeriod || treasuryReport.source_as_of === financeCurrentData.asOf) ? 0 : 1 },
     { key: "ERP_UNPOSTED_JOURNALS", category: "JOURNAL", title: "ERP 미전기 회계전표",
       status: Number(unposted?.count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `미전기 전표 ${Number(unposted?.count ?? 0)}건`, count: Number(unposted?.count ?? 0) },
@@ -310,7 +324,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "DEBT", "TAX"];
+  const categories = ["BANK", "TREASURY", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "DEBT", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

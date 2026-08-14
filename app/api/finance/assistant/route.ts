@@ -2,127 +2,144 @@ import { env } from "cloudflare:workers";
 import { authorizeErpRequest } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { financeCurrentInsights } from "../../../finance-current-insights";
+import { financeHistoricalData } from "../../../finance-historical-data";
 import { buildAccountRiskModel, buildSalesForecast } from "../../../finance-decision-model";
 import { loadFinanceRiskPolicy } from "../../../finance-risk-policy-server";
+import { buildFinanceLedgerSnapshot, buildFinancePeriodStatementSnapshot } from "../../../finance-ledger-snapshot";
+import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../../finance-ledger-integrity";
+import { buildFinanceAssistantFallback, buildFinanceAssistantPrompt, type FinanceAssistantEvidence } from "../../../finance-assistant-evidence";
 
-type AiBindings = {
-  DB: D1Database;
-  CLOUDFLARE_ACCOUNT_ID?: string;
-  CLOUDFLARE_API_TOKEN?: string;
-  CLOUDFLARE_AI_MODEL?: string;
-};
+type AiBindings = { DB: D1Database; CLOUDFLARE_ACCOUNT_ID?: string; CLOUDFLARE_API_TOKEN?: string; CLOUDFLARE_AI_MODEL?: string };
+type CloudflareEnvelope = { success?: boolean; errors?: Array<{ message?: string }>;
+  result?: { response?: unknown; choices?: Array<{ message?: { content?: unknown } }> } };
+type CloseRow = { period: string; status: string; snapshot_json: string };
+type FrozenClose = { ledgerSnapshot?: LedgerIntegritySnapshot };
 
-type CloudflareEnvelope = {
-  success?: boolean;
-  errors?: Array<{ message?: string }>;
-  result?: { response?: unknown; choices?: Array<{ message?: { content?: unknown } }> };
-};
-
-const currentBankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
-const bankActivity = financeCurrentInsights.bankActivity31Days;
-const salesForecast = buildSalesForecast(financeCurrentData.salesDaily2026, financeCurrentInsights.taxInvoicesAsOf);
-const forecastScenarios = salesForecast.scenarios.map((scenario) => `${scenario.label} ${scenario.projectedTotal.toLocaleString("ko-KR")}원(${scenario.basis})`).join(", ");
-function buildFinanceContext(accountRiskModel: ReturnType<typeof buildAccountRiskModel>) {
-  const riskDrivers = accountRiskModel.drivers.map((driver) => `${driver.label} +${driver.points}/${driver.maxPoints}점: ${driver.evidence}`).join(", ");
-  return `
-자료 범위: 2024년·2025년은 사용자가 승인한 이카운트 결산 자료이며, 2026년 은행·분개장 자료는 ${financeCurrentData.asOf} 기준 Clobe 최신 스냅샷이다. 전자세금계산서는 2026-08-13까지이며 서로 다른 기준기간을 반드시 구분한다.
-2024년 결산: 자산총계 9,163,347,943원, 보통예금 4,440,692,099원, 외상매출금 2,938,482,814원, 외상매입금 4,833,825,237원, 장기차입금 100,000,000원, 상품매출 18,003,003,195원, 상품매출원가 15,443,129,733원, 당기순이익 2,506,308,507원. 합계잔액시산표 차변·대변 각 101,164,394,499원이며 재무상태표와 대사 완료.
-2025년 결산: 자산총계 14,042,172,078원, 보통예금 7,362,455,598원, 외상매출금 2,282,636,500원, 외상매입금 5,549,840,004원, 장기차입금 83,333,336원, 상품매출 35,245,919,310원, 상품매출원가 34,418,332,396원, 매출총이익 827,586,914원, 당기순이익 796,938,875원. 합계잔액시산표 차변·대변 각 262,960,719,308원이며 원장·자금현황표와 대사 완료.
-2025년 전년 대비: 매출 +95.8%, 매출원가 +122.9%, 당기순이익 -68.2%, 기말 보통예금 +65.8%, 외상매출금 -22.3%, 외상매입금 +14.8%.
-2025년 월별 당기순이익: 1월 -550,217,298원, 2월 148,764,023원, 3월 82,006,344원, 4월 635,175,217원, 5월 463,287,699원, 6월 737,895,691원, 7월 111,679,235원, 8월 397,275,818원, 9월 -601,541,869원, 10월 328,567,589원, 11월 -296,408,804원, 12월 -659,544,770원.
-2025년 채권 상위: 주식회사 양컴 331,848,000원, 주식회사 미루웨어 330,176,000원, 주식회사 에스엔티 230,021,000원, (주)피씨디렉트 226,050,000원. 채무 상위: 어드밴텍케이알(주) 4,480,792,229원, 대원씨티에스(주) 358,490,000원, Sourceability Korea LLC 318,838,100원.
-2025년 데이터 품질: 분개장 15,510행, 금액 0원 14행, 정확히 같은 행 중복 후보 32행. 중복 후보는 실제 반복 거래일 수 있으므로 자동 삭제하면 안 된다.
-2026년 1월 1일~8월 13일 전자세금계산서: 매출 공급가액 39,066,623,170원(1,919건), 매입 공급가액 39,290,111,236원(567건). 수정·취소 계산서는 순액 반영한다.
-2026년 월별 매출 공급가액: 1월 3,848,982,010원, 2월 3,766,356,467원, 3월 2,729,704,299원, 4월 3,941,429,697원, 5월 5,313,718,335원, 6월 6,613,993,182원, 7월 7,843,458,347원, 8월 13일까지 5,008,980,833원.
-2026년 연말 매출 전망은 ${financeCurrentInsights.taxInvoicesAsOf}까지 실제 전자세금계산서 공급가액과 남은 ${salesForecast.remainingDays}일의 관측 추세를 조합한다. 시나리오: ${forecastScenarios}. 계절성·수주잔고·반품·취소 가능성·영업계획을 반영하지 않은 단순 추세이며 회계상 매출 확정액과 다를 수 있음을 반드시 밝힌다.
-계좌 운영 위험 신호는 모델 ${accountRiskModel.version}, ${accountRiskModel.score}/100점, ${accountRiskModel.level}이다. 배점 근거: ${riskDrivers}. ${accountRiskModel.policyStatus} 상태이며 지급예정표·확정 수금일을 포함하지 않은 내부 조기경보 휴리스틱이므로 신용평가나 지급불능 판정으로 설명하지 않는다.
-은행성 자산 ${currentBankAssets.toLocaleString("ko-KR")}원, 원화 예금 ${financeCurrentData.accountSummary.checkingBalanceSum.toLocaleString("ko-KR")}원, 외화 예금 원화환산 ${financeCurrentData.accountSummary.fxBalanceSumKrw.toLocaleString("ko-KR")}원, 대출 잔액 ${financeCurrentData.accountSummary.loanBalanceSum.toLocaleString("ko-KR")}원.
-최근 31일(${bankActivity.startDate}~${bankActivity.endDate}) 은행 입금 ${bankActivity.inflowKrw.toLocaleString("ko-KR")}원, 출금 ${bankActivity.outflowKrw.toLocaleString("ko-KR")}원, 순유입 ${bankActivity.netInflowKrw.toLocaleString("ko-KR")}원. ${bankActivity.scopeNote}.
-최근 31일 주요 입금: 매출성 입금 ${bankActivity.inflowCategories.salesRelatedKrw.toLocaleString("ko-KR")}원, 계정 없는 입금 ${bankActivity.inflowCategories.unclassifiedKrw.toLocaleString("ko-KR")}원, 정부지원금 ${bankActivity.inflowCategories.governmentSupportKrw.toLocaleString("ko-KR")}원.
-최근 31일 주요 출금: 계정 없는 출금 ${bankActivity.outflowCategories.unclassifiedKrw.toLocaleString("ko-KR")}원, 기타 영업비용 ${bankActivity.outflowCategories.otherOperatingKrw.toLocaleString("ko-KR")}원, 세금과공과 ${bankActivity.outflowCategories.taxesAndDuesKrw.toLocaleString("ko-KR")}원, 미연결 신용카드 대금 ${bankActivity.outflowCategories.unlinkedCardSettlementKrw.toLocaleString("ko-KR")}원.
-분개장 ${financeCurrentData.journalSummary.lineCount.toLocaleString("ko-KR")}라인, 차변 ${financeCurrentData.journalSummary.debitAmountKrw.toLocaleString("ko-KR")}원, 대변 ${financeCurrentData.journalSummary.creditAmountKrw.toLocaleString("ko-KR")}원, 차대변 차이는 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원이다.
-계정 10300 보통예금 순증감 ${financeCurrentData.journalSummary.checkingAccount.netChangeKrw >= 0 ? "+" : ""}${financeCurrentData.journalSummary.checkingAccount.netChangeKrw.toLocaleString("ko-KR")}원.
-연동 채널 매출은 쿠팡 마켓플레이스 2026년 6월 21,510,000원, 정산액 19,940,696원, 수수료 1,514,304원이다.
-중요: 은행 거래의 ‘매출성 입금’과 연동 판매채널의 ‘회계상 매출’은 서로 다른 지표이므로 합산하거나 동일시하지 않는다.
-`;
-}
-
-function providerMessage(data: CloudflareEnvelope): string {
-  return data.errors?.map((item) => item.message).filter(Boolean).join(" ") ?? "";
-}
-
-function quotaExceeded(response: Response, data: CloudflareEnvelope): boolean {
+function safeCloseSnapshot(value: string) { try { return JSON.parse(value) as FrozenClose; } catch { return {} as FrozenClose; } }
+function providerMessage(data: CloudflareEnvelope) { return data.errors?.map((item) => item.message).filter(Boolean).join(" ") ?? ""; }
+function quotaExceeded(response: Response, data: CloudflareEnvelope) {
   return response.status === 429 || /quota|limit|neuron|exceeded/i.test(providerMessage(data));
+}
+
+async function buildEvidence(db: D1Database): Promise<FinanceAssistantEvidence> {
+  const from = "2026-01-01"; const to = financeCurrentData.asOf;
+  const [statement, ledger, close, riskPolicy] = await Promise.all([
+    buildFinancePeriodStatementSnapshot(db, from, to), buildFinanceLedgerSnapshot(db, to),
+    db.prepare(`SELECT period,status,snapshot_json FROM finance_close_runs
+      WHERE status IN ('SUBMITTED','CLOSED') ORDER BY period DESC LIMIT 1`).first<CloseRow>().catch(() => null),
+    loadFinanceRiskPolicy(db),
+  ]);
+  let closeIntegrity = { period: close?.period ?? "", status: close?.status ?? "미제출", checked: false, drifted: false,
+    detail: close ? "마감 동결 원장 정보를 확인하고 있습니다." : "제출 또는 완료된 월마감 원장이 없습니다." };
+  let closeCheckFailed = false;
+  const frozen = close ? safeCloseSnapshot(close.snapshot_json).ledgerSnapshot : undefined;
+  if (close && frozen?.ledgerHash && frozen.asOf) {
+    try {
+      const current = frozen.asOf === ledger.asOf ? ledger : await buildFinanceLedgerSnapshot(db, frozen.asOf);
+      const drift = evaluateLedgerSnapshotDrift(frozen, current);
+      closeIntegrity = { period: close.period, status: close.status, checked: true, drifted: drift.drifted,
+        detail: drift.drifted
+          ? `동결 ${drift.frozenLineCount.toLocaleString("ko-KR")}행과 현재 ${drift.currentLineCount.toLocaleString("ko-KR")}행의 원장 계보가 다릅니다.`
+          : `동결 원장 ${drift.frozenLineCount.toLocaleString("ko-KR")}행과 현재 원장 계보가 일치합니다.` };
+    } catch {
+      closeCheckFailed = true;
+      closeIntegrity = { period: close.period, status: close.status, checked: false, drifted: false,
+        detail: "동결 원장과 현재 원장의 무결성 비교를 완료하지 못했습니다." };
+    }
+  } else if (close) { closeCheckFailed = true; closeIntegrity.detail = "마감 원장에 비교 가능한 동결 해시가 없습니다."; }
+
+  const reasons: string[] = [];
+  if (statement.status !== "OFFICIAL") reasons.push("2026 운영 손익이 검토용(DRAFT)입니다");
+  if (!statement.quality.openingOfficial) reasons.push("승인된 2026 개시잔액이 확인되지 않았습니다");
+  if (!statement.quality.periodBalanced) reasons.push(`POSTED 전표 차대변 차이 ${statement.difference.toLocaleString("ko-KR")}원이 있습니다`);
+  if (statement.quality.unclassifiedCount > 0) reasons.push(`미분류 전기 계정 ${statement.quality.unclassifiedCount}개가 있습니다`);
+  if (!ledger.official) reasons.push("누적 총계정원장이 공식 상태가 아닙니다");
+  if (Number(financeCurrentData.journalSummary.differenceKrw) !== 0) reasons.push(`Clobe 분개장 차대변 차이 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원이 있습니다`);
+  if (closeIntegrity.drifted) reasons.push("마감 제출 후 원장 계보 변경이 감지되었습니다");
+  if (closeCheckFailed) reasons.push("마감 원장 무결성 확인을 완료하지 못했습니다");
+  const review = reasons.length > 0;
+  const bankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
+  const bankActivity = financeCurrentInsights.bankActivity31Days;
+  const salesForecast = buildSalesForecast(financeCurrentData.salesDaily2026, financeCurrentInsights.taxInvoicesAsOf);
+  const accountRisk = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts,
+    financeCurrentData.balanceTrend, riskPolicy);
+  const sourceStatus = review ? "REVIEW" as const : "CONFIRMED" as const;
+  const limitations = [...reasons,
+    "전자세금계산서 공급가액과 은행 입금은 회계상 매출과 동일한 지표가 아닙니다.",
+    "2026년은 운영 중인 부분기간이며 2024·2025 연간 결산과 직접 단순 비교하지 않습니다."];
+  return {
+    generatedAt: new Date().toISOString(),
+    quality: { status: review ? "REVIEW_REQUIRED" : "VERIFIED", label: review ? "검토 필요" : "근거 확인", reasons },
+    operational2026: { from, to, status: statement.status, lineCount: statement.lineCount,
+      revenue: statement.incomeStatement.revenue, expenses: statement.incomeStatement.expenses,
+      netIncome: statement.incomeStatement.netIncome, difference: statement.difference },
+    historical: {
+      "2024": { revenue: financeHistoricalData.years["2024"].revenue, netIncome: financeHistoricalData.years["2024"].netIncome,
+        cash: financeHistoricalData.years["2024"].cash, assets: financeHistoricalData.years["2024"].assets },
+      "2025": { revenue: financeHistoricalData.years["2025"].revenue, netIncome: financeHistoricalData.years["2025"].netIncome,
+        cash: financeHistoricalData.years["2025"].cash, assets: financeHistoricalData.years["2025"].assets },
+    },
+    treasury2026: { asOf: to, bankAssets, checking: financeCurrentData.accountSummary.checkingBalanceSum,
+      fxKrw: financeCurrentData.accountSummary.fxBalanceSumKrw, loans: financeCurrentData.accountSummary.loanBalanceSum,
+      recentFrom: bankActivity.startDate, recentTo: bankActivity.endDate, inflow: bankActivity.inflowKrw,
+      outflow: bankActivity.outflowKrw, netInflow: bankActivity.netInflowKrw },
+    taxInvoices2026: { asOf: financeCurrentInsights.taxInvoicesAsOf, salesSupplyValue: financeCurrentData.sourceSummary.salesSupplyValue,
+      purchaseSupplyValue: financeCurrentData.sourceSummary.purchaseSupplyValue, accountingRevenue: false },
+    forecast2026: { asOf: financeCurrentInsights.taxInvoicesAsOf, remainingDays: salesForecast.remainingDays,
+      scenarios: salesForecast.scenarios.map((item) => ({ key: item.key, label: item.label,
+        projectedTotal: item.projectedTotal, basis: item.basis })) },
+    accountRisk: { version: accountRisk.version, score: accountRisk.score, level: accountRisk.level,
+      policyStatus: accountRisk.policyStatus, drivers: accountRisk.drivers.map((item) => ({ label: item.label,
+        points: item.points, maxPoints: item.maxPoints, evidence: item.evidence })) },
+    closeIntegrity,
+    sources: [
+      { id: "ecount-2024", label: "2024 승인 결산", period: "2024.01.01~12.31", basis: "재무상태표·합계잔액시산표", status: "CONFIRMED", destination: "statements" },
+      { id: "ecount-2025", label: "2025 승인 결산", period: "2025.01.01~12.31", basis: "계정별원장·분개장·자금현황표", status: "CONFIRMED", destination: "statements" },
+      { id: "posted-ledger-2026", label: "2026 POSTED 총계정원장", period: `${from}~${to}`, basis: `${statement.lineCount.toLocaleString("ko-KR")}행·차대변 차이 ${statement.difference.toLocaleString("ko-KR")}원`, status: sourceStatus, destination: "ledger" },
+      { id: "clobe-2026", label: "2026 Clobe 스냅샷", period: `기준일 ${to}`, basis: "은행·외화예금·대출·세금계산서", status: Number(financeCurrentData.journalSummary.differenceKrw) === 0 ? "CONFIRMED" : "REVIEW", destination: "quality" },
+      { id: "close-integrity", label: "월마감 원장 무결성", period: close?.period ?? "제출 이력 없음", basis: closeIntegrity.detail,
+        status: closeIntegrity.checked && !closeIntegrity.drifted && !closeCheckFailed ? "CONFIRMED" : "REVIEW", destination: "close" },
+    ], limitations,
+  };
+}
+
+function fallbackPayload(question: string, evidence: FinanceAssistantEvidence, limitation: string, quota = false) {
+  return { answer: buildFinanceAssistantFallback(question, evidence), provider: "RULE_BASED_FALLBACK", evidenceStatus: evidence.quality.status,
+    evidenceLabel: evidence.quality.label, basisAsOf: evidence.operational2026.to, sources: evidence.sources,
+    limitations: [limitation, ...evidence.limitations], quotaExceeded: quota };
 }
 
 export async function POST(request: Request) {
   const bindings = env as unknown as AiBindings;
   const auth = await authorizeErpRequest(bindings.DB, "finance", "read");
   if (auth.response) return auth.response;
-  const riskPolicy = await loadFinanceRiskPolicy(bindings.DB);
-  const accountRiskModel = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend, riskPolicy);
-  const financeContext = buildFinanceContext(accountRiskModel);
-  const accountId = bindings.CLOUDFLARE_ACCOUNT_ID?.trim();
-  const apiToken = bindings.CLOUDFLARE_API_TOKEN?.trim();
-  const model = bindings.CLOUDFLARE_AI_MODEL?.trim() || "@cf/qwen/qwen3-30b-a3b-fp8";
-
-  if (!accountId || !apiToken) {
-    return Response.json({ error: "AI 환경설정이 완료되지 않았습니다." }, { status: 503 });
-  }
-
   let question = "";
-  try {
-    const body = await request.json() as { question?: unknown };
+  try { const body = await request.json() as { question?: unknown };
     question = typeof body.question === "string" ? body.question.trim().slice(0, 300) : "";
-  } catch {
-    return Response.json({ error: "질문을 읽을 수 없습니다." }, { status: 400 });
-  }
-
+  } catch { return Response.json({ error: "질문을 읽을 수 없습니다." }, { status: 400 }); }
   if (question.length < 2) return Response.json({ error: "질문을 입력해 주세요." }, { status: 400 });
 
-  const systemPrompt = [
-    "당신은 한국 중소기업 경영자를 돕는 재무 데이터 어시스턴트입니다.",
-    "아래 제공된 재무 스냅샷만 근거로 답하고, 없는 수치나 원인을 추측하지 마세요.",
-    "2024·2025 결산 자료와 2026 미결산 스냅샷을 구분하고, 전년 비교 시 같은 기간이 아닐 수 있음을 명확히 표시하세요.",
-    "숫자는 억원 또는 만원 단위로 읽기 쉽게 표현하고 필요한 경우 원 단위 수치를 괄호에 병기하세요.",
-    "회계상 매출, 은행의 매출성 입금, 계좌 잔액을 명확히 구분하세요.",
-    "답변은 한국어로 3~6문장 이내로 작성하고, 확인할 위험이나 다음 행동이 있으면 마지막 문장에 제안하세요.",
-    "법률·세무 판단을 확정적으로 말하지 말고 담당자의 검토가 필요한 항목을 명시하세요.",
-    financeContext,
-  ].join("\n");
+  const evidence = await buildEvidence(bindings.DB);
+  const accountId = bindings.CLOUDFLARE_ACCOUNT_ID?.trim(); const apiToken = bindings.CLOUDFLARE_API_TOKEN?.trim();
+  const model = bindings.CLOUDFLARE_AI_MODEL?.trim() || "@cf/qwen/qwen3-30b-a3b-fp8";
+  if (!accountId || !apiToken) return Response.json(fallbackPayload(question, evidence, "AI 설정이 없어 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
 
   let response: Response;
   try {
     response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai/run/${model}`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: question }],
-        temperature: 0.1,
-        max_tokens: 500,
-      }),
-      signal: AbortSignal.timeout(30_000),
+      method: "POST", headers: { Authorization: `Bearer ${apiToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "system", content: buildFinanceAssistantPrompt(evidence) }, { role: "user", content: question }],
+        temperature: 0.05, max_tokens: 500 }), signal: AbortSignal.timeout(30_000),
     });
-  } catch {
-    return Response.json({ error: "AI에 연결할 수 없습니다." }, { status: 502 });
-  }
-
+  } catch { return Response.json(fallbackPayload(question, evidence, "AI 연결에 실패해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다.")); }
   let data: CloudflareEnvelope;
-  try {
-    data = await response.json() as CloudflareEnvelope;
-  } catch {
-    return Response.json({ error: "AI 응답을 읽을 수 없습니다." }, { status: 502 });
-  }
-
-  if (quotaExceeded(response, data)) {
-    return Response.json({ error: "오늘의 AI 무료 사용 한도를 초과했습니다.", quotaExceeded: true }, { status: 429 });
-  }
-  if (!response.ok || data.success === false) {
-    return Response.json({ error: "AI 분석 요청에 실패했습니다." }, { status: 502 });
-  }
-
+  try { data = await response.json() as CloudflareEnvelope; }
+  catch { return Response.json(fallbackPayload(question, evidence, "AI 응답을 읽지 못해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다.")); }
+  if (quotaExceeded(response, data)) return Response.json(fallbackPayload(question, evidence, "AI 무료 사용 한도가 부족해 기본 원장 분석으로 답변했습니다.", true));
+  if (!response.ok || data.success === false) return Response.json(fallbackPayload(question, evidence, "AI 분석 요청이 실패해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
   const content = data.result?.response ?? data.result?.choices?.[0]?.message?.content;
   const answer = typeof content === "string" ? content.trim().slice(0, 2000) : "";
-  if (!answer) return Response.json({ error: "AI가 답변을 반환하지 않았습니다." }, { status: 502 });
-  return Response.json({ answer });
+  if (!answer) return Response.json(fallbackPayload(question, evidence, "AI가 빈 답변을 반환해 승인된 원장 근거로 규칙 기반 답변을 제공했습니다."));
+  return Response.json({ answer, provider: "AI", evidenceStatus: evidence.quality.status, evidenceLabel: evidence.quality.label,
+    basisAsOf: evidence.operational2026.to, sources: evidence.sources, limitations: evidence.limitations, quotaExceeded: false });
 }

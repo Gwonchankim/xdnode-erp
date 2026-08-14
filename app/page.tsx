@@ -123,6 +123,20 @@ const financeChecks = [
 
 type FinanceMetric = "cash" | "sales";
 type FinanceWorkspaceView = "overview" | "risk-actions" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "ledger" | "statements" | "liquidity" | "quality" | "policy";
+
+type FinanceAssistantSourceView = {
+  id: string; label: string; period: string; basis: string;
+  status: "CONFIRMED" | "REVIEW"; destination: FinanceWorkspaceView;
+};
+
+type FinanceAssistantMeta = {
+  provider: "AI" | "RULE_BASED_FALLBACK";
+  evidenceStatus: "VERIFIED" | "REVIEW_REQUIRED";
+  evidenceLabel: string;
+  basisAsOf: string;
+  sources: FinanceAssistantSourceView[];
+  limitations: string[];
+};
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
   "overview", "risk-actions", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
@@ -661,6 +675,15 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantAnswer, setAssistantAnswer] = useState("2024~2026년 재무 데이터 범위와 출처를 구분해 답변합니다. 궁금한 항목을 선택하거나 질문을 입력해 주세요.");
   const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [assistantMeta, setAssistantMeta] = useState<FinanceAssistantMeta>({
+    provider: "RULE_BASED_FALLBACK", evidenceStatus: "REVIEW_REQUIRED", evidenceLabel: "질문 전",
+    basisAsOf: financeCurrentData.asOf, limitations: ["질문을 입력하면 답변에 사용한 원장과 마감 상태를 함께 표시합니다."],
+    sources: [
+      { id: "ecount-2024", label: "2024 승인 결산", period: "2024.01.01~12.31", basis: "재무상태표·합계잔액시산표", status: "CONFIRMED", destination: "statements" },
+      { id: "ecount-2025", label: "2025 승인 결산", period: "2025.01.01~12.31", basis: "계정별원장·분개장·자금현황표", status: "CONFIRMED", destination: "statements" },
+      { id: "posted-ledger-2026", label: "2026 운영 원장", period: `기준일 ${financeCurrentData.asOf}`, basis: "질문 시 POSTED 전표를 재계산", status: "REVIEW", destination: "ledger" },
+    ],
+  });
   const [financeOverviewRefreshKey, setFinanceOverviewRefreshKey] = useState(0);
   const [riskPolicy, setRiskPolicy] = useState<FinanceRiskPolicy>(DEFAULT_FINANCE_RISK_POLICY);
   const [financeOverview, setFinanceOverview] = useState<{
@@ -838,11 +861,15 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question: cleanQuestion }),
       });
-      const data = await response.json() as { answer?: string; error?: string; quotaExceeded?: boolean };
+      const data = await response.json() as Partial<FinanceAssistantMeta> & { answer?: string; error?: string; quotaExceeded?: boolean };
       if (!response.ok || !data.answer) {
         throw new Error(data.quotaExceeded ? "오늘의 AI 무료 사용 한도를 초과했습니다. 내일 다시 이용해 주세요." : data.error || "답변을 만들지 못했습니다.");
       }
       setAssistantAnswer(data.answer);
+      if (data.provider && data.evidenceStatus && data.evidenceLabel && data.basisAsOf && data.sources && data.limitations) {
+        setAssistantMeta({ provider: data.provider, evidenceStatus: data.evidenceStatus, evidenceLabel: data.evidenceLabel,
+          basisAsOf: data.basisAsOf, sources: data.sources, limitations: data.limitations });
+      }
       setAssistantStatus("idle");
     } catch (error) {
       setAssistantStatus("error");
@@ -1002,17 +1029,21 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
           <section className="content-grid finance-assistant-grid">
             <article className="panel finance-assistant-panel">
               <div className="assistant-heading"><div className="assistant-mark">AI</div><div><p>FINANCE DATA ASSISTANT</p><h2>재무 데이터 어시스턴트</h2><span>2024·2025 이카운트 결산자료와 2026 Clobe 스냅샷을 구분해 분석합니다.</span></div></div>
+              <div className="assistant-trust-line"><strong className={assistantMeta.evidenceStatus === "VERIFIED" ? "verified" : "review"}>{assistantMeta.evidenceLabel}</strong><span>기준일 {assistantMeta.basisAsOf}</span><em>{assistantMeta.provider === "AI" ? "AI 설명" : "기본 원장 분석"}</em></div>
               <div className={assistantStatus === "error" ? "assistant-answer error" : "assistant-answer"}>{assistantAnswer}</div>
-              <div className="assistant-suggestions">{["2025년 손익 요약", "2024년 대비 2025년 변화", "채권·채무 집중 위험", "오늘 자금 상태 요약"].map((question) => <button type="button" key={question} onClick={() => void askFinanceAssistant(question)}>{question}</button>)}</div>
+              <div className="assistant-limitations">{assistantMeta.limitations.slice(0, 3).map((item) => <p key={item}><span>i</span>{item}</p>)}</div>
+              <div className="assistant-suggestions">{["2026년 전기 손익 요약", "마감 원장 변경 여부", "2024년 대비 2025년 변화", "오늘 자금 상태 요약"].map((question) => <button type="button" key={question} onClick={() => void askFinanceAssistant(question)}>{question}</button>)}</div>
               <form className="assistant-form" onSubmit={submitAssistant}><input value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} maxLength={300} placeholder="예: 2025년 순이익이 전년보다 감소한 이유는?" aria-label="재무 데이터 질문" /><button type="submit" disabled={assistantStatus === "loading"}>{assistantStatus === "loading" ? "분석 중" : "질문하기"}</button></form>
             </article>
 
             <article className="panel finance-source-panel">
-              <PanelHeader eyebrow="Data lineage" title="분석 근거" action="3개 연도" />
+              <PanelHeader eyebrow="Answer lineage" title="이번 답변의 근거" action={`${assistantMeta.sources.length}개 원천`} />
               <div className="finance-source-list">
-                <div><span className="source-year">24</span><p><strong>2024 결산 기준선</strong><small>재무상태표 · 합계잔액시산표</small></p><em className="status-pass">일치</em></div>
-                <div><span className="source-year">25</span><p><strong>2025 상세 원장</strong><small>원장 · 분개장 · 자금현황표</small></p><em className="status-pass">일치</em></div>
-                <div><span className="source-year">26</span><p><strong>2026 최신 흐름</strong><small>Clobe · 매일 07:30 확인</small></p><em className="status-watch">확인중</em></div>
+                {assistantMeta.sources.map((source) => <button type="button" key={source.id} onClick={() => setWorkspace(source.destination)}>
+                  <span className="source-year">{source.id.includes("2024") ? "24" : source.id.includes("2025") ? "25" : source.id.includes("close") ? "마" : "26"}</span>
+                  <p><strong>{source.label}</strong><small>{source.period}<br />{source.basis}</small></p>
+                  <em className={source.status === "CONFIRMED" ? "status-pass" : "status-watch"}>{source.status === "CONFIRMED" ? "확인" : "검토"}</em>
+                </button>)}
               </div>
             </article>
           </section>

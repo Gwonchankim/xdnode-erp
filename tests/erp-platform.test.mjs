@@ -1540,3 +1540,13 @@ test("statement comparisons disclose source scope and submitted closes detect le
   assert.match(closeWorkspace,/마감 이후 원장 변동 감지/);assert.match(closeWorkspace,/재개방 결재 요청/);assert.match(close,/재개방 승인이 필요합니다/);
   assert.match(plan,/자동 수정하거나 마감을 자동 재개방하지 않는다/);assert.match(plan,/회계 정확성 자체의 보증이 아니라 원장 계보 무결성/);
 });
+
+test("finance assistant answers from posted evidence and discloses source lineage and limitations",async()=>{
+  const[api,evidence,page,style,plan]=await Promise.all([read("app/api/finance/assistant/route.ts"),read("app/finance-assistant-evidence.ts"),read("app/page.tsx"),read("app/globals.css"),read("docs/finance-assistant-evidence-plan.md")]);
+  assert.match(api,/buildFinancePeriodStatementSnapshot/);assert.match(api,/buildFinanceLedgerSnapshot/);assert.match(api,/evaluateLedgerSnapshotDrift/);
+  assert.match(api,/finance_close_runs/);assert.match(api,/RULE_BASED_FALLBACK/);assert.match(api,/quotaExceeded/);
+  assert.match(evidence,/JSON 근거에 들어 있는 사실과 숫자만 사용/);assert.match(evidence,/taxInvoices2026.*회계상 매출/s);
+  assert.match(page,/이번 답변의 근거/);assert.match(page,/assistantMeta\.limitations/);assert.match(page,/마감 원장 변경 여부/);
+  assert.match(style,/assistant-trust-line/);assert.match(style,/assistant-limitations/);
+  assert.match(plan,/AI는 구조화된 근거 JSON을 설명만/);assert.match(plan,/규칙 기반 답변/);
+});

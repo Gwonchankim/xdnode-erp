@@ -45,6 +45,12 @@ type ReportDecision = {
   id: string; reportId: string; sourceSection: string; decisionType: string; title: string; proposal: string;
   financialImpact: number; ownerEmployeeId: string; decisionDueDate: string; requiresAction: boolean;
   status: DecisionStatus; resolutionNote: string; resolvedBy: string; resolvedAt: number | null; actionId: string;
+  sourceAssistantAnswerId: string; sourceAnswerHash: string; sourceEvidenceHash: string;
+  sourceBasisAsOf: string; sourceEvidenceStatus: string;
+};
+type AssistantDecisionSource = {
+  id: string; question: string; answer: string; evidenceStatus: "VERIFIED" | "REVIEW_REQUIRED";
+  evidenceLabel: string; basisAsOf: string; evidenceHash: string; answerHash: string; createdByName: string; createdAt: number;
 };
 type ApiState = { period: string; currentPeriod: string; periods: string[]; preview: Snapshot; reports: Report[]; selected: Report | null; actions: ReportAction[]; decisions: ReportDecision[]; error?: string };
 
@@ -73,7 +79,12 @@ async function fetchReportState(period: string, reportId: string) {
   return data;
 }
 
-export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: (view: string) => void }) {
+export default function ManagementReportWorkspace({ onNavigate, assistantSource, onAssistantSourceConsumed, onOpenAssistantSource }: {
+  onNavigate: (view: string) => void;
+  assistantSource?: AssistantDecisionSource | null;
+  onAssistantSourceConsumed?: () => void;
+  onOpenAssistantSource?: (id: string) => void;
+}) {
   const [period, setPeriod] = useState("2026-08");
   const [reportId, setReportId] = useState("");
   const [state, setState] = useState<ApiState | null>(null);
@@ -84,6 +95,8 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
   const [draft, setDraft] = useState({ highlights: "", risks: "", decisions: "" });
   const [actionDraft, setActionDraft] = useState({ sourceSection: "GENERAL", title: "", ownerEmployeeId: "gc.kim", dueDate: "2026-08-31", memo: "" });
   const [decisionDraft, setDecisionDraft] = useState({ sourceSection: "GENERAL", decisionType: "OTHER", title: "", proposal: "", financialImpact: 0, ownerEmployeeId: "gc.kim", decisionDueDate: "2026-08-31", requiresAction: true });
+  const [assistantPrepared, setAssistantPrepared] = useState(false);
+  const [assistantReviewAcknowledged, setAssistantReviewAcknowledged] = useState(false);
 
   async function load(nextPeriod = period, nextReportId = reportId) {
     setLoading(true); setMessage("");
@@ -164,8 +177,26 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
 
   async function addDecision(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!selected) return;
-    const done = await run("ADD_DECISION", { reportId: selected.id, ...decisionDraft });
-    if (done) setDecisionDraft((current) => ({ ...current, title: "", proposal: "", financialImpact: 0 }));
+    const promote = assistantPrepared && assistantSource;
+    const done = await run(promote ? "PROMOTE_ASSISTANT_ANSWER" : "ADD_DECISION", {
+      reportId: selected.id, ...decisionDraft,
+      ...(promote ? { assistantAnswerId: assistantSource.id, reviewAcknowledged: assistantReviewAcknowledged } : {}),
+    });
+    if (done) {
+      setDecisionDraft((current) => ({ ...current, title: "", proposal: "", financialImpact: 0 }));
+      if (promote) { setAssistantPrepared(false); setAssistantReviewAcknowledged(false); onAssistantSourceConsumed?.(); }
+    }
+  }
+
+  function prepareAssistantDecision() {
+    if (!assistantSource) return;
+    setDecisionDraft((current) => ({ ...current,
+      sourceSection: assistantSource.evidenceStatus === "VERIFIED" ? "GENERAL" : "QUALITY",
+      decisionType: assistantSource.evidenceStatus === "VERIFIED" ? "OTHER" : "RISK",
+      title: assistantSource.question.slice(0, 200), proposal: assistantSource.answer.slice(0, 2000),
+    }));
+    setAssistantPrepared(true);
+    setAssistantReviewAcknowledged((current) => assistantSource.evidenceStatus === "VERIFIED" ? true : current);
   }
 
   async function resolveDecision(item: ReportDecision, outcome: "APPROVED" | "DEFERRED" | "REJECTED") {
@@ -273,14 +304,18 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
 
       {selected && <section className="panel management-decisions">
         <header><div><p>DECISION REGISTER</p><h2>경영 의사결정 안건</h2></div><span>{state?.decisions.filter((item) => item.status === "PENDING").length ?? 0}건 결정 대기</span></header>
+        {assistantSource && <div className={`management-assistant-source ${assistantSource.evidenceStatus === "VERIFIED" ? "verified" : "review"}`}>
+          <span>AI ANALYSIS SOURCE</span><p><strong>{assistantSource.question}</strong><small>{assistantSource.evidenceLabel} · 기준일 {assistantSource.basisAsOf} · {assistantSource.createdByName}<br />답변 {assistantSource.answerHash.slice(0, 10)}… · 근거 {assistantSource.evidenceHash.slice(0, 10)}…</small></p>
+          {editable ? <div>{assistantSource.evidenceStatus === "REVIEW_REQUIRED" && <label><input type="checkbox" checked={assistantReviewAcknowledged} onChange={(event) => setAssistantReviewAcknowledged(event.target.checked)} /> 근거 제한을 확인했습니다.</label>}<button type="button" disabled={busy} onClick={prepareAssistantDecision}>{assistantPrepared ? "안건 양식에 반영됨" : "안건 양식에 반영"}</button></div> : <em>작성 중인 보고서를 선택하거나 새 개정본을 만든 뒤 연결할 수 있습니다.</em>}
+        </div>}
         <div className="management-decision-row head"><span>안건·유형</span><span>요청 내용</span><span>재무영향</span><span>책임자·기한</span><span>결과</span><span>처리</span></div>
         {(state?.decisions ?? []).map((item) => <div className={`management-decision-row ${item.status.toLowerCase()}`} key={item.id}>
-          <p><strong>{item.title}</strong><small>{decisionTypeLabels[item.decisionType] ?? item.decisionType} · {sectionLabels[item.sourceSection] ?? item.sourceSection}</small></p>
+          <p><strong>{item.title}</strong><small>{decisionTypeLabels[item.decisionType] ?? item.decisionType} · {sectionLabels[item.sourceSection] ?? item.sourceSection}{item.sourceAssistantAnswerId ? ` · AI 근거 ${item.sourceEvidenceHash.slice(0, 8)}…` : ""}</small></p>
           <p><span>{item.proposal}</span>{item.resolutionNote && <small>결정 근거 · {item.resolutionNote}</small>}</p>
           <strong>{won(item.financialImpact)}</strong>
           <p><span>{companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId}</span><small>{item.decisionDueDate}{item.requiresAction ? " · 후속조치 필요" : ""}</small></p>
           <em>{statusLabels[item.status] ?? item.status}{item.actionId ? " · 조치 연결" : ""}</em>
-          <div>{editable && item.status === "DRAFT" && <button type="button" disabled={busy} onClick={() => void run("DELETE_DECISION", { reportId: selected.id, decisionId: item.id })}>삭제</button>}{selected.status === "APPROVED" && item.status === "PENDING" && <><button type="button" disabled={busy} onClick={() => void resolveDecision(item, "APPROVED")}>승인</button><button type="button" disabled={busy} onClick={() => void resolveDecision(item, "DEFERRED")}>보류</button><button type="button" disabled={busy} className="danger" onClick={() => void resolveDecision(item, "REJECTED")}>반려</button></>}</div>
+          <div>{item.sourceAssistantAnswerId && <button type="button" disabled={busy} onClick={() => onOpenAssistantSource?.(item.sourceAssistantAnswerId)}>원문 근거</button>}{editable && item.status === "DRAFT" && <button type="button" disabled={busy} onClick={() => void run("DELETE_DECISION", { reportId: selected.id, decisionId: item.id })}>삭제</button>}{selected.status === "APPROVED" && item.status === "PENDING" && <><button type="button" disabled={busy} onClick={() => void resolveDecision(item, "APPROVED")}>승인</button><button type="button" disabled={busy} onClick={() => void resolveDecision(item, "DEFERRED")}>보류</button><button type="button" disabled={busy} className="danger" onClick={() => void resolveDecision(item, "REJECTED")}>반려</button></>}</div>
         </div>)}
         {(state?.decisions.length ?? 0) === 0 && <div className="management-report-empty">등록된 구조화 의사결정 안건이 없습니다.</div>}
         {editable && <form className="management-decision-form" onSubmit={addDecision}>
@@ -292,7 +327,7 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
           <label>결정 책임자<select value={decisionDraft.ownerEmployeeId} onChange={(event) => setDecisionDraft((current) => ({ ...current, ownerEmployeeId: event.target.value }))}>{companyEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></label>
           <label>결정기한<input type="date" required value={decisionDraft.decisionDueDate} onChange={(event) => setDecisionDraft((current) => ({ ...current, decisionDueDate: event.target.value }))} /></label>
           <label className="check"><input type="checkbox" checked={decisionDraft.requiresAction} onChange={(event) => setDecisionDraft((current) => ({ ...current, requiresAction: event.target.checked }))} /> 승인·보류 시 후속조치 자동 생성</label>
-          <button type="submit" disabled={busy}>안건 추가</button>
+          <button type="submit" disabled={busy || Boolean(assistantPrepared && assistantSource?.evidenceStatus === "REVIEW_REQUIRED" && !assistantReviewAcknowledged)}>{assistantPrepared ? "AI 근거 안건 제안" : "안건 추가"}</button>
         </form>}
       </section>}
 

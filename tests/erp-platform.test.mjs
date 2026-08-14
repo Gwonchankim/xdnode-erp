@@ -15,6 +15,30 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
   for (const source of files) assert.match(source, /writeErpAudit/);
 });
 
+test("finance assistant answers become traceable decision drafts without bypassing review and approval", async () => {
+  const [api, page, workspace, schema, migration, plan] = await Promise.all([
+    read("app/api/finance/management-report/route.ts"), read("app/page.tsx"),
+    read("app/management-report-workspace.tsx"), read("db/schema.ts"),
+    read("drizzle/0059_finance_assistant_decision_lineage.sql"), read("docs/finance-assistant-to-decision-plan.md"),
+  ]);
+  for (const source of [api, schema, migration]) {
+    assert.match(source, /source_assistant_answer_id/);
+    assert.match(source, /source_answer_hash/);
+    assert.match(source, /source_evidence_hash/);
+  }
+  assert.match(api, /PROMOTE_ASSISTANT_ANSWER/);
+  assert.match(api, /report\.status !== "DRAFT"/);
+  assert.match(api, /assistant\.evidence_status !== "VERIFIED" && body\.reviewAcknowledged !== true/);
+  assert.match(api, /ASSISTANT_ANSWER_PROMOTED/);
+  assert.match(migration, /UNIQUE INDEX `idx_finance_management_decision_assistant_source`/);
+  assert.match(page, /경영 안건으로 제안/);
+  assert.match(workspace, /AI 근거 안건 제안/);
+  assert.match(workspace, /원문 근거/);
+  assert.match(page, /openFinanceAssistantSource/);
+  assert.match(workspace, /근거 제한을 확인했습니다/);
+  assert.match(plan, /답변 → 안건 초안 → 보고서 제출 → 전자결재 → 안건 확정 → 후속조치/);
+});
+
 test("daily treasury reports freeze source data, survive AI outages and require human review before finalization", async () => {
   const [api, view, schema, migration, page, operations, close, plan] = await Promise.all([
     read("app/api/finance/daily-treasury/route.ts"), read("app/daily-treasury-workspace.tsx"),
@@ -1556,7 +1580,8 @@ test("finance assistant audit history freezes evidence and restores prior answer
   for(const source of[history,schema,migration])assert.match(source,/finance_assistant_answers/);
   assert.match(api,/export async function GET/);assert.match(api,/saveFinanceAssistantAnswer/);assert.match(api,/responseWithHistory/);
   assert.match(history,/evidenceHash/);assert.match(history,/answerHash/);assert.match(history,/FINANCE_ASSISTANT_PROMPT_VERSION/);
-  assert.match(history,/ORDER BY created_at DESC LIMIT/);assert.match(history,/Math\.min\(Math\.max\(limit, 1\), 50\)/);
+  assert.match(history,/ORDER BY created_at DESC LIMIT/);assert.match(history,/Math\.min\(Math\.max\(limit, 1\), 50\)/);assert.match(history,/getFinanceAssistantAnswer/);
+  assert.match(api,/searchParams\.get\("id"\)/);
   assert.doesNotMatch(api,/DELETE FROM finance_assistant_answers|UPDATE finance_assistant_answers/);
   assert.match(page,/답변 감사이력/);assert.match(page,/restoreFinanceAssistantAnswer/);assert.match(page,/evidenceHash\.slice/);
   assert.match(style,/assistant-history-list/);assert.match(plan,/수정·삭제 API는 만들지 않는다/);assert.match(plan,/저장에 실패한 답변은 화면에 성공한 답변으로 반환하지 않는다/);

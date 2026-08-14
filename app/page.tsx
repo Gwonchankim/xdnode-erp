@@ -691,6 +691,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   });
   const [assistantHistory, setAssistantHistory] = useState<FinanceAssistantHistoryView[]>([]);
   const [assistantHistoryError, setAssistantHistoryError] = useState("");
+  const [assistantActiveEntry, setAssistantActiveEntry] = useState<FinanceAssistantHistoryView | null>(null);
+  const [assistantPromotion, setAssistantPromotion] = useState<FinanceAssistantHistoryView | null>(null);
   const [financeOverviewRefreshKey, setFinanceOverviewRefreshKey] = useState(0);
   const [riskPolicy, setRiskPolicy] = useState<FinanceRiskPolicy>(DEFAULT_FINANCE_RISK_POLICY);
   const [financeOverview, setFinanceOverview] = useState<{
@@ -870,6 +872,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
     if (!cleanQuestion || assistantStatus === "loading") return;
     setAssistantQuestion(cleanQuestion);
     setAssistantStatus("loading");
+    setAssistantActiveEntry(null);
     setAssistantAnswer("승인된 재무 데이터와 출처를 확인하고 있습니다…");
     try {
       const response = await fetch("/api/finance/assistant", {
@@ -890,6 +893,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       }
       if (data.historyEntry) {
         setAssistantHistory((current) => [data.historyEntry!, ...current.filter((item) => item.id !== data.historyEntry!.id)].slice(0, 20));
+        setAssistantActiveEntry(data.historyEntry);
         setAssistantHistoryError("");
       }
       setAssistantStatus("idle");
@@ -906,8 +910,23 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
 
   function restoreFinanceAssistantAnswer(entry: FinanceAssistantHistoryView) {
     setAssistantQuestion(entry.question); setAssistantAnswer(entry.answer); setAssistantStatus("idle");
+    setAssistantActiveEntry(entry);
     setAssistantMeta({ provider: entry.provider, evidenceStatus: entry.evidenceStatus, evidenceLabel: entry.evidenceLabel,
       basisAsOf: entry.basisAsOf, sources: entry.sources, limitations: entry.limitations });
+  }
+
+  async function openFinanceAssistantSource(id: string) {
+    setAssistantHistoryError("");
+    try {
+      const result = await financeResponseJson<{ entry: FinanceAssistantHistoryView }>(
+        await fetch(`/api/finance/assistant?id=${encodeURIComponent(id)}`, { cache: "no-store" }),
+      );
+      restoreFinanceAssistantAnswer(result.entry);
+      setAssistantHistory((current) => [result.entry, ...current.filter((item) => item.id !== result.entry.id)].slice(0, 20));
+    } catch (error) {
+      setAssistantHistoryError(error instanceof Error ? error.message : "연결된 답변 이력을 불러오지 못했습니다.");
+    }
+    setWorkspace("overview");
   }
 
   const historicalMetrics = overviewYear === "2026" ? null : [
@@ -1060,6 +1079,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
               <div className="assistant-trust-line"><strong className={assistantMeta.evidenceStatus === "VERIFIED" ? "verified" : "review"}>{assistantMeta.evidenceLabel}</strong><span>기준일 {assistantMeta.basisAsOf}</span><em>{assistantMeta.provider === "AI" ? "AI 설명" : "기본 원장 분석"}</em></div>
               <div className={assistantStatus === "error" ? "assistant-answer error" : "assistant-answer"}>{assistantAnswer}</div>
               <div className="assistant-limitations">{assistantMeta.limitations.slice(0, 3).map((item) => <p key={item}><span>i</span>{item}</p>)}</div>
+              {assistantActiveEntry && <div className="assistant-decision-bridge"><p><strong>답변을 실행 가능한 안건으로 연결</strong><span>자동 실행하지 않고 경영보고의 검토·승인·후속조치 절차를 거칩니다.</span></p><button type="button" onClick={() => { setAssistantPromotion(assistantActiveEntry); setWorkspace("report"); }}>경영 안건으로 제안 →</button></div>}
               <div className="assistant-suggestions">{["2026년 전기 손익 요약", "마감 원장 변경 여부", "2024년 대비 2025년 변화", "오늘 자금 상태 요약"].map((question) => <button type="button" key={question} onClick={() => void askFinanceAssistant(question)}>{question}</button>)}</div>
               <form className="assistant-form" onSubmit={submitAssistant}><input value={assistantQuestion} onChange={(event) => setAssistantQuestion(event.target.value)} maxLength={300} placeholder="예: 2025년 순이익이 전년보다 감소한 이유는?" aria-label="재무 데이터 질문" /><button type="submit" disabled={assistantStatus === "loading"}>{assistantStatus === "loading" ? "분석 중" : "질문하기"}</button></form>
             </article>
@@ -1092,7 +1112,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
 
       {workspace === "daily-report" && <DailyTreasuryWorkspace onNavigate={(view) => selectWorkspace(view as FinanceWorkspaceView)} />}
 
-      {workspace === "report" && <ManagementReportWorkspace onNavigate={(view) => {
+      {workspace === "report" && <ManagementReportWorkspace assistantSource={assistantPromotion} onAssistantSourceConsumed={() => setAssistantPromotion(null)} onOpenAssistantSource={(id) => void openFinanceAssistantSource(id)} onNavigate={(view) => {
         if (!view.startsWith("hr:")) selectWorkspace(view as FinanceWorkspaceView);
       }} />}
 

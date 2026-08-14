@@ -89,3 +89,11 @@ export async function listFinanceAssistantAnswers(db: D1Database, limit = 20) {
     FROM finance_assistant_answers ORDER BY created_at DESC LIMIT ?`).bind(Math.min(Math.max(limit, 1), 50)).all<HistoryRow>();
   return rows.results.map(financeAssistantHistoryView);
 }
+
+export async function getFinanceAssistantAnswer(db: D1Database, id: string) {
+  await ensureFinanceAssistantHistorySchema(db);
+  const row = await db.prepare(`SELECT id,question,answer,provider,evidence_status,basis_as_of,evidence_json,
+    evidence_hash,answer_hash,prompt_version,created_by_employee_id,created_by_name,created_at
+    FROM finance_assistant_answers WHERE id = ?`).bind(id).first<HistoryRow>();
+  return row ? financeAssistantHistoryView(row) : null;
+}

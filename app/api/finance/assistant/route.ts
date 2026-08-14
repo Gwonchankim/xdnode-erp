@@ -8,7 +8,7 @@ import { loadFinanceRiskPolicy } from "../../../finance-risk-policy-server";
 import { buildFinanceLedgerSnapshot, buildFinancePeriodStatementSnapshot } from "../../../finance-ledger-snapshot";
 import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../../finance-ledger-integrity";
 import { buildFinanceAssistantFallback, buildFinanceAssistantPrompt, type FinanceAssistantEvidence } from "../../../finance-assistant-evidence";
-import { listFinanceAssistantAnswers, saveFinanceAssistantAnswer,
+import { getFinanceAssistantAnswer, listFinanceAssistantAnswers, saveFinanceAssistantAnswer,
   type FinanceAssistantAnswerPayload } from "../../../finance-assistant-history";
 
 type AiBindings = { DB: D1Database; CLOUDFLARE_ACCOUNT_ID?: string; CLOUDFLARE_API_TOKEN?: string; CLOUDFLARE_AI_MODEL?: string };
@@ -121,10 +121,15 @@ async function responseWithHistory(db: D1Database, principal: Parameters<typeof 
   }
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const bindings = env as unknown as AiBindings;
   const auth = await authorizeErpRequest(bindings.DB, "finance", "read");
   if (auth.response) return auth.response;
+  const id = new URL(request.url).searchParams.get("id")?.trim();
+  if (id) {
+    const entry = await getFinanceAssistantAnswer(bindings.DB, id);
+    return entry ? Response.json({ entry }) : Response.json({ error: "재무 어시스턴트 답변 이력을 찾을 수 없습니다." }, { status: 404 });
+  }
   return Response.json({ history: await listFinanceAssistantAnswers(bindings.DB, 20) });
 }
 

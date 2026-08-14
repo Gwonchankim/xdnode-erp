@@ -1259,3 +1259,18 @@ test("finance assistant audit history appends frozen evidence in newest-first or
   const plan=db.prepare("EXPLAIN QUERY PLAN SELECT * FROM finance_assistant_answers WHERE created_by_employee_id=? ORDER BY created_at DESC").all("gc.kim");
   assert.match(plan.map((row)=>row.detail).join(" "),/idx_finance_assistant_actor_created/);db.close();
 });
+
+test("finance assistant decision lineage is immutable per report and preserves source hashes",async()=>{
+  const db=await migratedDatabase();const now=Date.now();const insert=db.prepare(`INSERT INTO finance_management_decisions
+    (id,report_id,source_section,decision_type,title,proposal,owner_employee_id,decision_due_date,requires_action,status,
+      source_assistant_answer_id,source_answer_hash,source_evidence_hash,source_basis_as_of,source_evidence_status,
+      created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'DRAFT',?,?,?,?,?,?,?,?)`);
+  insert.run("decision-1","report-1","GENERAL","CASH","자금 검토","답변을 검토해 자금계획을 결정합니다.","gc.kim","2026-08-31",1,
+    "answer-1","answer-hash-1","evidence-hash-1","2026-08-13","VERIFIED","gc.kim",now,now);
+  assert.throws(()=>insert.run("decision-2","report-1","GENERAL","CASH","중복","같은 답변을 다시 연결합니다.","gc.kim","2026-08-31",1,
+    "answer-1","answer-hash-1","evidence-hash-1","2026-08-13","VERIFIED","gc.kim",now,now),/UNIQUE constraint failed/);
+  insert.run("decision-3","report-2","QUALITY","RISK","다른 보고서","검토가 필요한 답변을 별도 보고서에 연결합니다.","gc.kim","2026-09-30",1,
+    "answer-1","answer-hash-1","evidence-hash-1","2026-08-13","REVIEW_REQUIRED","gc.kim",now,now);
+  const row=db.prepare("SELECT source_answer_hash,source_evidence_hash,source_basis_as_of FROM finance_management_decisions WHERE id='decision-1'").get();
+  assert.deepEqual({...row},{source_answer_hash:"answer-hash-1",source_evidence_hash:"evidence-hash-1",source_basis_as_of:"2026-08-13"});db.close();
+});

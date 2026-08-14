@@ -974,12 +974,19 @@ export const financeManagementDecisions = sqliteTable("finance_management_decisi
   resolvedBy: text("resolved_by").notNull().default(""),
   resolvedAt: integer("resolved_at"),
   actionId: text("action_id").notNull().default(""),
+  sourceAssistantAnswerId: text("source_assistant_answer_id").notNull().default(""),
+  sourceAnswerHash: text("source_answer_hash").notNull().default(""),
+  sourceEvidenceHash: text("source_evidence_hash").notNull().default(""),
+  sourceBasisAsOf: text("source_basis_as_of").notNull().default(""),
+  sourceEvidenceStatus: text("source_evidence_status").notNull().default(""),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
   index("idx_finance_management_decision_report_status").on(table.reportId, table.status, table.decisionDueDate),
   index("idx_finance_management_decision_owner_due").on(table.ownerEmployeeId, table.status, table.decisionDueDate),
+  uniqueIndex("idx_finance_management_decision_assistant_source").on(table.reportId, table.sourceAssistantAnswerId)
+    .where(sql`${table.sourceAssistantAnswerId} <> ''`),
 ]);
 
 export const financeDailyTreasuryReports = sqliteTable("finance_daily_treasury_reports", {

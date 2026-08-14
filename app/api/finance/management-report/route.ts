@@ -3,6 +3,7 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
+import { ensureFinanceAssistantHistorySchema } from "../../../finance-assistant-history";
 import { financeHistoricalData } from "../../../finance-historical-data";
 import { comparisonDelta, historicalCloseComparison, previousEqualLengthPeriod } from "../../../finance-general-ledger";
 import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../../finance-ledger-integrity";
@@ -27,6 +28,12 @@ type DecisionRow = {
   proposal: string; financial_impact: number; owner_employee_id: string; decision_due_date: string;
   requires_action: number; status: string; resolution_note: string; resolved_by: string;
   resolved_at: number | null; action_id: string; created_by: string; created_at: number; updated_at: number;
+  source_assistant_answer_id: string; source_answer_hash: string; source_evidence_hash: string;
+  source_basis_as_of: string; source_evidence_status: string;
+};
+type AssistantAnswerRow = {
+  id: string; question: string; answer: string; evidence_status: string; basis_as_of: string;
+  evidence_hash: string; answer_hash: string;
 };
 type BudgetPlanRow = { id: string; version: number; name: string };
 type BudgetLineRow = {
@@ -65,6 +72,9 @@ async function ensureSchema() {
       decision_due_date TEXT NOT NULL DEFAULT '', requires_action INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'DRAFT', resolution_note TEXT NOT NULL DEFAULT '',
       resolved_by TEXT NOT NULL DEFAULT '', resolved_at INTEGER, action_id TEXT NOT NULL DEFAULT '',
+      source_assistant_answer_id TEXT NOT NULL DEFAULT '', source_answer_hash TEXT NOT NULL DEFAULT '',
+      source_evidence_hash TEXT NOT NULL DEFAULT '', source_basis_as_of TEXT NOT NULL DEFAULT '',
+      source_evidence_status TEXT NOT NULL DEFAULT '',
       created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_management_report_period_version ON finance_management_reports(period, version)"),
@@ -73,6 +83,19 @@ async function ensureSchema() {
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_management_action_decision ON finance_management_report_actions(decision_id) WHERE decision_id <> ''"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_management_decision_report_status ON finance_management_decisions(report_id, status, decision_due_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_management_decision_owner_due ON finance_management_decisions(owner_employee_id, status, decision_due_date)"),
+  ]);
+  const decisionColumns = await db.prepare("PRAGMA table_info(finance_management_decisions)").all<{ name: string }>();
+  const existing = new Set(decisionColumns.results.map((item) => item.name));
+  for (const [name, definition] of [
+    ["source_assistant_answer_id", "TEXT NOT NULL DEFAULT ''"],
+    ["source_answer_hash", "TEXT NOT NULL DEFAULT ''"],
+    ["source_evidence_hash", "TEXT NOT NULL DEFAULT ''"],
+    ["source_basis_as_of", "TEXT NOT NULL DEFAULT ''"],
+    ["source_evidence_status", "TEXT NOT NULL DEFAULT ''"],
+  ] as const) if (!existing.has(name)) await db.prepare(`ALTER TABLE finance_management_decisions ADD COLUMN ${name} ${definition}`).run();
+  await db.batch([
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_management_decision_assistant_source ON finance_management_decisions(report_id, source_assistant_answer_id) WHERE source_assistant_answer_id <> ''"),
+    db.prepare("PRAGMA optimize"),
   ]);
 }
 
@@ -113,6 +136,9 @@ function decisionView(row: DecisionRow) {
     ownerEmployeeId: row.owner_employee_id, decisionDueDate: row.decision_due_date,
     requiresAction: Boolean(row.requires_action), status: row.status, resolutionNote: row.resolution_note,
     resolvedBy: row.resolved_by, resolvedAt: row.resolved_at, actionId: row.action_id,
+    sourceAssistantAnswerId: row.source_assistant_answer_id, sourceAnswerHash: row.source_answer_hash,
+    sourceEvidenceHash: row.source_evidence_hash, sourceBasisAsOf: row.source_basis_as_of,
+    sourceEvidenceStatus: row.source_evidence_status,
     createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
@@ -404,6 +430,49 @@ export async function POST(request: Request) {
       .bind(highlights, risks, decisions, now, reportId).run();
     await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MANAGEMENT_REPORT_SAVED", entityType: "financeManagementReport", entityId: reportId, before: reportView(report), after: { highlights, risks, decisions } });
     return Response.json({ saved: true });
+  }
+
+  if (action === "PROMOTE_ASSISTANT_ANSWER") {
+    if (report.status !== "DRAFT") return Response.json({ error: "작성 중인 경영보고서에만 AI 분석을 안건으로 제안할 수 있습니다." }, { status: 409 });
+    const assistantAnswerId = String(body.assistantAnswerId ?? "").trim();
+    await ensureFinanceAssistantHistorySchema(db);
+    const assistant = assistantAnswerId ? await db.prepare(`SELECT id,question,answer,evidence_status,basis_as_of,
+      evidence_hash,answer_hash FROM finance_assistant_answers WHERE id = ?`).bind(assistantAnswerId).first<AssistantAnswerRow>() : null;
+    if (!assistant) return Response.json({ error: "연결할 재무 어시스턴트 답변을 찾을 수 없습니다." }, { status: 404 });
+    if (assistant.evidence_status !== "VERIFIED" && body.reviewAcknowledged !== true) {
+      return Response.json({ error: "검토가 필요한 답변입니다. 근거 제한을 확인한 뒤 안건 제안에 동의해 주세요." }, { status: 409 });
+    }
+    const duplicate = await db.prepare(`SELECT id FROM finance_management_decisions
+      WHERE report_id = ? AND source_assistant_answer_id = ? LIMIT 1`).bind(reportId, assistant.id).first<{ id: string }>();
+    if (duplicate) return Response.json({ error: "이 답변은 이미 현재 보고서의 안건으로 연결되어 있습니다.", id: duplicate.id }, { status: 409 });
+    const sourceSection = String(body.sourceSection ?? (assistant.evidence_status === "VERIFIED" ? "GENERAL" : "QUALITY")).toUpperCase();
+    const decisionType = String(body.decisionType ?? (assistant.evidence_status === "VERIFIED" ? "OTHER" : "RISK")).toUpperCase();
+    const title = String(body.title ?? assistant.question).trim().slice(0, 200);
+    const proposal = String(body.proposal ?? assistant.answer).trim().slice(0, 2000);
+    const financialImpact = Math.round(Number(body.financialImpact ?? 0));
+    const owner = String(body.ownerEmployeeId ?? "").trim().slice(0, 80);
+    const dueDate = String(body.decisionDueDate ?? "").trim();
+    const requiresAction = Boolean(body.requiresAction);
+    if (!sourceSections.has(sourceSection) || !decisionTypes.has(decisionType) || !title || proposal.length < 5
+      || !owner || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(financialImpact)
+      || Math.abs(financialImpact) > 1_000_000_000_000_000) {
+      return Response.json({ error: "안건 유형·제목·5자 이상의 요청내용·결정 책임자·기한·재무영향을 확인해 주세요." }, { status: 400 });
+    }
+    const decisionId = crypto.randomUUID();
+    await db.prepare(`INSERT INTO finance_management_decisions
+      (id, report_id, source_section, decision_type, title, proposal, financial_impact, owner_employee_id,
+        decision_due_date, requires_action, status, resolution_note, resolved_by, resolved_at, action_id,
+        source_assistant_answer_id, source_answer_hash, source_evidence_hash, source_basis_as_of,
+        source_evidence_status, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', '', '', NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .bind(decisionId, reportId, sourceSection, decisionType, title, proposal, financialImpact, owner,
+        dueDate, requiresAction ? 1 : 0, assistant.id, assistant.answer_hash, assistant.evidence_hash,
+        assistant.basis_as_of, assistant.evidence_status, authorization.principal.employeeId, now, now).run();
+    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "ASSISTANT_ANSWER_PROMOTED",
+      entityType: "financeManagementDecision", entityId: decisionId, after: { reportId, assistantAnswerId: assistant.id,
+        answerHash: assistant.answer_hash, evidenceHash: assistant.evidence_hash, evidenceStatus: assistant.evidence_status,
+        sourceSection, decisionType, title, owner, dueDate, requiresAction } });
+    return Response.json({ created: true, id: decisionId, sourceAssistantAnswerId: assistant.id }, { status: 201 });
   }
 
   if (action === "ADD_DECISION" || action === "UPDATE_DECISION") {

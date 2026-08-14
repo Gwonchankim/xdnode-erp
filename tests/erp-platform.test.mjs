@@ -1426,3 +1426,21 @@ test("data integration center reconciles approved snapshots with idempotent revi
   assert.match(operations, /고위험 연동 예외를 해결하거나 근거와 함께 위험 수용/);
   assert.match(migration, /WHERE `idempotency_key` <> ''/); assert.match(plan, /자동 덮어쓰기/); assert.match(plan, /외부 API를 호출하지 않았는데 수집했다고 표시/);
 });
+
+test("controlled data intake stages immutable originals before approval and explicit application", async () => {
+  const [api, server, workspace, integration, approval, schema, migration, plan] = await Promise.all([
+    read("app/api/data-intake/route.ts"), read("app/data-intake.ts"), read("app/data-intake-workspace.tsx"),
+    read("app/data-integration-workspace.tsx"), read("app/approval-engine.ts"), read("db/schema.ts"),
+    read("drizzle/0054_controlled_data_intake.sql"), read("docs/controlled-data-intake-plan.md"),
+  ]);
+  for (const source of [api, server, schema, migration]) for (const table of ["erp_data_import_batches", "erp_data_import_rows", "erp_data_import_events"]) assert.match(source, new RegExp(table));
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /10 \* 1024 \* 1024/); assert.match(api, /slice\(0, 500\)/); assert.match(api, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(api, /readSheet/); assert.match(api, /csvRows/); assert.match(api, /JSON은 객체 배열 또는 rows 배열/);
+  assert.match(api, /동일 원본이 이미 등록/); assert.match(api, /validation_status<>'VALID'/); assert.match(api, /String\(batch\.status\) !== "APPROVED"/);
+  assert.match(api, /supportedApplySources/); assert.match(api, /업무 원장 반영 매핑 확정 전/); assert.match(api, /ON CONFLICT\(employee_id\) DO UPDATE/); assert.match(api, /ON CONFLICT\(id\) DO UPDATE SET annual_salary/);
+  assert.match(api, /bindings\.HR_AUDIO\.put/); assert.match(api, /automaticApply: false/); assert.match(plan, /원본 자동 삭제 없음/);
+  assert.match(approval, /DATA_IMPORT: "재무 데이터 반영 승인"/); assert.match(approval, /targetEntityType === "DATA_IMPORT_BATCH"/);
+  assert.match(workspace, /원본 보관·검증/); assert.match(workspace, /결재 제출/); assert.match(workspace, /승인본 반영/); assert.match(integration, /DataIntakeWorkspace/);
+  assert.match(plan, /자동 반영하지 않는다/); assert.match(plan, /실제 업무 원장 반영은 API 계약과 계정 매핑이 확정될 때까지 차단/);
+});

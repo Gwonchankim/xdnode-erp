@@ -1177,3 +1177,23 @@ test("data integration ledgers preserve idempotency, retry lineage and reviewed 
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_sync_run_events WHERE run_id='run-1'").get().count, 1);
   db.close();
 });
+
+test("data intake ledgers reject duplicate originals and preserve row and event lineage", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO erp_data_import_batches (id,source_id,status,file_name,content_type,storage_key,file_sha256,parser_type,requested_by,created_at,updated_at)
+    VALUES ('batch-1','hiworks-employees','VALIDATED','employees.csv','text/csv','erp-imports/1.csv','hash-1','CSV','gc.kim',?,?)`).run(now, now);
+  assert.throws(() => db.prepare(`INSERT INTO erp_data_import_batches (id,source_id,status,file_name,content_type,storage_key,file_sha256,parser_type,requested_by,created_at,updated_at)
+    VALUES ('batch-2','hiworks-employees','VALIDATED','copy.csv','text/csv','erp-imports/2.csv','hash-1','CSV','gc.kim',?,?)`).run(now, now), /UNIQUE constraint failed/);
+  const insertRow = db.prepare(`INSERT INTO erp_data_import_rows (id,batch_id,row_number,raw_json,normalized_json,identity_key,row_checksum,validation_status,proposed_action,created_at)
+    VALUES (?,'batch-1',2,'{}','{}','employee@example.com','row-hash','VALID','CREATE',?)`);
+  insertRow.run('row-1', now); assert.throws(() => insertRow.run('row-2', now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO erp_data_import_events (id,batch_id,action,from_status,to_status,actor_employee_id,note,created_at)
+    VALUES ('event-1','batch-1','SUBMITTED','VALIDATED','SUBMITTED','gc.kim','결재 제출',?)`).run(now);
+  db.prepare(`INSERT INTO erp_data_import_events (id,batch_id,action,from_status,to_status,actor_employee_id,note,created_at)
+    VALUES ('event-2','batch-1','APPROVED','SUBMITTED','APPROVED','gc.kim','전자결재 승인',?)`).run(now + 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_data_import_events WHERE batch_id='batch-1'").get().count, 2);
+  assert.equal(db.prepare("SELECT proposed_action FROM erp_data_import_rows WHERE id='row-1'").get().proposed_action, 'CREATE');
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM erp_data_import_rows WHERE batch_id=? AND validation_status=? AND proposed_action=?").all('batch-1', 'VALID', 'CREATE');
+  assert.match(plan.map((row) => row.detail).join(' '), /idx_erp_data_import_row_validation/);
+  db.close();
+});

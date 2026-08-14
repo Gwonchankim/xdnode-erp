@@ -527,6 +527,27 @@ export const erpSyncRunEvents = sqliteTable("erp_sync_run_events", {
   snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("idx_erp_sync_run_event_run_created").on(table.runId, table.createdAt)]);
 
+export const erpDataImportBatches = sqliteTable("erp_data_import_batches", {
+  id: text("id").primaryKey(), sourceId: text("source_id").notNull(), status: text("status").notNull().default("UPLOADED"),
+  fileName: text("file_name").notNull(), contentType: text("content_type").notNull(), storageKey: text("storage_key").notNull(), fileSha256: text("file_sha256").notNull(),
+  byteSize: integer("byte_size").notNull().default(0), parserType: text("parser_type").notNull(), headerJson: text("header_json").notNull().default("[]"), mappingJson: text("mapping_json").notNull().default("{}"),
+  totalRows: integer("total_rows").notNull().default(0), validRows: integer("valid_rows").notNull().default(0), invalidRows: integer("invalid_rows").notNull().default(0), duplicateRows: integer("duplicate_rows").notNull().default(0),
+  createRows: integer("create_rows").notNull().default(0), updateRows: integer("update_rows").notNull().default(0), skipRows: integer("skip_rows").notNull().default(0), approvalRequestId: text("approval_request_id").notNull().default(""),
+  requestedBy: text("requested_by").notNull(), submittedAt: integer("submitted_at"), approvedAt: integer("approved_at"), appliedAt: integer("applied_at"), appliedBy: text("applied_by").notNull().default(""),
+  failureMessage: text("failure_message").notNull().default(""), version: integer("version").notNull().default(1), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_erp_data_import_source_hash").on(table.sourceId, table.fileSha256), index("idx_erp_data_import_status_created").on(table.status, table.createdAt)]);
+
+export const erpDataImportRows = sqliteTable("erp_data_import_rows", {
+  id: text("id").primaryKey(), batchId: text("batch_id").notNull(), rowNumber: integer("row_number").notNull(), rawJson: text("raw_json").notNull(), normalizedJson: text("normalized_json").notNull().default("{}"),
+  identityKey: text("identity_key").notNull().default(""), rowChecksum: text("row_checksum").notNull(), validationStatus: text("validation_status").notNull().default("VALID"), issuesJson: text("issues_json").notNull().default("[]"),
+  proposedAction: text("proposed_action").notNull().default("SKIP"), targetEntityType: text("target_entity_type").notNull().default(""), targetEntityId: text("target_entity_id").notNull().default(""), appliedAt: integer("applied_at"), createdAt: integer("created_at").notNull(),
+}, (table) => [uniqueIndex("idx_erp_data_import_row_number").on(table.batchId, table.rowNumber), index("idx_erp_data_import_row_validation").on(table.batchId, table.validationStatus, table.proposedAction), index("idx_erp_data_import_row_identity").on(table.batchId, table.identityKey)]);
+
+export const erpDataImportEvents = sqliteTable("erp_data_import_events", {
+  id: text("id").primaryKey(), batchId: text("batch_id").notNull(), action: text("action").notNull(), fromStatus: text("from_status").notNull().default(""), toStatus: text("to_status").notNull().default(""),
+  actorEmployeeId: text("actor_employee_id").notNull(), note: text("note").notNull().default(""), snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_erp_data_import_event_batch_created").on(table.batchId, table.createdAt)]);
+
 export const erpDocuments = sqliteTable("erp_documents", {
   id: text("id").primaryKey(),
   module: text("module").notNull(),

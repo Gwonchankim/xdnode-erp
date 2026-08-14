@@ -188,6 +188,42 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
     return [db.prepare(`UPDATE finance_close_tasks SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "OPEN", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "FINANCE_EXPENSE") {
+    return [db.prepare(`UPDATE finance_expense_requests SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
+      AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(approved ? "APPROVED" : "REJECTED", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "HR_RETIREMENT") {
+    const status = approved ? "IN_PROGRESS" : "REJECTED";
+    const statements = [db.prepare(`UPDATE hr_retirement_requests SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
+      AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(status, approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
+    if (approved) {
+      statements.push(db.prepare(`UPDATE hr_employee_records SET status = '퇴직 예정',
+        retirement_json = json((SELECT json_object('requestId', id, 'date', retirement_date, 'reason', reason,
+          'completedTaskIds', json(checklist_json), 'status', 'IN_PROGRESS') FROM hr_retirement_requests WHERE id = ?)),
+        history_json = json_insert(CASE WHEN json_valid(history_json) THEN history_json ELSE '[]' END, '$[#]',
+          json((SELECT json_object('date', strftime('%Y.%m.%d', 'now', '+9 hours'), 'type', '퇴직 절차',
+            'detail', retirement_date || ' 퇴직 예정 · ' || reason || ' · 결재 승인') FROM hr_retirement_requests WHERE id = ?))),
+        updated_at = ? WHERE employee_id = (SELECT employee_id FROM hr_retirement_requests WHERE id = ?)
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken));
+    } else {
+      statements.push(db.prepare(`UPDATE hr_lifecycle_tasks SET status = 'CANCELLED', updated_at = ?
+        WHERE lifecycle_type = 'RETIREMENT' AND id LIKE ?
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, `${targetEntityId}:%`, requestId, transitionToken));
+    }
+    return statements;
+  } else if (targetEntityType === "RECRUITMENT_OFFER") {
+    return [
+      db.prepare(`UPDATE hr_offer_requests SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
+        AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(approved ? "APPROVED" : "REJECTED", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE hr_applicants SET stage = ?, updated_at = ?
+        WHERE id = (SELECT applicant_id FROM hr_offer_requests WHERE id = ?)
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(approved ? "채용 제안 승인" : "채용 제안 반려", now, targetEntityId, requestId, transitionToken),
+    ];
   } else if (targetEntityType === "SALES_DOCUMENT") {
     return [db.prepare(`UPDATE sales_documents SET status = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)

@@ -26,6 +26,17 @@ type ReconciliationRow = {
   amount: number; description: string; account_code: string; match_score: number; status: string;
   resolution_memo: string; resolved_by: string; resolved_at: number | null; created_at: number; updated_at: number;
 };
+type ExpenseRow = {
+  id: string; request_kind: string; title: string; vendor: string; amount: number; requested_date: string;
+  due_date: string; account_code: string; account_name: string; payment_method: string; memo: string;
+  status: string; requester_employee_id: string; approved_by: string; approved_at: number | null;
+  paid_by: string; paid_at: number | null; journal_status: string; evidence_required: number;
+  evidence_count: number; created_at: number; updated_at: number;
+};
+type PaymentRow = {
+  id: string; request_id: string; payment_date: string; amount: number; payment_method: string;
+  bank_reference: string; paid_by: string; status: string; created_at: number; updated_at: number;
+};
 
 async function ensureSchema() {
   await db.batch([
@@ -54,10 +65,33 @@ async function ensureSchema() {
       status TEXT NOT NULL DEFAULT 'DRAFT', version INTEGER NOT NULL DEFAULT 1,
       approved_by TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS finance_expense_requests (
+      id TEXT PRIMARY KEY NOT NULL, request_kind TEXT NOT NULL DEFAULT 'EXPENSE', title TEXT NOT NULL,
+      vendor TEXT NOT NULL DEFAULT '', amount INTEGER NOT NULL, requested_date TEXT NOT NULL,
+      due_date TEXT NOT NULL DEFAULT '', account_code TEXT NOT NULL DEFAULT '', account_name TEXT NOT NULL DEFAULT '',
+      payment_method TEXT NOT NULL DEFAULT 'BANK_TRANSFER', memo TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'DRAFT',
+      requester_employee_id TEXT NOT NULL, approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
+      paid_by TEXT NOT NULL DEFAULT '', paid_at INTEGER, journal_status TEXT NOT NULL DEFAULT 'UNPOSTED',
+      evidence_required INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS finance_payment_ledger (
+      id TEXT PRIMARY KEY NOT NULL, request_id TEXT NOT NULL UNIQUE, payment_date TEXT NOT NULL, amount INTEGER NOT NULL,
+      payment_method TEXT NOT NULL, bank_reference TEXT NOT NULL DEFAULT '', paid_by TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'PAID', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_documents (
+      id TEXT PRIMARY KEY NOT NULL, module TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+      category TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, file_name TEXT NOT NULL,
+      content_type TEXT NOT NULL, storage_key TEXT NOT NULL, uploaded_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL, deleted_at INTEGER
+    )`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_reconciliation_status_date ON finance_reconciliations(status, transaction_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_cash_forecast_scenario_date ON finance_cash_forecast_items(scenario, expected_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_close_period_status ON finance_close_tasks(period, status)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_budgets_year_month_department ON finance_budgets(fiscal_year, month, department)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_expense_status_due ON finance_expense_requests(status, due_date)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_expense_requester_created ON finance_expense_requests(requester_employee_id, created_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_payment_date ON finance_payment_ledger(payment_date)"),
   ]);
 }
 
@@ -82,6 +116,18 @@ const toReconciliation = (row: ReconciliationRow) => ({
   transactionDate: row.transaction_date, amount: row.amount, description: row.description,
   accountCode: row.account_code, matchScore: row.match_score, status: row.status,
   resolutionMemo: row.resolution_memo, resolvedBy: row.resolved_by, resolvedAt: row.resolved_at,
+});
+const toExpense = (row: ExpenseRow) => ({
+  id: row.id, requestKind: row.request_kind, title: row.title, vendor: row.vendor, amount: row.amount,
+  requestedDate: row.requested_date, dueDate: row.due_date, accountCode: row.account_code,
+  accountName: row.account_name, paymentMethod: row.payment_method, memo: row.memo, status: row.status,
+  requesterEmployeeId: row.requester_employee_id, approvedBy: row.approved_by, approvedAt: row.approved_at,
+  paidBy: row.paid_by, paidAt: row.paid_at, journalStatus: row.journal_status,
+  evidenceRequired: Boolean(row.evidence_required), evidenceCount: Number(row.evidence_count ?? 0),
+});
+const toPayment = (row: PaymentRow) => ({
+  id: row.id, requestId: row.request_id, paymentDate: row.payment_date, amount: row.amount,
+  paymentMethod: row.payment_method, bankReference: row.bank_reference, paidBy: row.paid_by, status: row.status,
 });
 
 async function seedCloseTasks() {
@@ -110,11 +156,16 @@ export async function GET() {
   if (authorization.response) return authorization.response;
   await seedCloseTasks();
 
-  const [forecast, closeTasks, budgets, reconciliations] = await Promise.all([
+  const [forecast, closeTasks, budgets, reconciliations, expenses, payments] = await Promise.all([
     db.prepare("SELECT * FROM finance_cash_forecast_items WHERE status <> 'DELETED' ORDER BY expected_date, created_at").all<ForecastRow>(),
     db.prepare("SELECT * FROM finance_close_tasks ORDER BY period DESC, created_at").all<CloseRow>(),
     db.prepare("SELECT * FROM finance_budgets ORDER BY fiscal_year DESC, month, department, account_code").all<BudgetRow>(),
     db.prepare("SELECT * FROM finance_reconciliations ORDER BY transaction_date DESC, created_at DESC LIMIT 500").all<ReconciliationRow>(),
+    db.prepare(`SELECT expense.*, COUNT(document.id) AS evidence_count FROM finance_expense_requests expense
+      LEFT JOIN erp_documents document ON document.module = 'finance' AND document.entity_type = 'financeExpense'
+        AND document.entity_id = expense.id AND document.deleted_at IS NULL
+      GROUP BY expense.id ORDER BY expense.created_at DESC`).all<ExpenseRow>(),
+    db.prepare("SELECT * FROM finance_payment_ledger ORDER BY payment_date DESC, created_at DESC").all<PaymentRow>(),
   ]);
 
   return Response.json({
@@ -130,6 +181,8 @@ export async function GET() {
     closeTasks: closeTasks.results.map(toCloseTask),
     budgets: budgets.results.map(toBudget),
     reconciliations: reconciliations.results.map(toReconciliation),
+    expenses: expenses.results.map(toExpense),
+    payments: payments.results.map(toPayment),
   });
 }
 
@@ -177,6 +230,34 @@ export async function POST(request: Request) {
     const row = await db.prepare("SELECT * FROM finance_budgets WHERE id = ?").bind(id).first<BudgetRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "BUDGET_CREATED", entityType: "budget", entityId: id, after: row ? toBudget(row) : body });
     return Response.json({ item: row ? toBudget(row) : null }, { status: 201 });
+  }
+
+  if (resource === "expense") {
+    const requestKind = String(body.requestKind ?? "EXPENSE").trim();
+    const title = String(body.title ?? "").trim();
+    const vendor = String(body.vendor ?? "").trim();
+    const amount = Number(body.amount);
+    const requestedDate = String(body.requestedDate ?? "").trim();
+    const dueDate = String(body.dueDate ?? "").trim();
+    const accountName = String(body.accountName ?? "").trim();
+    const paymentMethod = String(body.paymentMethod ?? "BANK_TRANSFER").trim();
+    if (!["EXPENSE", "PAYMENT"].includes(requestKind) || !title || !Number.isFinite(amount) || amount <= 0
+      || !/^\d{4}-\d{2}-\d{2}$/.test(requestedDate) || (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))
+      || !["BANK_TRANSFER", "CORPORATE_CARD", "CASH", "AUTO_DEBIT"].includes(paymentMethod)) {
+      return Response.json({ error: "구분·제목·요청일·0원 초과 금액과 지급수단을 확인해 주세요." }, { status: 400 });
+    }
+    await db.prepare(`INSERT INTO finance_expense_requests
+      (id, request_kind, title, vendor, amount, requested_date, due_date, account_code, account_name,
+        payment_method, memo, status, requester_employee_id, approved_by, approved_at, paid_by, paid_at,
+        journal_status, evidence_required, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, '', NULL, '', NULL, 'UNPOSTED', 1, ?, ?)`)
+      .bind(id, requestKind, title, vendor, Math.round(amount), requestedDate, dueDate,
+        String(body.accountCode ?? "").trim(), accountName, paymentMethod, String(body.memo ?? "").trim(),
+        authorization.principal.employeeId, now, now).run();
+    const row = await db.prepare(`SELECT expense.*, 0 AS evidence_count FROM finance_expense_requests expense WHERE id = ?`)
+      .bind(id).first<ExpenseRow>();
+    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "EXPENSE_DRAFT_CREATED", entityType: "financeExpense", entityId: id, after: row ? toExpense(row) : body });
+    return Response.json({ item: row ? toExpense(row) : null }, { status: 201 });
   }
 
   return Response.json({ error: "지원하지 않는 재무 운영 항목입니다." }, { status: 400 });
@@ -258,6 +339,61 @@ export async function PUT(request: Request) {
     const after = await db.prepare("SELECT * FROM finance_budgets WHERE id = ?").bind(id).first<BudgetRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "BUDGET_STATUS_UPDATED", entityType: "budget", entityId: id, before: toBudget(before), after: after ? toBudget(after) : null });
     return Response.json({ item: after ? toBudget(after) : null });
+  }
+
+  if (resource === "expense") {
+    const before = await db.prepare(`SELECT expense.*, COUNT(document.id) AS evidence_count FROM finance_expense_requests expense
+      LEFT JOIN erp_documents document ON document.module = 'finance' AND document.entity_type = 'financeExpense'
+        AND document.entity_id = expense.id AND document.deleted_at IS NULL
+      WHERE expense.id = ? GROUP BY expense.id`).bind(id).first<ExpenseRow>();
+    if (!before) return Response.json({ error: "지출·지급 요청을 찾을 수 없습니다." }, { status: 404 });
+    const action = String(body.action ?? "SUBMIT").toUpperCase();
+    if (action === "SUBMIT") {
+      if (before.status !== "DRAFT") return Response.json({ error: "작성 중인 요청만 결재를 제출할 수 있습니다." }, { status: 409 });
+      if (before.evidence_required && before.evidence_count < 1) return Response.json({ error: "결재 제출 전 영수증·세금계산서 등 증빙을 1개 이상 첨부해 주세요." }, { status: 409 });
+      await db.prepare("UPDATE finance_expense_requests SET status = 'SUBMITTED', updated_at = ? WHERE id = ? AND status = 'DRAFT'")
+        .bind(now, id).run();
+      try {
+        const approval = await createApprovalRequest(db, authorization.principal, {
+          module: "finance", requestType: before.request_kind === "PAYMENT" ? "PAYMENT" : "EXPENSE",
+          title: `${before.title} ${before.request_kind === "PAYMENT" ? "지급" : "지출"} 승인`,
+          description: `${before.vendor || "거래처 미입력"} · ${before.amount.toLocaleString("ko-KR")}원${before.account_name ? ` · ${before.account_name}` : ""}`,
+          targetEntityType: "FINANCE_EXPENSE", targetEntityId: id, amount: before.amount,
+          dueDate: before.due_date, priority: before.due_date && before.due_date <= new Date(now + 2 * 86400000).toISOString().slice(0, 10) ? "HIGH" : "NORMAL",
+          metadata: { requestKind: before.request_kind, vendor: before.vendor, accountCode: before.account_code, evidenceCount: before.evidence_count },
+        });
+        await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "EXPENSE_APPROVAL_SUBMITTED", entityType: "financeExpense", entityId: id, before: toExpense(before), after: approval });
+        return Response.json({ item: { ...toExpense(before), status: "SUBMITTED" }, approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
+      } catch (error) {
+        await db.prepare("UPDATE finance_expense_requests SET status = 'DRAFT', updated_at = ? WHERE id = ? AND status = 'SUBMITTED'").bind(now, id).run();
+        return Response.json({ error: error instanceof Error ? error.message : "지출·지급 결재선을 만들지 못했습니다." }, { status: 409 });
+      }
+    }
+    if (action === "PAY") {
+      const approvalAuthorization = await authorizeErpRequest(db, "finance", "approve");
+      if (approvalAuthorization.response) return approvalAuthorization.response;
+      if (before.status !== "APPROVED") return Response.json({ error: "승인 완료된 요청만 지급 처리할 수 있습니다." }, { status: 409 });
+      const paymentDate = String(body.paymentDate ?? "").trim();
+      const paymentMethod = String(body.paymentMethod ?? before.payment_method).trim();
+      const bankReference = String(body.bankReference ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(paymentDate) || !["BANK_TRANSFER", "CORPORATE_CARD", "CASH", "AUTO_DEBIT"].includes(paymentMethod)) {
+        return Response.json({ error: "지급일과 지급수단을 확인해 주세요." }, { status: 400 });
+      }
+      const paymentId = crypto.randomUUID();
+      await db.batch([
+        db.prepare(`INSERT INTO finance_payment_ledger
+          (id, request_id, payment_date, amount, payment_method, bank_reference, paid_by, status, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'PAID', ?, ?)`)
+          .bind(paymentId, id, paymentDate, before.amount, paymentMethod, bankReference, approvalAuthorization.principal.employeeId, now, now),
+        db.prepare(`UPDATE finance_expense_requests SET status = 'PAID', payment_method = ?, paid_by = ?, paid_at = ?,
+          journal_status = 'READY', updated_at = ? WHERE id = ? AND status = 'APPROVED'`)
+          .bind(paymentMethod, approvalAuthorization.principal.employeeId, now, now, id),
+      ]);
+      const payment = await db.prepare("SELECT * FROM finance_payment_ledger WHERE id = ?").bind(paymentId).first<PaymentRow>();
+      await writeErpAudit(db, { principal: approvalAuthorization.principal, module: "finance", action: "EXPENSE_PAID", entityType: "financeExpense", entityId: id, before: toExpense(before), after: payment ? toPayment(payment) : { paymentId } });
+      return Response.json({ item: payment ? toPayment(payment) : null });
+    }
+    return Response.json({ error: "지원하지 않는 지출·지급 처리입니다." }, { status: 400 });
   }
 
   return Response.json({ error: "지원하지 않는 재무 운영 항목입니다." }, { status: 400 });

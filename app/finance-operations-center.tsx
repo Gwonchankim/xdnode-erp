@@ -9,6 +9,13 @@ type ForecastItem = {
 };
 type CloseTask = { id: string; period: string; category: string; title: string; ownerEmployeeId: string; status: string };
 type BudgetItem = { id: string; fiscalYear: number; month: number; department: string; accountCode: string; accountName: string; amount: number; status: string };
+type ExpenseItem = {
+  id: string; requestKind: "EXPENSE" | "PAYMENT"; title: string; vendor: string; amount: number;
+  requestedDate: string; dueDate: string; accountCode: string; accountName: string; paymentMethod: string;
+  memo: string; status: string; requesterEmployeeId: string; approvedBy: string; paidBy: string;
+  journalStatus: string; evidenceRequired: boolean; evidenceCount: number;
+};
+type PaymentItem = { id: string; requestId: string; paymentDate: string; amount: number; paymentMethod: string; bankReference: string; paidBy: string; status: string };
 type OperationsData = {
   asOf: string;
   sourceStatus: Record<string, "LIVE" | "IMPORTED" | "MANUAL" | "NOT_CONNECTED">;
@@ -16,6 +23,8 @@ type OperationsData = {
   closeTasks: CloseTask[];
   budgets: BudgetItem[];
   reconciliations: unknown[];
+  expenses: ExpenseItem[];
+  payments: PaymentItem[];
 };
 
 const statusLabel: Record<string, string> = {
@@ -23,6 +32,7 @@ const statusLabel: Record<string, string> = {
   OPEN: "미착수", IN_PROGRESS: "진행 중", COMPLETED: "완료", APPROVED: "승인 완료",
   EXPECTED: "예정", CONFIRMED: "확정", CANCELLED: "취소",
   DRAFT: "작성 중", SUBMITTED: "검토 요청",
+  REJECTED: "반려", PAID: "지급 완료", READY: "분개 준비",
 };
 
 function won(value: number) {
@@ -35,6 +45,7 @@ export default function FinanceOperationsCenter() {
   const [message, setMessage] = useState("");
   const [forecastDraft, setForecastDraft] = useState({ expectedDate: financeCurrentData.asOf, direction: "INFLOW", category: "매출대금", counterparty: "", amount: "", probability: "100", memo: "" });
   const [budgetDraft, setBudgetDraft] = useState({ fiscalYear: "2026", month: String(Number(financeCurrentData.asOf.slice(5, 7))), department: "전사", accountCode: "", accountName: "", amount: "" });
+  const [expenseDraft, setExpenseDraft] = useState({ requestKind: "EXPENSE", title: "", vendor: "", amount: "", requestedDate: financeCurrentData.asOf, dueDate: "", accountCode: "", accountName: "", paymentMethod: "BANK_TRANSFER", memo: "" });
 
   async function load() {
     setLoading(true);
@@ -96,6 +107,49 @@ export default function FinanceOperationsCenter() {
     await load();
   }
 
+  async function createExpense(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage("");
+    const response = await fetch("/api/finance/operations", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "expense", ...expenseDraft, amount: Number(expenseDraft.amount) }),
+    });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) return setMessage(result.error || "지출·지급 요청을 저장하지 못했습니다.");
+    setExpenseDraft((current) => ({ ...current, title: "", vendor: "", amount: "", dueDate: "", accountCode: "", accountName: "", memo: "" }));
+    setMessage("요청 초안을 저장했습니다. 증빙을 첨부한 뒤 결재를 제출해 주세요.");
+    await load();
+  }
+
+  async function uploadEvidence(expenseId: string, file: File | undefined) {
+    if (!file) return;
+    const form = new FormData();
+    form.append("module", "finance");
+    form.append("entityType", "financeExpense");
+    form.append("entityId", expenseId);
+    form.append("category", "EVIDENCE");
+    form.append("file", file);
+    const response = await fetch("/api/documents", { method: "POST", body: form });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) return setMessage(result.error || "증빙을 저장하지 못했습니다.");
+    setMessage("증빙을 안전하게 저장했습니다.");
+    await load();
+  }
+
+  async function expenseAction(item: ExpenseItem, action: "SUBMIT" | "PAY") {
+    const paymentDate = action === "PAY" ? window.prompt("지급일을 YYYY-MM-DD 형식으로 입력하세요.", financeCurrentData.asOf) : "";
+    if (action === "PAY" && !paymentDate) return;
+    const bankReference = action === "PAY" ? window.prompt("은행 이체번호 또는 지급 참조값을 입력하세요. (선택)", "") ?? "" : "";
+    const response = await fetch("/api/finance/operations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "expense", id: item.id, action, paymentDate, paymentMethod: item.paymentMethod, bankReference }),
+    });
+    const result = await response.json() as { error?: string; approvalSubmitted?: boolean };
+    if (!response.ok) return setMessage(result.error || "요청을 처리하지 못했습니다.");
+    setMessage(action === "PAY" ? "지급원장에 반영했으며 분개 준비 상태로 전환했습니다." : "전자결재를 제출했습니다. 최종 승인 후 지급할 수 있습니다.");
+    await load();
+  }
+
   if (loading && !data) return <section className="panel finance-control-loading">재무 운영 데이터를 확인하고 있습니다…</section>;
 
   return <div className="finance-control-room">
@@ -111,6 +165,33 @@ export default function FinanceOperationsCenter() {
       <article><small>가중 예상 순변동</small><strong>{won(weightedForecast)}</strong><span>등록된 향후 입출금</span></article>
       <article><small>월마감 진척</small><strong>{closeCompleted}/{data?.closeTasks.length ?? 0}</strong><span>완료·승인 항목</span></article>
       <article><small>등록 예산</small><strong>{won(budgetTotal)}</strong><span>{data?.budgets.length ?? 0}개 항목</span></article>
+    </section>
+
+    <section className="panel finance-control-panel expense-panel">
+      <header><div><p>EXPENSE & PAYMENT</p><h2>지출·지급 요청과 지급원장</h2></div><span>{data?.expenses.length ?? 0}건</span></header>
+      <form className="finance-control-form expense-form" onSubmit={createExpense}>
+        <label>구분<select value={expenseDraft.requestKind} onChange={(event) => setExpenseDraft({ ...expenseDraft, requestKind: event.target.value })}><option value="EXPENSE">지출 결의</option><option value="PAYMENT">지급 요청</option></select></label>
+        <label>제목<input required value={expenseDraft.title} onChange={(event) => setExpenseDraft({ ...expenseDraft, title: event.target.value })} /></label>
+        <label>거래처<input value={expenseDraft.vendor} onChange={(event) => setExpenseDraft({ ...expenseDraft, vendor: event.target.value })} /></label>
+        <label>금액<input required type="number" min="1" value={expenseDraft.amount} onChange={(event) => setExpenseDraft({ ...expenseDraft, amount: event.target.value })} /></label>
+        <label>요청일<input required type="date" value={expenseDraft.requestedDate} onChange={(event) => setExpenseDraft({ ...expenseDraft, requestedDate: event.target.value })} /></label>
+        <label>지급예정일<input type="date" value={expenseDraft.dueDate} onChange={(event) => setExpenseDraft({ ...expenseDraft, dueDate: event.target.value })} /></label>
+        <label>계정명<input value={expenseDraft.accountName} onChange={(event) => setExpenseDraft({ ...expenseDraft, accountName: event.target.value })} /></label>
+        <label>지급수단<select value={expenseDraft.paymentMethod} onChange={(event) => setExpenseDraft({ ...expenseDraft, paymentMethod: event.target.value })}><option value="BANK_TRANSFER">계좌이체</option><option value="CORPORATE_CARD">법인카드</option><option value="AUTO_DEBIT">자동이체</option><option value="CASH">현금</option></select></label>
+        <button type="submit">+ 요청 초안</button>
+      </form>
+      <div className="expense-ledger">
+        <div className="expense-row head"><span>요청</span><span>거래처·계정</span><span>금액</span><span>증빙</span><span>상태</span><span>처리</span></div>
+        {(data?.expenses ?? []).map((item) => <div className="expense-row" key={item.id}>
+          <p><strong>{item.title}</strong><small>{item.requestKind === "PAYMENT" ? "지급 요청" : "지출 결의"} · {item.requestedDate}</small></p>
+          <p><strong>{item.vendor || "거래처 미입력"}</strong><small>{item.accountName || "계정 미지정"}</small></p>
+          <b>{won(item.amount)}</b>
+          <label className="expense-evidence"><input type="file" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt,.csv" disabled={item.status !== "DRAFT"} onChange={(event) => void uploadEvidence(item.id, event.target.files?.[0])} /><span>{item.evidenceCount ? `${item.evidenceCount}개 첨부` : "증빙 첨부"}</span></label>
+          <em className={`expense-status ${item.status.toLowerCase()}`}>{statusLabel[item.status] ?? item.status}{item.status === "PAID" ? ` · ${statusLabel[item.journalStatus] ?? item.journalStatus}` : ""}</em>
+          <div>{item.status === "DRAFT" && <button type="button" onClick={() => void expenseAction(item, "SUBMIT")}>결재 제출</button>}{item.status === "APPROVED" && <button type="button" onClick={() => void expenseAction(item, "PAY")}>지급 반영</button>}</div>
+        </div>)}
+        {!data?.expenses.length && <div className="finance-empty">지출 또는 지급 초안을 등록하고 증빙을 첨부하면 결재와 지급원장까지 연결됩니다.</div>}
+      </div>
     </section>
 
     <section className="finance-control-grid">

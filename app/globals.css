@@ -1504,6 +1504,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .finance-control-form { padding: 16px 20px; display: grid; gap: 10px; border-bottom: 1px solid #e4e4e7; background: #fafafa; }
 .forecast-form { grid-template-columns: 1fr .7fr 1fr 1fr 1fr .7fr auto; }
 .budget-form { grid-template-columns: .7fr .55fr 1fr 1fr 1fr auto; }
+.expense-form { grid-template-columns: .7fr 1.35fr 1fr .8fr .9fr .9fr 1fr .9fr auto; }
 .finance-control-form label { display: grid; gap: 5px; color: #71717a; font-size: 9px; font-weight: 800; }
 .finance-control-form input, .finance-control-form select, .finance-control-list select, .finance-close-list select { min-width: 0; height: 38px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font: inherit; }
 .finance-control-form button { align-self: end; height: 38px; padding: 0 15px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 10px; font-weight: 900; cursor: pointer; }
@@ -1538,19 +1539,30 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .reconciliation-readiness small { margin-top: 4px; color: #71717a; font-size: 9px; }
 .reconciliation-readiness em { color: #9a3412; font-size: 9px; font-style: normal; font-weight: 900; }
 .finance-control-note { margin: 4px 20px 20px; padding: 12px 14px; color: #52525b; background: #f4f4f5; border-radius: 14px; font-size: 10px; line-height: 1.5; }
+.expense-ledger { padding: 0 20px 14px; }
+.expense-row { min-height: 62px; display: grid; grid-template-columns: minmax(160px, 1.2fr) minmax(130px, 1fr) 110px 100px 120px 92px; gap: 12px; align-items: center; border-bottom: 1px solid #ececee; font-size: 10px; }
+.expense-row.head { min-height: 38px; color: #71717a; font-size: 9px; font-weight: 900; }
+.expense-row p { margin: 0; }.expense-row p strong, .expense-row p small { display: block; }.expense-row p small { margin-top: 4px; color: #71717a; }
+.expense-evidence { position: relative; min-height: 34px; display: grid; place-items: center; overflow: hidden; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font-weight: 900; cursor: pointer; }
+.expense-evidence input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }.expense-evidence:has(input:disabled) { opacity: .55; cursor: default; }
+.expense-status { padding: 7px 9px; justify-self: start; border-radius: 10px; background: #f4f4f5; font-style: normal; font-weight: 900; }
+.expense-status.approved { color: #166534; background: #dcfce7; }.expense-status.rejected { color: #be123c; background: #ffe4e6; }.expense-status.paid { color: #fff; background: #18181b; }
+.expense-row > div:last-child button { min-height: 34px; padding: 0 12px; color: #fff; border: 0; border-radius: 11px; background: #18181b; font-size: 9px; font-weight: 900; cursor: pointer; }
 
 @media (max-width: 1260px) {
   .finance-control-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .finance-control-grid { grid-template-columns: 1fr; }
-  .forecast-form, .budget-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .forecast-form, .budget-form, .expense-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .expense-row { grid-template-columns: 1.2fr 1fr 100px 92px 110px 82px; }
 }
 @media (max-width: 760px) {
   .finance-control-hero { padding: 22px; display: grid; }
   .finance-control-source { width: 100%; }
   .finance-control-metrics { grid-template-columns: 1fr; }
-  .forecast-form, .budget-form { grid-template-columns: 1fr 1fr; }
+  .forecast-form, .budget-form, .expense-form { grid-template-columns: 1fr 1fr; }
   .finance-control-list > div:not(.finance-empty) { padding: 10px 0; grid-template-columns: 70px 1fr; }
   .finance-control-list > div > select { grid-column: 2; }
+  .expense-ledger { overflow-x: auto; }.expense-row { min-width: 760px; }
 }
 
 /* Live sales workspace */

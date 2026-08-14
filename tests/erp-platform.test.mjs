@@ -73,7 +73,7 @@ test("leave and attendance workflows persist real manual records and approval ta
   assert.match(api, /resource === "leaveRequest"/);
   assert.match(api, /createApprovalRequest/);
   assert.match(engine, /source_type, source_id/);
-  assert.match(api, /authorizeErpRequest\(db, "hr", "approve"\)/);
+  assert.match(api, /resource === "retirementChecklist" \? "write" : "approve"/);
   assert.match(api, /'RECORDED', 'MANUAL'/);
   assert.match(view, /자동연동 전까지 자료 출처는 수기 입력/);
   assert.match(view, /Math\.round\(Number\(leaveDraft\.units\) \* 100\)/);
@@ -221,4 +221,54 @@ test("approval center reports overdue work without manufacturing a second task",
   assert.match(api, /item\.due_date < today/);
   assert.match(center, /기한 경과/);
   assert.match(center, /summary\.overdueMine/);
+});
+
+test("expense requests require evidence, approval and a unique payment ledger entry", async () => {
+  const [schema, migration, api, view, engine] = await Promise.all([
+    read("db/schema.ts"), read("drizzle/0014_talented_matthew_murdock.sql"),
+    read("app/api/finance/operations/route.ts"), read("app/finance-operations-center.tsx"), read("app/approval-engine.ts"),
+  ]);
+  for (const table of ["finance_expense_requests", "finance_payment_ledger"]) {
+    assert.match(schema, new RegExp(table));
+    assert.match(migration, new RegExp(table));
+  }
+  assert.match(migration, /UNIQUE INDEX `idx_finance_payment_request_unique`/);
+  assert.match(api, /evidence_count < 1/);
+  assert.match(api, /before\.status !== "APPROVED"/);
+  assert.match(api, /journal_status = 'READY'/);
+  assert.match(api, /targetEntityType: "FINANCE_EXPENSE"/);
+  assert.match(engine, /targetEntityType === "FINANCE_EXPENSE"/);
+  assert.match(view, /증빙을 첨부한 뒤 결재를 제출/);
+});
+
+test("retirement approval activates a durable checklist and applies the due retirement once", async () => {
+  const [migration, api, engine, activator, records, workspace] = await Promise.all([
+    read("drizzle/0014_talented_matthew_murdock.sql"), read("app/api/hr/operations/route.ts"),
+    read("app/approval-engine.ts"), read("app/hr-retirements.ts"),
+    read("app/api/hr/employee-records/route.ts"), read("app/hr-workspace.tsx"),
+  ]);
+  assert.match(migration, /hr_retirement_requests/);
+  assert.match(api, /requestType: "RETIREMENT"/);
+  assert.match(api, /resource === "retirementChecklist"/);
+  assert.match(engine, /targetEntityType === "HR_RETIREMENT"/);
+  assert.match(engine, /status = '퇴직 예정'/);
+  assert.match(activator, /WHERE status = 'READY' AND retirement_date <= \?/);
+  assert.match(activator, /RETIREMENT_EFFECTIVE/);
+  assert.match(records, /applyDueRetirements\(db\)/);
+  assert.doesNotMatch(workspace, /const nextEmployee: Employee = \{[\s\S]*?status: "퇴직 예정"/);
+});
+
+test("recruitment offers are approval-gated and update the applicant stage on final decision", async () => {
+  const [migration, api, engine, workspace] = await Promise.all([
+    read("drizzle/0014_talented_matthew_murdock.sql"), read("app/api/hr/recruitment/route.ts"),
+    read("app/approval-engine.ts"), read("app/hr-workspace.tsx"),
+  ]);
+  assert.match(migration, /hr_offer_requests/);
+  assert.match(api, /resource === "offer"/);
+  assert.match(api, /requestType: "OFFER"/);
+  assert.match(api, /targetEntityType: "RECRUITMENT_OFFER"/);
+  assert.match(engine, /targetEntityType === "RECRUITMENT_OFFER"/);
+  assert.match(engine, /채용 제안 승인/);
+  assert.match(engine, /채용 제안 반려/);
+  assert.match(workspace, /채용 제안 결재 제출/);
 });

@@ -400,6 +400,49 @@ export const financeBudgets = sqliteTable("finance_budgets", {
   index("idx_finance_budgets_year_month_department").on(table.fiscalYear, table.month, table.department),
 ]);
 
+export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
+  id: text("id").primaryKey(),
+  requestKind: text("request_kind").notNull().default("EXPENSE"),
+  title: text("title").notNull(),
+  vendor: text("vendor").notNull().default(""),
+  amount: integer("amount").notNull(),
+  requestedDate: text("requested_date").notNull(),
+  dueDate: text("due_date").notNull().default(""),
+  accountCode: text("account_code").notNull().default(""),
+  accountName: text("account_name").notNull().default(""),
+  paymentMethod: text("payment_method").notNull().default("BANK_TRANSFER"),
+  memo: text("memo").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"),
+  requesterEmployeeId: text("requester_employee_id").notNull(),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  paidBy: text("paid_by").notNull().default(""),
+  paidAt: integer("paid_at"),
+  journalStatus: text("journal_status").notNull().default("UNPOSTED"),
+  evidenceRequired: integer("evidence_required", { mode: "boolean" }).notNull().default(true),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_expense_status_due").on(table.status, table.dueDate),
+  index("idx_finance_expense_requester_created").on(table.requesterEmployeeId, table.createdAt),
+]);
+
+export const financePaymentLedger = sqliteTable("finance_payment_ledger", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  paymentDate: text("payment_date").notNull(),
+  amount: integer("amount").notNull(),
+  paymentMethod: text("payment_method").notNull(),
+  bankReference: text("bank_reference").notNull().default(""),
+  paidBy: text("paid_by").notNull(),
+  status: text("status").notNull().default("PAID"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_payment_request_unique").on(table.requestId),
+  index("idx_finance_payment_date").on(table.paymentDate),
+]);
+
 export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   period: text("period").primaryKey(),
   status: text("status").notNull().default("DRAFT"),
@@ -487,6 +530,48 @@ export const hrLifecycleTasks = sqliteTable("hr_lifecycle_tasks", {
 }, (table) => [
   index("idx_hr_lifecycle_employee_type").on(table.employeeId, table.lifecycleType),
   index("idx_hr_lifecycle_status_due").on(table.status, table.dueDate),
+]);
+
+export const hrRetirementRequests = sqliteTable("hr_retirement_requests", {
+  id: text("id").primaryKey(),
+  employeeId: text("employee_id").notNull(),
+  retirementDate: text("retirement_date").notNull(),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("SUBMITTED"),
+  checklistJson: text("checklist_json").notNull().default("[]"),
+  totalTasks: integer("total_tasks").notNull().default(0),
+  completedTasks: integer("completed_tasks").notNull().default(0),
+  requestedBy: text("requested_by").notNull(),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_hr_retirement_employee_date").on(table.employeeId, table.retirementDate),
+  index("idx_hr_retirement_status_date").on(table.status, table.retirementDate),
+]);
+
+export const hrOfferRequests = sqliteTable("hr_offer_requests", {
+  id: text("id").primaryKey(),
+  applicantId: text("applicant_id").notNull(),
+  proposedTitle: text("proposed_title").notNull(),
+  department: text("department").notNull(),
+  employmentType: text("employment_type").notNull(),
+  startDate: text("start_date").notNull(),
+  annualSalary: integer("annual_salary").notNull(),
+  probationMonths: integer("probation_months").notNull().default(3),
+  notes: text("notes").notNull().default(""),
+  status: text("status").notNull().default("SUBMITTED"),
+  requestedBy: text("requested_by").notNull(),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  respondedAt: integer("responded_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_hr_offer_applicant_created").on(table.applicantId, table.createdAt),
+  index("idx_hr_offer_status_start").on(table.status, table.startDate),
 ]);
 
 export const salesAccounts = sqliteTable("sales_accounts", {

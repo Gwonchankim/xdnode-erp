@@ -37,6 +37,24 @@ test("new workflow ledgers migrate cleanly and enforce one payment per request",
   assert.throws(() => insertJournal.run("journal-2", "expense-1", "2026-08-14", "중복", "소모품비", "보통예금", 10000, "gc.kim", now, now), /UNIQUE constraint failed/);
 });
 
+test("fixed asset ledgers keep source registration and monthly depreciation unique", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertAsset = db.prepare(`INSERT INTO finance_fixed_assets
+    (id, asset_code, name, category, acquisition_date, in_service_date, acquisition_cost, useful_life_months,
+      asset_account_code, accumulated_account_code, expense_account_code, source_type, source_id, source_reference,
+      created_by, created_at, updated_at)
+    VALUES (?, ?, '테스트 장비', 'EQUIPMENT', '2026-01-01', '2026-01-01', 1200000, 12,
+      '1500', '1590', '8200', 'PURCHASE_ORDER_LINE', ?, 'PO-001', 'gc.kim', ?, ?)`);
+  insertAsset.run("asset-1", "FA-001", "line-1", now, now);
+  assert.throws(() => insertAsset.run("asset-2", "FA-002", "line-1", now, now), /UNIQUE constraint failed/);
+  assert.throws(() => insertAsset.run("asset-3", "FA-001", "line-3", now, now), /UNIQUE constraint failed/);
+  const insertSchedule = db.prepare(`INSERT INTO finance_asset_depreciation_schedules
+    (id, asset_id, period, depreciation_amount, closing_accumulated, closing_book_value, created_by, created_at, updated_at)
+    VALUES (?, 'asset-1', '2026-01', 100000, 100000, 1100000, 'gc.kim', ?, ?)`);
+  insertSchedule.run("dep-1", now, now);
+  assert.throws(() => insertSchedule.run("dep-2", now, now), /UNIQUE constraint failed/);
+});
+
 test("payroll close can identify its single downstream finance request", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

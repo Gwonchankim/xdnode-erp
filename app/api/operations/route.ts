@@ -427,6 +427,32 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const assetPeriod = financeCurrentData.asOf.slice(0, 7);
+    const assetRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM finance_fixed_assets WHERE status = 'DRAFT') AS draft_count,
+      (SELECT COUNT(*) FROM finance_fixed_assets asset WHERE asset.status = 'ACTIVE'
+        AND substr(asset.in_service_date, 1, 7) <= ?
+        AND (asset.opening_as_of = '' OR substr(asset.opening_as_of, 1, 7) < ?)
+        AND asset.opening_accumulated + COALESCE((SELECT SUM(posted.depreciation_amount) FROM finance_asset_depreciation_schedules posted
+          WHERE posted.asset_id = asset.id AND posted.status = 'POSTED'), 0) < asset.acquisition_cost - asset.residual_value
+        AND NOT EXISTS (SELECT 1 FROM finance_asset_depreciation_schedules schedule
+          WHERE schedule.asset_id = asset.id AND schedule.period = ?)) AS missing_count,
+      (SELECT COUNT(*) FROM finance_asset_depreciation_schedules WHERE period = ? AND status <> 'POSTED') AS unposted_count`)
+      .bind(assetPeriod, assetPeriod, assetPeriod, assetPeriod).first<{ draft_count: number; missing_count: number; unposted_count: number }>();
+    const riskCount = Number(assetRisk?.draft_count ?? 0) + Number(assetRisk?.missing_count ?? 0) + Number(assetRisk?.unposted_count ?? 0);
+    if (riskCount > 0) await upsertRuleTask({
+      id: "fixed-asset-control-risk", module: "finance", category: "고정자산",
+      title: `고정자산 처리 ${riskCount}건 확인`,
+      description: `증빙·활성화 대기 ${Number(assetRisk?.draft_count ?? 0)}개 · ${assetPeriod} 상각계획 누락 ${Number(assetRisk?.missing_count ?? 0)}개 · 미전기 ${Number(assetRisk?.unposted_count ?? 0)}건입니다.`,
+      dueDate: today, priority: Number(assetRisk?.unposted_count ?? 0) > 0 ? "HIGH" : "NORMAL", destination: "finance:fixed-assets",
+      sourceId: `${assetPeriod}:${Number(assetRisk?.draft_count ?? 0)}:${Number(assetRisk?.missing_count ?? 0)}:${Number(assetRisk?.unposted_count ?? 0)}`,
+    });
+    else await closeRuleTask("fixed-asset-control-risk");
+  } catch {
+    // 고정자산 원장이 배포된 뒤부터 자산 통제를 평가합니다.
+  }
+
+  try {
     const receivableRisk = await db.prepare(`WITH invoice_balance AS (
       SELECT invoice.id, invoice.due_date, invoice.amount,
         MAX(0, invoice.amount - COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0)) AS outstanding,

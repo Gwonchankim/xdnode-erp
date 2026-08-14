@@ -134,6 +134,34 @@ test("VAT review reconciles explicit source and reported figures without inferri
   assert.match(plan, /공식 세무신고를 대신하지 않는 내부 검토 원장/);
 });
 
+test("fixed assets require explicit classification, evidence and posted straight-line depreciation", async () => {
+  const [api, view, page, schema, migration, close, operations, plan] = await Promise.all([
+    read("app/api/finance/fixed-assets/route.ts"), read("app/fixed-assets-workspace.tsx"), read("app/page.tsx"),
+    read("db/schema.ts"), read("drizzle/0029_fixed_asset_control.sql"), read("app/api/finance/close/route.ts"),
+    read("app/api/operations/route.ts"), read("docs/finance-fixed-assets-plan.md"),
+  ]);
+  assert.match(schema, /financeFixedAssets/);
+  assert.match(schema, /financeAssetDepreciationSchedules/);
+  assert.match(migration, /CREATE TABLE `finance_fixed_assets`/);
+  assert.match(migration, /idx_finance_asset_depreciation_period/);
+  assert.match(migration, /opening_accumulated/);
+  assert.match(api, /PURCHASE_ORDER_LINE/);
+  assert.match(api, /취득 증빙을 1건 이상 첨부한 후 활성화해 주세요/);
+  assert.match(api, /depreciation_method.*STRAIGHT_LINE|STRAIGHT_LINE.*depreciation_method/s);
+  assert.match(api, /잠긴 마감월에는 감가상각 계획을 생성할 수 없습니다/);
+  assert.match(api, /ASSET_DEPRECIATION_JOURNAL_CREATED/);
+  assert.match(api, /ASSET_DEPRECIATION_POSTED/);
+  assert.match(api, /기초 누계상각/);
+  assert.match(api, /priorPosted/);
+  assert.match(api, /처분일까지의 미전기 감가상각을 먼저 처리해 주세요/);
+  assert.match(view, /구매 품목은 후보일 뿐이며 담당자가 직접 자산 여부와 내용연수·계정과목을 확정합니다/);
+  assert.match(view, /정액법 · 원 단위 균등배분 · 사용개시월부터 월할/);
+  assert.match(page, /\["fixed-assets", "고정자산·감가상각", "고"\]/);
+  assert.match(close, /FIXED_ASSET_DEPRECIATION/);
+  assert.match(operations, /fixed-asset-control-risk/);
+  assert.match(plan, /과거 자료와 자유입력 품목을 자동으로 자산화하지 않는다/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

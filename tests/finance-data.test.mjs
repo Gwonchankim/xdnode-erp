@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { calculateStraightLineDepreciation } from "../app/fixed-asset-calculation.mjs";
 
 async function loadFinanceData() {
   const source = await readFile(new URL("../app/finance-historical-data.ts", import.meta.url), "utf8");
@@ -96,4 +97,17 @@ test("August management-report commerce inputs reconcile without treating supply
   assert.equal(sales - purchases, 3953653861);
   assert.ok(salesDaily.reduce((sum, row) => sum + row.count, 0) > 0);
   assert.ok(purchaseDaily.reduce((sum, row) => sum + row.count, 0) > 0);
+});
+
+test("straight-line depreciation preserves residual value and absorbs won rounding in the final month", () => {
+  const inputs = { acquisitionCost: 1_000_003, residualValue: 100_000, usefulLifeMonths: 3, inServicePeriod: "2026-01" };
+  const first = calculateStraightLineDepreciation({ ...inputs, period: "2026-01" });
+  const second = calculateStraightLineDepreciation({ ...inputs, period: "2026-02", postedAccumulated: first.depreciation });
+  const third = calculateStraightLineDepreciation({ ...inputs, period: "2026-03", postedAccumulated: first.depreciation + second.depreciation });
+  assert.equal(first.depreciation + second.depreciation + third.depreciation, 900_003);
+  assert.equal(third.closingBookValue, inputs.residualValue);
+  const imported = calculateStraightLineDepreciation({ ...inputs, period: "2026-03", openingAccumulated: 600_000 });
+  assert.equal(imported.depreciation, 300_003);
+  assert.equal(imported.closingBookValue, inputs.residualValue);
+  assert.throws(() => calculateStraightLineDepreciation({ ...inputs, period: "2026-01", residualValue: 1_000_003 }), /Invalid/);
 });

@@ -1018,6 +1018,47 @@ export const financeTaxPeriods = sqliteTable("finance_tax_periods", {
   index("idx_finance_tax_status_period").on(table.status, table.period),
 ]);
 
+export const financeFixedAssets = sqliteTable("finance_fixed_assets", {
+  id: text("id").primaryKey(), assetCode: text("asset_code").notNull(), name: text("name").notNull(),
+  category: text("category").notNull(), acquisitionDate: text("acquisition_date").notNull(),
+  inServiceDate: text("in_service_date").notNull(), acquisitionCost: integer("acquisition_cost").notNull(),
+  residualValue: integer("residual_value").notNull().default(0), usefulLifeMonths: integer("useful_life_months").notNull(),
+  depreciationMethod: text("depreciation_method").notNull().default("STRAIGHT_LINE"),
+  openingAccumulated: integer("opening_accumulated").notNull().default(0), openingAsOf: text("opening_as_of").notNull().default(""),
+  assetAccountCode: text("asset_account_code").notNull(), accumulatedAccountCode: text("accumulated_account_code").notNull(),
+  expenseAccountCode: text("expense_account_code").notNull(), location: text("location").notNull().default(""),
+  custodianEmployeeId: text("custodian_employee_id").notNull().default(""), sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(), sourceReference: text("source_reference").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"), disposalDate: text("disposal_date").notNull().default(""),
+  note: text("note").notNull().default(""), createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_fixed_asset_code").on(table.assetCode),
+  uniqueIndex("idx_finance_fixed_asset_source").on(table.sourceType, table.sourceId),
+  index("idx_finance_fixed_asset_status_service").on(table.status, table.inServiceDate),
+]);
+
+export const financeAssetDepreciationSchedules = sqliteTable("finance_asset_depreciation_schedules", {
+  id: text("id").primaryKey(), assetId: text("asset_id").notNull(), period: text("period").notNull(),
+  openingAccumulated: integer("opening_accumulated").notNull().default(0),
+  depreciationAmount: integer("depreciation_amount").notNull(), closingAccumulated: integer("closing_accumulated").notNull(),
+  closingBookValue: integer("closing_book_value").notNull(), status: text("status").notNull().default("PLANNED"),
+  journalEntryId: text("journal_entry_id").notNull().default(""), createdBy: text("created_by").notNull(),
+  postedBy: text("posted_by").notNull().default(""), postedAt: integer("posted_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_asset_depreciation_period").on(table.assetId, table.period),
+  index("idx_finance_asset_depreciation_status_period").on(table.status, table.period),
+]);
+
+export const financeAssetEvents = sqliteTable("finance_asset_events", {
+  id: text("id").primaryKey(), assetId: text("asset_id").notNull(), eventType: text("event_type").notNull(),
+  eventDate: text("event_date").notNull(), amount: integer("amount").notNull().default(0),
+  location: text("location").notNull().default(""), custodianEmployeeId: text("custodian_employee_id").notNull().default(""),
+  journalReference: text("journal_reference").notNull().default(""), reason: text("reason").notNull(),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_finance_asset_event_asset_date").on(table.assetId, table.eventDate)]);
+
 export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   id: text("id").primaryKey(),
   employeeId: text("employee_id").notNull(),

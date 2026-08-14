@@ -58,6 +58,7 @@ async function seedClose(period: string) {
     ["EVIDENCE", "지출·지급 증빙 누락 확인"],
     ["PAYROLL", "급여월 승인·잠금 확인"],
     ["INVENTORY", "재고 음수·미반영 입고 확인"],
+    ["FIXED_ASSET", "고정자산 감가상각 전기 확인"],
     ["AR_AP", "외상매출금·미수금·매입채무 검토"],
     ["TAX", "세금계산서·부가세 검토"],
     ["STATEMENT", "월 손익·재무상태표 검토"],
@@ -78,7 +79,7 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
-  const [bank, unposted, missingEvidence, payroll, inventory, tax] = await Promise.all([
+  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -104,6 +105,22 @@ async function computeControls(period: string): Promise<CloseControl[]> {
           SELECT 1 FROM inventory_movements movement WHERE movement.source_type = 'PURCHASE_RECEIPT'
             AND movement.source_id = receipt.id AND movement.source_line_key = receipt_line.id)) AS unmapped_count`)
       .bind(like).first<{ negative_count: number; unmapped_count: number }>(),
+    db.prepare(`SELECT
+      (SELECT COUNT(*) FROM finance_fixed_assets asset WHERE asset.status = 'ACTIVE'
+        AND substr(asset.in_service_date, 1, 7) <= ? AND (asset.disposal_date = '' OR substr(asset.disposal_date, 1, 7) >= ?)
+        AND (asset.opening_as_of = '' OR substr(asset.opening_as_of, 1, 7) < ?)
+        AND asset.opening_accumulated + COALESCE((SELECT SUM(posted.depreciation_amount) FROM finance_asset_depreciation_schedules posted
+          WHERE posted.asset_id = asset.id AND posted.status = 'POSTED'), 0) < asset.acquisition_cost - asset.residual_value) AS eligible_count,
+      (SELECT COUNT(*) FROM finance_fixed_assets asset WHERE asset.status = 'ACTIVE'
+        AND substr(asset.in_service_date, 1, 7) <= ? AND (asset.disposal_date = '' OR substr(asset.disposal_date, 1, 7) >= ?)
+        AND (asset.opening_as_of = '' OR substr(asset.opening_as_of, 1, 7) < ?)
+        AND asset.opening_accumulated + COALESCE((SELECT SUM(posted.depreciation_amount) FROM finance_asset_depreciation_schedules posted
+          WHERE posted.asset_id = asset.id AND posted.status = 'POSTED'), 0) < asset.acquisition_cost - asset.residual_value
+        AND NOT EXISTS (SELECT 1 FROM finance_asset_depreciation_schedules schedule
+          WHERE schedule.asset_id = asset.id AND schedule.period = ?)) AS missing_count,
+      (SELECT COUNT(*) FROM finance_asset_depreciation_schedules schedule
+        WHERE schedule.period = ? AND schedule.status <> 'POSTED') AS unposted_count`)
+      .bind(period, period, period, period, period, period, period, period).first<{ eligible_count: number; missing_count: number; unposted_count: number }>(),
     db.prepare(`SELECT tax_period.status, tax_period.source_as_of, tax_period.source_sales_supply, tax_period.source_purchase_supply,
         (SELECT COUNT(*) FROM erp_documents document WHERE document.module = 'finance'
           AND document.entity_type = 'financeTaxPeriod' AND document.entity_id = ? AND document.deleted_at IS NULL) AS evidence_count
@@ -129,6 +146,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       status: Number(inventory?.negative_count ?? 0) === 0 && Number(inventory?.unmapped_count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `음수재고 ${Number(inventory?.negative_count ?? 0)}건 · 미반영 입고검수 ${Number(inventory?.unmapped_count ?? 0)}건`,
       count: Number(inventory?.negative_count ?? 0) + Number(inventory?.unmapped_count ?? 0) },
+    { key: "FIXED_ASSET_DEPRECIATION", category: "FIXED_ASSET", title: "고정자산 감가상각",
+      status: Number(fixedAssets?.missing_count ?? 0) === 0 && Number(fixedAssets?.unposted_count ?? 0) === 0 ? "PASS" : "FAIL",
+      message: `대상 ${Number(fixedAssets?.eligible_count ?? 0)}개 · 계획 누락 ${Number(fixedAssets?.missing_count ?? 0)}개 · 미전기 ${Number(fixedAssets?.unposted_count ?? 0)}건`,
+      count: Number(fixedAssets?.missing_count ?? 0) + Number(fixedAssets?.unposted_count ?? 0) },
     { key: "TAX_RECONCILIATION", category: "TAX", title: "세금계산서·부가세 검토",
       status: tax?.status === "REVIEWED" && Number(tax.evidence_count ?? 0) > 0 && tax.source_as_of === financeCurrentData.asOf
         && tax.source_sales_supply === currentTaxSalesSupply && tax.source_purchase_supply === currentTaxPurchaseSupply ? "PASS" : "FAIL",
@@ -160,7 +181,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY", "TAX"];
+  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY", "FIXED_ASSET", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

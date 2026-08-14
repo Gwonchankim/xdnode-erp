@@ -270,6 +270,36 @@ test("month-end close freezes automatic controls, evidence and a controlled reop
   assert.match(page, /"close", "월마감 통제"/);
 });
 
+test("budget-versus-actual uses versioned plans, explicit sources and accountable variance actions", async () => {
+  const [api, workspace, engine, operations, schema, migration, page] = await Promise.all([
+    read("app/api/finance/budget/route.ts"), read("app/budget-actual-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/api/operations/route.ts"), read("db/schema.ts"),
+    read("drizzle/0022_yellow_shadowcat.sql"), read("app/page.tsx"),
+  ]);
+  for (const source of ["SALES_INVOICE", "PURCHASE_INVOICE", "POSTED_JOURNAL_DEBIT", "POSTED_JOURNAL_CREDIT"]) assert.match(api, new RegExp(source));
+  assert.match(api, /line\.department !== "전사"/);
+  assert.match(api, /currentDay \/ daysInMonth/);
+  assert.match(api, /line\.direction === "REVENUE"/);
+  assert.match(api, /COUNT\(DISTINCT month\) AS month_count/);
+  assert.match(api, /totals\.month_count !== 12/);
+  assert.match(api, /actualSource === "SALES_INVOICE" && direction !== "REVENUE"/);
+  assert.match(api, /action === "CREATE_REVISION"/);
+  assert.match(api, /action === "SAVE_VARIANCE_ACTION"/);
+  assert.match(api, /targetEntityType: "FINANCE_BUDGET_PLAN"/);
+  assert.match(engine, /targetEntityType === "FINANCE_BUDGET_PLAN"/);
+  assert.match(engine, /status = 'SUPERSEDED'/);
+  assert.match(operations, /budget-variance-alert/);
+  assert.match(operations, /destination: "finance:budget"/);
+  assert.match(workspace, /예산·실적 관리/);
+  assert.match(workspace, /매핑 필요/);
+  assert.match(workspace, /차이 원인/);
+  for (const table of ["financeBudgetPlans", "financeBudgetPlanLines", "financeBudgetVarianceActions"]) assert.match(schema, new RegExp(table));
+  for (const table of ["finance_budget_plans", "finance_budget_plan_lines", "finance_budget_variance_actions"]) assert.match(migration, new RegExp(table));
+  assert.match(migration, /idx_finance_budget_plan_year_version/);
+  assert.match(migration, /idx_finance_budget_variance_line_unique/);
+  assert.match(page, /"budget", "예산·실적"/);
+});
+
 test("shared approval engine persists request, ordered steps and immutable events", async () => {
   const [schema, platform, engine, migration] = await Promise.all([
     read("db/schema.ts"), read("app/erp-platform.ts"), read("app/approval-engine.ts"),
@@ -305,7 +335,7 @@ test("final approvals update linked HR, finance and sales records in the guarded
     read("app/api/hr/operations/route.ts"), read("app/api/hr/payroll/route.ts"),
     read("app/api/finance/operations/route.ts"), read("app/api/finance/close/route.ts"), read("app/api/sales/route.ts"),
   ]);
-  for (const entity of ["HR_LEAVE", "HR_PERSONNEL_ACTION", "PAYROLL_RUN", "FINANCE_BUDGET", "FINANCE_CLOSE", "FINANCE_CLOSE_RUN", "FINANCE_CLOSE_REOPEN", "SALES_DOCUMENT"]) assert.match(engine, new RegExp(entity));
+  for (const entity of ["HR_LEAVE", "HR_PERSONNEL_ACTION", "PAYROLL_RUN", "FINANCE_BUDGET", "FINANCE_BUDGET_PLAN", "FINANCE_CLOSE", "FINANCE_CLOSE_RUN", "FINANCE_CLOSE_REOPEN", "SALES_DOCUMENT"]) assert.match(engine, new RegExp(entity));
   assert.match(approvalApi, /buildApprovalOutcomeStatements/);
   assert.match(engine, /transition_token = \?/);
   assert.match(hr, /requestType: "LEAVE_REQUEST"/);

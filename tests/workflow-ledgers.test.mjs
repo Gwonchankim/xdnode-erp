@@ -247,3 +247,44 @@ test("month-end close runs preserve a frozen snapshot and versioned reopen histo
   const indexes = db.prepare("PRAGMA index_list(finance_close_runs)").all();
   assert.ok(indexes.some((row) => row.name === "idx_finance_close_run_status_period"));
 });
+
+test("budget plans preserve approved versions, source mappings and one variance action per line", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertPlan = db.prepare(`INSERT INTO finance_budget_plans
+    (id, fiscal_year, name, status, version, owner_employee_id, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, 2026, ?, ?, ?, 'gc.kim', ?, ?, ?, ?)`);
+  insertPlan.run("budget-v1", "2026 경영예산", "APPROVED", 1, "gc.kim", now, now, now);
+  assert.throws(() => insertPlan.run("budget-v1-duplicate", "중복", "DRAFT", 1, "", null, now, now), /UNIQUE constraint failed/);
+
+  const insertLine = db.prepare(`INSERT INTO finance_budget_plan_lines
+    (id, plan_id, month, department, account_code, account_name, direction, actual_source,
+      amount, threshold_pct, notes, created_at, updated_at)
+    VALUES (?, 'budget-v1', ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`);
+  insertLine.run("budget-line-sales", 8, "전사", "", "매출", "REVENUE", "SALES_INVOICE", 6000000000, 10, now, now);
+  insertLine.run("budget-line-expense", 8, "전사", "", "매입", "EXPENSE", "PURCHASE_INVOICE", 4500000000, 10, now, now);
+  assert.throws(() => insertLine.run("budget-line-sales-duplicate", 8, "전사", "", "매출", "REVENUE", "SALES_INVOICE", 1, 10, now, now), /UNIQUE constraint failed/);
+
+  const insertAction = db.prepare(`INSERT INTO finance_budget_variance_actions
+    (id, plan_id, line_id, period, status, cause, action_plan, owner_employee_id, due_date,
+      created_by, created_at, updated_at) VALUES (?, 'budget-v1', 'budget-line-sales', '2026-08',
+      'ACTIONED', ?, ?, 'gc.kim', '2026-08-31', 'gc.kim', ?, ?)`);
+  insertAction.run("variance-action-1", "납품 이연", "납품 및 세금계산서 발행 일정 확정", now, now);
+  assert.throws(() => insertAction.run("variance-action-2", "중복", "중복", now, now), /UNIQUE constraint failed/);
+
+  insertPlan.run("budget-v2", "2026 경영예산", "DRAFT", 2, "", null, now + 1, now + 1);
+  db.prepare(`INSERT INTO finance_budget_plan_lines
+    (id, plan_id, month, department, account_code, account_name, direction, actual_source,
+      amount, threshold_pct, notes, created_at, updated_at)
+    SELECT 'budget-v2-' || id, 'budget-v2', month, department, account_code, account_name,
+      direction, actual_source, amount, threshold_pct, notes, ?, ? FROM finance_budget_plan_lines WHERE plan_id = 'budget-v1'`)
+    .run(now + 1, now + 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM finance_budget_plan_lines WHERE plan_id = 'budget-v2'").get().count, 2);
+  assert.equal(db.prepare("SELECT status FROM finance_budget_plans WHERE id = 'budget-v1'").get().status, "APPROVED");
+
+  db.exec("PRAGMA optimize");
+  const planIndexes = db.prepare("PRAGMA index_list(finance_budget_plans)").all();
+  const actionIndexes = db.prepare("PRAGMA index_list(finance_budget_variance_actions)").all();
+  assert.ok(planIndexes.some((row) => row.name === "idx_finance_budget_plan_year_version"));
+  assert.ok(actionIndexes.some((row) => row.name === "idx_finance_budget_variance_line_unique"));
+});

@@ -508,6 +508,61 @@ export const financeBudgets = sqliteTable("finance_budgets", {
   index("idx_finance_budgets_year_month_department").on(table.fiscalYear, table.month, table.department),
 ]);
 
+export const financeBudgetPlans = sqliteTable("finance_budget_plans", {
+  id: text("id").primaryKey(),
+  fiscalYear: integer("fiscal_year").notNull(),
+  name: text("name").notNull(),
+  status: text("status").notNull().default("DRAFT"),
+  version: integer("version").notNull().default(1),
+  revisionReason: text("revision_reason").notNull().default(""),
+  ownerEmployeeId: text("owner_employee_id").notNull(),
+  submittedAt: integer("submitted_at"),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_budget_plan_year_version").on(table.fiscalYear, table.version),
+  index("idx_finance_budget_plan_year_status").on(table.fiscalYear, table.status),
+]);
+
+export const financeBudgetPlanLines = sqliteTable("finance_budget_plan_lines", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull(),
+  month: integer("month").notNull(),
+  department: text("department").notNull(),
+  accountCode: text("account_code").notNull().default(""),
+  accountName: text("account_name").notNull(),
+  direction: text("direction").notNull(),
+  actualSource: text("actual_source").notNull(),
+  amount: integer("amount").notNull(),
+  thresholdPct: integer("threshold_pct").notNull().default(10),
+  notes: text("notes").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_budget_line_unique_mapping").on(table.planId, table.month, table.department, table.actualSource, table.accountCode, table.accountName),
+  index("idx_finance_budget_line_plan_month").on(table.planId, table.month),
+]);
+
+export const financeBudgetVarianceActions = sqliteTable("finance_budget_variance_actions", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull(),
+  lineId: text("line_id").notNull(),
+  period: text("period").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  cause: text("cause").notNull().default(""),
+  actionPlan: text("action_plan").notNull().default(""),
+  ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  dueDate: text("due_date").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_budget_variance_line_unique").on(table.lineId),
+  index("idx_finance_budget_variance_plan_status_due").on(table.planId, table.status, table.dueDate),
+]);
+
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),
   requestKind: text("request_kind").notNull().default("EXPENSE"),

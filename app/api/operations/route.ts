@@ -275,6 +275,50 @@ async function seedStateDrivenOperations() {
   } catch {
     // 월마감 통제 화면을 처음 열기 전에는 실행 원장이 없을 수 있으므로 다음 조회로 미룹니다.
   }
+
+  try {
+    const year = Number(financeCurrentData.asOf.slice(0, 4));
+    const month = Number(financeCurrentData.asOf.slice(5, 7));
+    const day = Number(financeCurrentData.asOf.slice(8, 10));
+    const monthDays = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const lines = await db.prepare(`SELECT line.id, line.direction, line.actual_source, line.account_code, line.account_name,
+        line.amount, line.threshold_pct,
+        COALESCE(action.status, '') AS action_status
+      FROM finance_budget_plan_lines line
+      JOIN finance_budget_plans plan ON plan.id = line.plan_id AND plan.status = 'APPROVED'
+      LEFT JOIN finance_budget_variance_actions action ON action.line_id = line.id
+      WHERE plan.fiscal_year = ? AND line.month = ? AND line.department = '전사'`)
+      .bind(year, month).all<{ id: string; direction: string; actual_source: string; account_code: string; account_name: string; amount: number; threshold_pct: number; action_status: string }>();
+    const journalActuals = await db.prepare(`SELECT debit_account_code, debit_account_name, credit_account_code,
+        credit_account_name, SUM(amount) AS amount FROM finance_journal_entries
+      WHERE status = 'POSTED' AND substr(voucher_date, 1, 7) = ?
+      GROUP BY debit_account_code, debit_account_name, credit_account_code, credit_account_name`)
+      .bind(`${year}-${String(month).padStart(2, "0")}`).all<{ debit_account_code: string; debit_account_name: string; credit_account_code: string; credit_account_name: string; amount: number }>();
+    const sales = financeCurrentData.salesMonthly2026.find((item) => item.month === `${year}-${String(month).padStart(2, "0")}`)?.amount ?? 0;
+    const purchases = financeCurrentData.purchaseMonthly2026.find((item) => item.month === `${year}-${String(month).padStart(2, "0")}`)?.amount ?? 0;
+    const alerts = lines.results.filter((line) => {
+      if (line.action_status === "ACTIONED") return false;
+      const comparison = Math.round(line.amount * day / monthDays);
+      const actual = line.actual_source === "SALES_INVOICE" ? sales : line.actual_source === "PURCHASE_INVOICE" ? purchases
+        : journalActuals.results.filter((entry) => line.actual_source === "POSTED_JOURNAL_DEBIT"
+          ? (line.account_code ? entry.debit_account_code === line.account_code : entry.debit_account_name === line.account_name)
+          : (line.account_code ? entry.credit_account_code === line.account_code : entry.credit_account_name === line.account_name))
+          .reduce((sum, entry) => sum + entry.amount, 0);
+      return line.direction === "REVENUE"
+        ? actual < comparison * (1 - line.threshold_pct / 100)
+        : actual > comparison * (1 + line.threshold_pct / 100);
+    });
+    if (alerts.length) await upsertRuleTask({
+      id: "budget-variance-alert", module: "finance", category: "예산실적",
+      title: `${year}년 ${month}월 예산 차이 ${alerts.length}건 조치 필요`,
+      description: `승인 예산의 일할 기준과 실제 원천을 비교한 결과 허용범위를 벗어난 ${alerts.length}건에 원인·조치·담당·기한 등록이 필요합니다.`,
+      dueDate: today, priority: "HIGH", destination: "finance:budget",
+      sourceId: `${year}-${String(month).padStart(2, "0")}:${alerts.map((line) => line.id).sort().join(",")}`,
+    });
+    else await closeRuleTask("budget-variance-alert");
+  } catch {
+    // 예산실적 화면을 처음 열기 전에는 계획 원장이 없을 수 있으므로 다음 조회로 미룹니다.
+  }
 }
 
 export async function GET() {

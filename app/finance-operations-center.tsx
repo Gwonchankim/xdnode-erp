@@ -46,12 +46,11 @@ function won(value: number) {
   return `₩${Math.round(value).toLocaleString("ko-KR")}`;
 }
 
-export default function FinanceOperationsCenter() {
+export default function FinanceOperationsCenter({ onOpenBudget }: { onOpenBudget: () => void }) {
   const [data, setData] = useState<OperationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
   const [forecastDraft, setForecastDraft] = useState({ expectedDate: financeCurrentData.asOf, direction: "INFLOW", category: "매출대금", counterparty: "", amount: "", probability: "100", memo: "" });
-  const [budgetDraft, setBudgetDraft] = useState({ fiscalYear: "2026", month: String(Number(financeCurrentData.asOf.slice(5, 7))), department: "전사", accountCode: "", accountName: "", amount: "" });
   const [expenseDraft, setExpenseDraft] = useState({ requestKind: "EXPENSE", title: "", vendor: "", amount: "", requestedDate: financeCurrentData.asOf, dueDate: "", accountCode: "", accountName: "", paymentMethod: "BANK_TRANSFER", memo: "" });
 
   async function load() {
@@ -78,29 +77,26 @@ export default function FinanceOperationsCenter() {
   }, 0), [data]);
   const openingCash = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
   const closeCompleted = data?.closeTasks.filter((item) => ["COMPLETED", "APPROVED"].includes(item.status)).length ?? 0;
-  const budgetTotal = data?.budgets.reduce((sum, item) => sum + item.amount, 0) ?? 0;
 
-  async function createItem(event: FormEvent<HTMLFormElement>, resource: "forecast" | "budget") {
+  async function createItem(event: FormEvent<HTMLFormElement>, resource: "forecast") {
     event.preventDefault();
     setMessage("");
-    const draft = resource === "forecast" ? forecastDraft : budgetDraft;
     const response = await fetch("/api/finance/operations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resource, ...draft, amount: Number(draft.amount), ...(resource === "forecast" ? { probability: Number(forecastDraft.probability) } : { fiscalYear: Number(budgetDraft.fiscalYear), month: Number(budgetDraft.month) }) }),
+      body: JSON.stringify({ resource, ...forecastDraft, amount: Number(forecastDraft.amount), probability: Number(forecastDraft.probability) }),
     });
     const result = await response.json() as { error?: string; approvalSubmitted?: boolean };
     if (!response.ok) {
       setMessage(result.error || "저장하지 못했습니다.");
       return;
     }
-    setMessage(resource === "forecast" ? "자금예측 항목을 저장했습니다." : "예산 초안을 저장했습니다.");
-    if (resource === "forecast") setForecastDraft((current) => ({ ...current, counterparty: "", amount: "", memo: "" }));
-    else setBudgetDraft((current) => ({ ...current, accountCode: "", accountName: "", amount: "" }));
+    setMessage("자금예측 항목을 저장했습니다.");
+    setForecastDraft((current) => ({ ...current, counterparty: "", amount: "", memo: "" }));
     await load();
   }
 
-  async function updateStatus(resource: "close" | "forecast" | "budget", id: string, status: string) {
+  async function updateStatus(resource: "close" | "forecast", id: string, status: string) {
     setMessage("");
     const response = await fetch("/api/finance/operations", {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource, id, status }),
@@ -194,7 +190,7 @@ export default function FinanceOperationsCenter() {
       <article><small>은행성 자산</small><strong>{won(openingCash)}</strong><span>실제 스냅샷 기준</span></article>
       <article><small>가중 예상 순변동</small><strong>{won(weightedForecast)}</strong><span>등록된 향후 입출금</span></article>
       <article><small>월마감 진척</small><strong>{closeCompleted}/{data?.closeTasks.length ?? 0}</strong><span>완료·승인 항목</span></article>
-      <article><small>등록 예산</small><strong>{won(budgetTotal)}</strong><span>{data?.budgets.length ?? 0}개 항목</span></article>
+      <article><small>예산·실적</small><strong>전용</strong><span>버전·실적·차이조치 통합</span></article>
     </section>
 
     <section className="panel finance-control-panel expense-panel">
@@ -267,19 +263,10 @@ export default function FinanceOperationsCenter() {
       </article>
 
       <article className="panel finance-control-panel budget-panel">
-        <header><div><p>BUDGET CONTROL</p><h2>예산 관리</h2></div><span className={`source-state ${(data?.sourceStatus.budgets ?? "NOT_CONNECTED").toLowerCase()}`}>{statusLabel[data?.sourceStatus.budgets ?? "NOT_CONNECTED"]}</span></header>
-        <form className="finance-control-form budget-form" onSubmit={(event) => void createItem(event, "budget")}>
-          <label>연도<input required type="number" min="2024" value={budgetDraft.fiscalYear} onChange={(event) => setBudgetDraft({ ...budgetDraft, fiscalYear: event.target.value })} /></label>
-          <label>월<input required type="number" min="1" max="12" value={budgetDraft.month} onChange={(event) => setBudgetDraft({ ...budgetDraft, month: event.target.value })} /></label>
-          <label>부서<input required value={budgetDraft.department} onChange={(event) => setBudgetDraft({ ...budgetDraft, department: event.target.value })} /></label>
-          <label>계정명<input required value={budgetDraft.accountName} onChange={(event) => setBudgetDraft({ ...budgetDraft, accountName: event.target.value })} /></label>
-          <label>예산액<input required min="0" type="number" value={budgetDraft.amount} onChange={(event) => setBudgetDraft({ ...budgetDraft, amount: event.target.value })} /></label>
-          <button type="submit">+ 예산 초안 추가</button>
-        </form>
-        <div className="finance-control-list budget-list">
-          {(data?.budgets ?? []).map((item) => <div key={item.id}><time>{item.fiscalYear}.{String(item.month).padStart(2, "0")}</time><p><strong>{item.accountName}</strong><small>{item.department}{item.accountCode ? ` · ${item.accountCode}` : ""}</small></p><b>{won(item.amount)}</b><select aria-label={`${item.accountName} 상태`} value={item.status} onChange={(event) => void updateStatus("budget", item.id, event.target.value)}><option value="DRAFT">작성 중</option><option value="SUBMITTED">검토 요청</option><option value="APPROVED">승인</option></select></div>)}
-          {!data?.budgets.length && <div className="finance-empty">승인된 예산 파일이 없어 실제값 비교는 아직 제공하지 않습니다. 먼저 예산 초안을 등록해 주세요.</div>}
-        </div>
+        <header><div><p>BUDGET CONTROL</p><h2>예산·실적 관리</h2></div><span className="source-state automated">통합 관리</span></header>
+        <div className="reconciliation-readiness"><div><span>01</span><p><strong>계획 버전 승인</strong><small>연간 계획 전체를 하나의 버전으로 결재</small></p><em>전자결재</em></div><div><span>02</span><p><strong>실적 원천 자동 연결</strong><small>Clobe 매출·매입과 ERP 전기 분개</small></p><em>자동 계산</em></div><div><span>03</span><p><strong>차이 원인·조치</strong><small>담당자·기한·개정 사유까지 감사 추적</small></p><em>통제 원장</em></div></div>
+        <p className="finance-control-note">기존 행 단위 예산 입력은 종료했습니다. 승인 예산과 실제값은 전용 화면에서 버전 단위로 관리합니다.</p>
+        <button type="button" className="finance-control-primary" onClick={onOpenBudget}>예산·실적 관리 열기 →</button>
       </article>
 
       <article className="panel finance-control-panel reconciliation-panel">

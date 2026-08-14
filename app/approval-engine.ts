@@ -184,6 +184,23 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
     return [db.prepare(`UPDATE finance_budgets SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "DRAFT", approved ? actorEmployeeId : "", now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "FINANCE_BUDGET_PLAN") {
+    if (!approved) return [db.prepare(`UPDATE finance_budget_plans SET status = 'DRAFT', submitted_at = NULL,
+      updated_at = ? WHERE id = ? AND status = 'SUBMITTED'
+      AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(now, targetEntityId, requestId, transitionToken)];
+    return [
+      db.prepare(`UPDATE finance_budget_plans SET status = 'SUPERSEDED', updated_at = ?
+        WHERE fiscal_year = (SELECT fiscal_year FROM finance_budget_plans WHERE id = ?)
+          AND id <> ? AND status = 'APPROVED'
+          AND (SELECT status FROM finance_budget_plans WHERE id = ?) = 'SUBMITTED'
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, targetEntityId, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_budget_plans SET status = 'APPROVED', approved_by = ?, approved_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'SUBMITTED'
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken),
+    ];
   } else if (targetEntityType === "FINANCE_CLOSE") {
     return [db.prepare(`UPDATE finance_close_tasks SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)

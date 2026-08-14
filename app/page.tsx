@@ -7,6 +7,7 @@ import PurchasingWorkspace from "./purchasing-workspace";
 import CashReconciliationWorkspace from "./cash-reconciliation-workspace";
 import CashForecastWorkspace from "./cash-forecast-workspace";
 import FinanceCloseWorkspace from "./finance-close-workspace";
+import BudgetActualWorkspace from "./budget-actual-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
@@ -83,7 +84,7 @@ const cashTrend = [
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "control" | "purchasing" | "reconciliation" | "forecast" | "close" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "control" | "purchasing" | "reconciliation" | "forecast" | "budget" | "close" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 type ReceivableStatus = "UNSET" | "PLANNED" | "PARTIAL" | "OVERDUE" | "HOLD" | "COMPLETE";
 type ReceivableManagementRecord = {
@@ -877,7 +878,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["control", "재무 운영센터", "운"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
-    { title: "재무 분석", items: [["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
+    { title: "재무 분석", items: [["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"]] },
   ];
 
@@ -1002,13 +1003,15 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
         </>
       )}
 
-      {workspace === "control" && <FinanceOperationsCenter />}
+      {workspace === "control" && <FinanceOperationsCenter onOpenBudget={() => setWorkspace("budget")} />}
 
       {workspace === "purchasing" && <PurchasingWorkspace />}
 
       {workspace === "reconciliation" && <CashReconciliationWorkspace />}
 
       {workspace === "forecast" && <CashForecastWorkspace />}
+
+      {workspace === "budget" && <BudgetActualWorkspace />}
 
       {workspace === "close" && <FinanceCloseWorkspace />}
 

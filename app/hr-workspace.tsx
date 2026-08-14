@@ -49,6 +49,11 @@ type PayrollSummary = {
   grossPay: number;
   deductions: number;
   netPay: number;
+  status: "DRAFT" | "REVIEW" | "APPROVED" | "LOCKED";
+  preparedBy: string;
+  reviewedBy: string;
+  approvedBy: string;
+  lockedAt: number | null;
 };
 
 type PayrollRecord = {
@@ -505,8 +510,12 @@ type PersistedEmployeeRecord = {
   department: string;
   manager: string;
   type: string;
+  joinDate: string;
   position: string;
   jobTitle: string;
+  status: string;
+  history: Employee["history"];
+  retirement?: RetirementRecord;
 };
 
 const retirementChecklist = {
@@ -609,13 +618,34 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       }));
       const persistedLeaderIds = new Set((leaders ?? []).map((leader) => leader.leaderEmployeeId).filter((id): id is string => Boolean(id)));
       const recordByEmployee = new Map((employeeRecords ?? []).map((record) => [record.employeeId, record]));
-      setEmployees((items) => items.map((employee) => {
+      setEmployees((items) => {
+        const mergedExisting = items.map((employee) => {
         const record = recordByEmployee.get(employee.id);
         const merged = record ? { ...employee, ...record, id: employee.id } : employee;
         const renamedDepartment = renamedDepartmentByOriginalName.get(merged.department) ?? merged.department;
         const withOrganization = { ...merged, department: renamedDepartment };
-        return persistedLeaderIds.has(employee.id) ? { ...withOrganization, jobTitle: "조직장" } : withOrganization;
-      }));
+          return persistedLeaderIds.has(employee.id) ? { ...withOrganization, jobTitle: "조직장" } : withOrganization;
+        });
+        const existingIds = new Set(items.map((employee) => employee.id));
+        const newlyRegistered = (employeeRecords ?? []).filter((record) => !existingIds.has(record.employeeId)).map((record) => ({
+          id: record.employeeId,
+          name: record.name,
+          department: record.department,
+          position: record.position,
+          jobTitle: record.jobTitle,
+          type: record.type,
+          joinDate: record.joinDate,
+          status: record.status,
+          email: record.email,
+          phone: record.phone,
+          address: record.address,
+          manager: record.manager,
+          birth: record.birth,
+          history: record.history,
+          ...(record.retirement ? { retirement: record.retirement } : {}),
+        } satisfies Employee));
+        return [...mergedExisting, ...newlyRegistered];
+      });
       if (!leaders || !employeeRecords || !organizationRecords) showToast("일부 저장 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.");
     });
     return () => { cancelled = true; };
@@ -680,7 +710,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     setSelectedApplicantId(null);
   }
 
-  function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
+  async function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const department = String(data.get("department"));
@@ -691,14 +721,28 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       department, type: String(data.get("type")), joinDate: String(data.get("joinDate")).replaceAll("-", "."), position: String(data.get("position")),
       jobTitle: String(data.get("jobTitle")), status: "재직", address: "미입력", manager: organizationLeader?.name ?? "", birth: "미입력", history: [{ date: String(data.get("joinDate")).replaceAll("-", "."), type: "입사", detail: `${department} ${String(data.get("position"))} 입사` }],
     };
-    setEmployees((value) => [...value, newEmployee]);
-    setEmployeeModalOpen(false);
-    showToast("신규 직원이 인사기록카드에 등록되었습니다.");
+    if (employees.some((employee) => employee.id === newEmployee.id)) {
+      showToast("이미 사용 중인 직원 ID입니다.");
+      return;
+    }
+    try {
+      const response = await fetch("/api/hr/employee-records", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId: newEmployee.id, ...newEmployee }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "신규 직원을 저장하지 못했습니다.");
+      setEmployees((value) => [...value, newEmployee]);
+      setEmployeeModalOpen(false);
+      showToast("신규 직원을 인사기록카드에 영구 등록했습니다.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "신규 직원을 저장하지 못했습니다.");
+    }
   }
 
   async function updateEmployee(id: string, patch: Partial<Employee>) {
     const previous = employees.find((employee) => employee.id === id);
-    if (!previous) return;
+    if (!previous) return false;
     const next = { ...previous, ...patch };
     setEmployees((value) => value.map((employee) => employee.id === id ? next : employee));
     try {
@@ -715,16 +759,22 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
           department: next.department,
           manager: next.manager,
           type: next.type,
+          joinDate: next.joinDate,
           position: next.position,
           jobTitle: next.jobTitle ?? "팀원",
+          status: next.status,
+          history: next.history,
+          retirement: next.retirement ?? null,
         }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "직원 정보를 저장하지 못했습니다.");
       showToast("인사기록의 변경내용을 영구 저장했습니다.");
+      return true;
     } catch {
       setEmployees((value) => value.map((employee) => employee.id === id ? previous : employee));
       showToast("저장에 실패해 이전 정보로 되돌렸습니다.");
+      return false;
     }
   }
 
@@ -738,7 +788,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     if (!response.ok) throw new Error(data.error || "채용 정보를 저장하지 못했습니다.");
   }
 
-  function savePersonnelAction(event: React.FormEvent<HTMLFormElement>) {
+  async function savePersonnelAction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedEmployee || !personnelAction) return;
     const data = new FormData(event.currentTarget);
@@ -770,17 +820,35 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     const detail = note || (actionType === "인사이동(전보)"
       ? `${selectedEmployee.department}에서 ${department}(으)로 인사이동`
       : `${selectedEmployee.position}에서 ${position}(으)로 ${actionType}`);
-    setEmployees((value) => value.map((employee) => {
-      if (employee.id !== selectedEmployee.id) return employee;
-      return {
-        ...employee,
-        department: actionType === "인사이동(전보)" ? department : employee.department,
-        position: actionType === "승진" || actionType === "강등" ? position : employee.position,
-        history: [{ date, type: actionType, detail }, ...employee.history],
-      };
-    }));
-    setPersonnelAction(null);
-    showToast(`${actionType} 인사 발령을 등록했습니다.`);
+    try {
+      const response = await fetch("/api/hr/operations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          resource: "personnelAction",
+          employeeId: selectedEmployee.id,
+          actionType,
+          effectiveDate: String(data.get("effectiveDate")),
+          fromDepartment: selectedEmployee.department,
+          toDepartment: actionType === "인사이동(전보)" ? department : selectedEmployee.department,
+          fromPosition: selectedEmployee.position,
+          toPosition: actionType === "승진" || actionType === "강등" ? position : selectedEmployee.position,
+          reason: detail,
+        }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "인사 발령을 저장하지 못했습니다.");
+      const saved = await updateEmployee(selectedEmployee.id, {
+        department: actionType === "인사이동(전보)" ? department : selectedEmployee.department,
+        position: actionType === "승진" || actionType === "강등" ? position : selectedEmployee.position,
+        history: [{ date, type: actionType, detail }, ...selectedEmployee.history],
+      });
+      if (!saved) throw new Error("발령 기록은 저장했지만 인사기록 반영에 실패했습니다. 관리자 확인이 필요합니다.");
+      setPersonnelAction(null);
+      showToast(`${actionType} 인사 발령과 변경 이력을 영구 저장했습니다.`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "인사 발령을 저장하지 못했습니다.");
+    }
   }
 
   async function updateOrganizationLeader(organizationId: string, leaderEmployeeId: string) {
@@ -876,19 +944,36 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     showToast(`${value} 직책을 삭제했습니다.`);
   }
 
-  function saveRetirement(record: RetirementRecord) {
+  async function saveRetirement(record: RetirementRecord) {
     if (!selectedEmployee) return;
+    const employee = selectedEmployee;
     const totalTasks = retirementChecklist.hr.length + retirementChecklist.employee.length;
     const completed = record.completedTaskIds.length;
     const historyDetail = `${record.date.replaceAll("-", ".")} 퇴직 예정 · ${record.reason} · 체크리스트 ${completed}/${totalTasks}`;
-    setEmployees((value) => value.map((employee) => employee.id === selectedEmployee.id ? {
+    const nextEmployee: Employee = {
       ...employee,
       status: "퇴직 예정",
       retirement: record,
       history: [{ date: new Date().toISOString().slice(0, 10).replaceAll("-", "."), type: "퇴직 절차", detail: historyDetail }, ...employee.history.filter((item) => item.type !== "퇴직 절차")],
-    } : employee));
-    setRetirementOpen(false);
-    showToast(completed === totalTasks ? "퇴직 절차 체크리스트를 모두 완료했습니다." : `퇴직 절차를 저장했습니다. 미완료 업무 ${totalTasks - completed}건`);
+    };
+    try {
+      const tasks = [
+        ...retirementChecklist.hr.map((task) => ({ id: task.id, title: task.label, ownerType: "HR", completed: record.completedTaskIds.includes(task.id) })),
+        ...retirementChecklist.employee.map((task) => ({ id: task.id, title: task.label, ownerType: "EMPLOYEE", completed: record.completedTaskIds.includes(task.id) })),
+      ];
+      const response = await fetch("/api/hr/operations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource: "retirement", employeeId: employee.id, eventDate: record.date, reason: record.reason, tasks }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || "퇴직 절차를 저장하지 못했습니다.");
+      const saved = await updateEmployee(employee.id, nextEmployee);
+      if (!saved) throw new Error("퇴직 체크리스트는 저장했지만 인사기록 상태 반영에 실패했습니다.");
+      setRetirementOpen(false);
+      showToast(completed === totalTasks ? "퇴직 절차 체크리스트를 모두 영구 저장했습니다." : `퇴직 절차를 저장했습니다. 미완료 업무 ${totalTasks - completed}건`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "퇴직 절차를 저장하지 못했습니다.");
+    }
   }
 
   async function parseResume(file: File | undefined) {
@@ -924,7 +1009,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         text = await file.text();
       }
 
-      const normalizedText = text.replace(/\u0000/g, " ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+      const normalizedText = text.split("\u0000").join(" ").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
       if (normalizedText.length < 20) throw new Error("이력서에서 읽을 수 있는 텍스트가 없습니다. 이미지형 PDF라면 직접 입력해 주세요.");
       const lines = normalizedText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
       const email = normalizedText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] ?? "";
@@ -1596,6 +1681,10 @@ function payrollMonthLabel(yearMonth: string) {
   return `${year}년 ${Number(month)}월`;
 }
 
+const payrollStatusLabels: Record<PayrollSummary["status"], string> = {
+  DRAFT: "작성 중", REVIEW: "검토 중", APPROVED: "승인 완료", LOCKED: "마감 잠금",
+};
+
 function PayrollOverview({ onSelectMonth }: { onSelectMonth: (month: string) => void }) {
   const [summaries, setSummaries] = useState<PayrollSummary[]>([]);
   const [period, setPeriod] = useState<"all" | "2026" | "2025">("all");
@@ -1628,7 +1717,7 @@ function PayrollOverview({ onSelectMonth }: { onSelectMonth: (month: string) => 
     { label: "기록상 지급액", value: latest ? formatWon(latest.netPay) : "-", note: "지급총액 - 원본 공제", tone: "red" },
   ];
 
-  return <div className="page-wrap module-page payroll-page"><section className="module-hero"><div><p className="eyebrow">PAYROLL RECORDS</p><h1>급여관리</h1><p>2025~2026년 인건비 자료를 월별로 확인합니다. 세금·4대보험 전체 공제 자료가 아니므로 지급액은 원본 기록 기준입니다.</p></div><span className="payroll-import-badge">20개월 자료 반영</span></section><section className="metric-grid module-metrics">{metrics.map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>급여월 현황</h2><span>{period === "all" ? `전체 ${rows.length}개월` : `${period}년 ${rows.length}개월`} · 급여월을 클릭하면 개인별 항목과 원본 메모를 확인할 수 있습니다.</span></div><div className="payroll-year-filter" role="group" aria-label="급여 조회 기간"><button type="button" className={period === "all" ? "active" : ""} onClick={() => setPeriod("all")}>전체 기간</button><button type="button" className={period === "2026" ? "active" : ""} onClick={() => setPeriod("2026")}>2026년</button><button type="button" className={period === "2025" ? "active" : ""} onClick={() => setPeriod("2025")}>2025년</button></div></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr>{["급여월", "대상 인원", "지급총액", "공제총액", "기록상 지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={6} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={6} className="table-message error">{error}</td></tr> : rows.map((summary) => <tr key={summary.yearMonth} onClick={() => onSelectMonth(summary.yearMonth)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelectMonth(summary.yearMonth)}><td><button type="button" className="month-link">{payrollMonthLabel(summary.yearMonth)}<span>상세 보기 →</span></button></td><td>{summary.employeeCount}명</td><td>{formatWon(summary.grossPay)}</td><td>{formatWon(summary.deductions)}</td><td>{formatWon(summary.netPay)}</td><td><StatusPill value="자료 반영" /></td></tr>)}</tbody></table></div></section></div>;
+  return <div className="page-wrap module-page payroll-page"><section className="module-hero"><div><p className="eyebrow">PAYROLL RECORDS</p><h1>급여관리</h1><p>2025~2026년 인건비 자료를 월별로 확인합니다. 세금·4대보험 전체 공제 자료가 아니므로 지급액은 원본 기록 기준입니다.</p></div><span className="payroll-import-badge">20개월 자료 반영</span></section><section className="metric-grid module-metrics">{metrics.map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>급여월 현황</h2><span>{period === "all" ? `전체 ${rows.length}개월` : `${period}년 ${rows.length}개월`} · 급여월을 클릭하면 개인별 항목과 원본 메모를 확인할 수 있습니다.</span></div><div className="payroll-year-filter" role="group" aria-label="급여 조회 기간"><button type="button" className={period === "all" ? "active" : ""} onClick={() => setPeriod("all")}>전체 기간</button><button type="button" className={period === "2026" ? "active" : ""} onClick={() => setPeriod("2026")}>2026년</button><button type="button" className={period === "2025" ? "active" : ""} onClick={() => setPeriod("2025")}>2025년</button></div></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr>{["급여월", "대상 인원", "지급총액", "공제총액", "기록상 지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={6} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={6} className="table-message error">{error}</td></tr> : rows.map((summary) => <tr key={summary.yearMonth} onClick={() => onSelectMonth(summary.yearMonth)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelectMonth(summary.yearMonth)}><td><button type="button" className="month-link">{payrollMonthLabel(summary.yearMonth)}<span>상세 보기 →</span></button></td><td>{summary.employeeCount}명</td><td>{formatWon(summary.grossPay)}</td><td>{formatWon(summary.deductions)}</td><td>{formatWon(summary.netPay)}</td><td><StatusPill value={payrollStatusLabels[summary.status]} /></td></tr>)}</tbody></table></div></section></div>;
 }
 
 function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => void }) {
@@ -1637,6 +1726,14 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
   const [selectedRecord, setSelectedRecord] = useState<PayrollRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  async function updatePayrollStatus(status: PayrollSummary["status"]) {
+    setError("");
+    const response = await fetch("/api/hr/payroll", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period: month, status }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { setError(payload.error || "급여 처리 상태를 변경하지 못했습니다."); return; }
+    setSummary((current) => current ? { ...current, status } : current);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -1662,7 +1759,7 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
 
   return <div className="page-wrap detail-page payroll-page">
     <button type="button" className="back-button" onClick={onBack}>← 급여월 현황</button>
-    <section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{payrollMonthLabel(month)} 급여 상세</h1><p>직원별 기본급과 모든 수당 항목을 한 표에서 확인합니다. 직원명을 클릭하면 추가 항목과 원본 메모를 볼 수 있습니다.</p></div><span className="payroll-import-badge">원본 자료 반영 완료</span></section>
+    <section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{payrollMonthLabel(month)} 급여 상세</h1><p>직원별 기본급과 모든 수당 항목을 한 표에서 확인합니다. 직원명을 클릭하면 추가 항목과 원본 메모를 볼 수 있습니다.</p></div><div className="payroll-workflow"><span className="payroll-import-badge">{summary ? payrollStatusLabels[summary.status] : "불러오는 중"}</span><select aria-label="급여 처리 상태" value={summary?.status ?? "DRAFT"} onChange={(event) => void updatePayrollStatus(event.target.value as PayrollSummary["status"])} disabled={!summary}><option value="DRAFT">작성 중</option><option value="REVIEW">검토 요청</option><option value="APPROVED">승인 완료</option><option value="LOCKED">마감 잠금</option></select></div></section>
     <section className="payroll-summary"><div><span>급여 대상</span><strong>{summary ? `${summary.employeeCount}명` : "-"}</strong><small>월별 정규 급여 행</small></div><div><span>지급총액</span><strong>{summary ? formatWon(summary.grossPay) : "-"}</strong><small>기본급·수당·인센티브 포함</small></div><div><span>공제총액</span><strong>{summary ? formatWon(summary.deductions) : "-"}</strong><small>원본 공제 열 합계</small></div><div><span>기록상 지급액</span><strong>{summary ? formatWon(summary.netPay) : "-"}</strong><small>실제 세후 송금액과 다를 수 있음</small></div></section>
     <section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>전체 {records.length}명 · 가로로 이동하면 모든 수당 항목을 확인할 수 있습니다.</span></div><span className="payroll-source-note">인건비 정리 원본 기준</span></div><div className="data-table-wrap payroll-detail-scroll"><table className="data-table payroll-detail-table"><thead><tr>{payrollColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={payrollColumns.length} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={payrollColumns.length} className="table-message error">{error}</td></tr> : records.map((record) => <tr key={record.id}><td><button type="button" className="payroll-person-link" onClick={() => setSelectedRecord(record)}>{record.employeeName}</button></td><td>{record.department ?? "퇴직·미등록"}</td><td>{formatWon(record.basePay)}</td><td>{formatWon(record.mealAllowance)}</td><td>{formatWon(record.childcareAllowance)}</td><td>{formatWon(record.vehicleAllowance)}</td><td>{formatWon(record.incentive)}</td><td>{formatWon(record.bonus)}</td><td>{formatWon(record.annualLeavePay)}</td><td>{formatWon(record.retirementPay)}</td><td>{formatWon(record.deductions)}</td><td>{formatWon(record.netPay)}</td><td><StatusPill value="자료 반영" /></td></tr>)}</tbody></table></div></section>
     {selectedRecord && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedRecord(null)}><section className="payroll-record-modal" role="dialog" aria-modal="true" aria-label={`${selectedRecord.employeeName} 급여 세부 항목`}><div className="modal-header"><div><p className="eyebrow">PAYROLL BREAKDOWN</p><h2>{selectedRecord.employeeName} · {payrollMonthLabel(selectedRecord.yearMonth)}</h2></div><button type="button" className="modal-close" onClick={() => setSelectedRecord(null)}>×</button></div><div className="payroll-record-summary"><div><span>연봉 기준</span><strong>{formatWon(selectedRecord.annualSalary)}</strong></div><div><span>지급총액</span><strong>{formatWon(selectedRecord.grossPay)}</strong></div><div><span>기록상 지급액</span><strong>{formatWon(selectedRecord.netPay)}</strong></div></div><div className="payroll-breakdown-grid">{[
@@ -2002,9 +2099,14 @@ function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; 
 
 function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; onSave: () => void; onNotify: (message: string) => void }) {
   const [section, setSection] = useState("company");
-  const [authorizedUserIds, setAuthorizedUserIds] = useState<string[]>([]);
+  type AccessRole = "SUPER_ADMIN" | "FINANCE_ADMIN" | "HR_ADMIN" | "RECRUITER" | "SALES_ADMIN" | "VIEWER";
+  type AuthorizedUser = { employeeId: string; email: string; roles: AccessRole[]; active: boolean };
+  const roleLabels: Record<AccessRole, string> = { SUPER_ADMIN: "최고 관리자", FINANCE_ADMIN: "재무 관리자", HR_ADMIN: "HR 관리자", RECRUITER: "채용 담당자", SALES_ADMIN: "영업 관리자", VIEWER: "조회 전용" };
+  const [authorizedUsers, setAuthorizedUsers] = useState<AuthorizedUser[]>([]);
   const [candidateId, setCandidateId] = useState("");
+  const [candidateRole, setCandidateRole] = useState<AccessRole>("VIEWER");
   const [permissionsLoading, setPermissionsLoading] = useState(true);
+  const authorizedUserIds = authorizedUsers.map((user) => user.employeeId);
   const activeEmployees = employees.filter((employee) => employee.status !== "퇴직");
   const availableEmployees = activeEmployees.filter((employee) => !authorizedUserIds.includes(employee.id));
 
@@ -2013,9 +2115,9 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
     async function loadAuthorizedUsers() {
       try {
         const response = await fetch("/api/hr/authorized-users");
-        const payload = await response.json() as { users?: { employeeId: string }[]; error?: string };
+        const payload = await response.json() as { users?: AuthorizedUser[]; error?: string };
         if (!response.ok) throw new Error(payload.error ?? "사용자 권한을 불러오지 못했습니다.");
-        if (!cancelled) setAuthorizedUserIds((payload.users ?? []).map((user) => user.employeeId));
+        if (!cancelled) setAuthorizedUsers(payload.users ?? []);
       } catch (error) {
         if (!cancelled) onNotify(error instanceof Error ? error.message : "사용자 권한을 불러오지 못했습니다.");
       } finally {
@@ -2032,16 +2134,32 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
     const response = await fetch("/api/hr/authorized-users", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ employeeId: candidateId }),
+      body: JSON.stringify({ employeeId: candidateId, roles: [candidateRole] }),
     });
-    const payload = await response.json() as { error?: string };
-    if (!response.ok) {
+    const payload = await response.json() as { user?: AuthorizedUser; error?: string };
+    if (!response.ok || !payload.user) {
       onNotify(payload.error ?? "사용자를 추가하지 못했습니다.");
       return;
     }
-    setAuthorizedUserIds((value) => value.includes(candidateId) ? value : [...value, candidateId]);
+    setAuthorizedUsers((value) => [...value.filter((user) => user.employeeId !== payload.user!.employeeId), payload.user!]);
     setCandidateId("");
+    setCandidateRole("VIEWER");
     onNotify("사용자 권한을 추가했습니다.");
+  }
+
+  async function updateAuthorizedUserRole(employeeId: string, role: AccessRole) {
+    const response = await fetch("/api/hr/authorized-users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeId, roles: [role] }),
+    });
+    const payload = await response.json() as { user?: AuthorizedUser; error?: string };
+    if (!response.ok || !payload.user) {
+      onNotify(payload.error ?? "사용자 역할을 변경하지 못했습니다.");
+      return;
+    }
+    setAuthorizedUsers((value) => value.map((user) => user.employeeId === employeeId ? payload.user! : user));
+    onNotify("사용자 역할을 변경했습니다.");
   }
 
   async function removeAuthorizedUser(employeeId: string) {
@@ -2055,8 +2173,8 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
       onNotify(payload.error ?? "사용자 권한을 삭제하지 못했습니다.");
       return;
     }
-    setAuthorizedUserIds((value) => value.filter((id) => id !== employeeId));
-    onNotify("사용자 권한을 삭제했습니다.");
+    setAuthorizedUsers((value) => value.filter((user) => user.employeeId !== employeeId));
+    onNotify("사용자 접근 권한을 비활성화했습니다.");
   }
 
   const sectionTitle = section === "company"
@@ -2086,19 +2204,21 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
         {section === "permissions" && <div className="permission-management">
           <form className="permission-add-form" onSubmit={addAuthorizedUser}>
             <label><span>회사 등록 인물</span><select value={candidateId} onChange={(event) => setCandidateId(event.target.value)} disabled={permissionsLoading || availableEmployees.length === 0}><option value="">{availableEmployees.length === 0 ? "추가 가능한 인물이 없습니다" : "사용자 선택"}</option>{availableEmployees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.department}</option>)}</select></label>
+            <label><span>기본 역할</span><select value={candidateRole} onChange={(event) => setCandidateRole(event.target.value as AccessRole)}>{(["VIEWER", "FINANCE_ADMIN", "HR_ADMIN", "RECRUITER", "SALES_ADMIN"] as AccessRole[]).map((role) => <option value={role} key={role}>{roleLabels[role]}</option>)}</select></label>
             <button type="submit" className="primary-button" disabled={!candidateId}>사용자 추가</button>
           </form>
-          <p className="permission-help">회사 인사기록에 등록된 재직자만 ERP 사용자로 추가할 수 있습니다.</p>
+          <p className="permission-help">회사 인사기록에 등록된 재직자만 추가할 수 있으며 역할별 권한은 서버에서 검사되고 변경이력은 감사기록에 남습니다.</p>
           <div className="permission-list">
             {permissionsLoading && <div className="permission-loading">사용자 권한을 불러오는 중입니다.</div>}
-            {!permissionsLoading && authorizedUserIds.map((employeeId) => {
+            {!permissionsLoading && authorizedUsers.map((access) => {
+              const employeeId = access.employeeId;
               const employee = employees.find((item) => item.id === employeeId);
               if (!employee) return null;
               const isCurrentAdministrator = employeeId === "gc.kim";
               return <div key={employeeId}>
                 <span className="owner-chip">{employee.name.slice(0, 1)}</span>
-                <p><strong>{employee.name}</strong><small>{employee.department} · 전체 ERP 접근</small></p>
-                <div className="permission-row-actions"><em>관리자</em>{isCurrentAdministrator ? <span className="permission-current">현재 사용자</span> : <button type="button" onClick={() => removeAuthorizedUser(employeeId)}>삭제</button>}</div>
+                <p><strong>{employee.name}</strong><small>{employee.department} · {access.email}</small></p>
+                <div className="permission-row-actions">{isCurrentAdministrator ? <><em>{roleLabels.SUPER_ADMIN}</em><span className="permission-current">현재 사용자</span></> : <><select aria-label={`${employee.name} 역할`} value={access.roles[0] ?? "VIEWER"} onChange={(event) => void updateAuthorizedUserRole(employeeId, event.target.value as AccessRole)}>{(["VIEWER", "FINANCE_ADMIN", "HR_ADMIN", "RECRUITER", "SALES_ADMIN"] as AccessRole[]).map((role) => <option value={role} key={role}>{roleLabels[role]}</option>)}</select><button type="button" onClick={() => removeAuthorizedUser(employeeId)}>비활성화</button></>}</div>
               </div>;
             })}
           </div>

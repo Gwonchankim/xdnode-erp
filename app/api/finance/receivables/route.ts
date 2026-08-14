@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type FinanceBindings = { DB: D1Database };
 type ReceivableRow = {
@@ -43,6 +44,8 @@ function toRecord(row: ReceivableRow) {
 }
 
 export async function GET() {
+  const auth = await authorizeErpRequest(db, "finance", "read");
+  if (auth.response) return auth.response;
   await ensureSchema();
   const result = await db.prepare(`SELECT partner_name, outstanding_amount, owner, due_date,
       status, memo, updated_at
@@ -53,6 +56,8 @@ export async function GET() {
 }
 
 export async function PUT(request: Request) {
+  const auth = await authorizeErpRequest(db, "finance", "write");
+  if (auth.response) return auth.response;
   await ensureSchema();
   const body = await request.json() as Record<string, unknown>;
   const partnerName = typeof body.partnerName === "string" ? body.partnerName.trim() : "";
@@ -76,6 +81,9 @@ export async function PUT(request: Request) {
   }
 
   const updatedAt = Date.now();
+  const before = await db.prepare(`SELECT partner_name, outstanding_amount, owner, due_date,
+      status, memo, updated_at FROM finance_receivable_management
+    WHERE partner_name = ?`).bind(partnerName).first<ReceivableRow>();
   await db.prepare(`INSERT INTO finance_receivable_management
       (partner_name, outstanding_amount, owner, due_date, status, memo, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -88,7 +96,7 @@ export async function PUT(request: Request) {
       updated_at = excluded.updated_at`)
     .bind(partnerName, outstandingAmount, owner, dueDate, status, memo, updatedAt).run();
 
-  return Response.json({ record: toRecord({
+  const record = toRecord({
     partner_name: partnerName,
     outstanding_amount: outstandingAmount,
     owner,
@@ -96,5 +104,15 @@ export async function PUT(request: Request) {
     status,
     memo,
     updated_at: updatedAt,
-  }) });
+  });
+  await writeErpAudit(db, {
+    principal: auth.principal,
+    module: "finance",
+    action: before ? "UPDATE" : "CREATE",
+    entityType: "RECEIVABLE_MANAGEMENT",
+    entityId: partnerName,
+    before: before ? toRecord(before) : undefined,
+    after: record,
+  });
+  return Response.json({ record });
 }

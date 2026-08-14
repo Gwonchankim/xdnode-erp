@@ -1,10 +1,12 @@
 import { env } from "cloudflare:workers";
 
 type AiBindings = {
+  DB: D1Database;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_AI_MODEL?: string;
 };
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type ResumeAnalysis = {
   name: string;
@@ -102,6 +104,8 @@ function normalizeAnalysis(value: unknown): ResumeAnalysis {
 
 export async function POST(request: Request) {
   const bindings = env as unknown as AiBindings;
+  const authorization = await authorizeErpRequest(bindings.DB, "recruitment", "write");
+  if (authorization.response) return authorization.response;
   const accountId = bindings.CLOUDFLARE_ACCOUNT_ID?.trim();
   const apiToken = bindings.CLOUDFLARE_API_TOKEN?.trim();
   const model = bindings.CLOUDFLARE_AI_MODEL?.trim() || "@cf/qwen/qwen3-30b-a3b-fp8";
@@ -243,8 +247,17 @@ export async function POST(request: Request) {
   try {
     const result = cloudflareData.result as { response?: unknown; choices?: Array<{ message?: { content?: unknown } }> } | undefined;
     const modelContent = result?.response ?? result?.choices?.[0]?.message?.content;
+    const analysis = normalizeAnalysis(modelContent);
+    await writeErpAudit(bindings.DB, {
+      principal: authorization.principal,
+      module: "recruitment",
+      action: "RESUME_ANALYZED",
+      entityType: "resumeAnalysis",
+      entityId: crypto.randomUUID(),
+      after: { fileName, detectedName: analysis.name, warnings: analysis.warnings, model },
+    });
     return Response.json({
-      analysis: normalizeAnalysis(modelContent),
+      analysis,
       model,
       resumeText: resumeText.slice(0, 30_000),
     });

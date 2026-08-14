@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type InterviewRow = {
   id: string;
@@ -52,6 +53,8 @@ function toRecord(row: InterviewRow) {
 
 export async function GET(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(bindings.DB, "hr", "read");
+  if (authorization.response) return authorization.response;
   const url = new URL(request.url);
   const audioId = url.searchParams.get("audioId");
 
@@ -80,6 +83,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(bindings.DB, "hr", "write");
+  if (authorization.response) return authorization.response;
   const form = await request.formData();
   const employeeId = String(form.get("employeeId") ?? "").trim();
   const interviewAt = String(form.get("interviewAt") ?? "").trim();
@@ -113,6 +118,15 @@ export async function POST(request: Request) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(id, employeeId, interviewAt, transcript, memo, audioKey, audioContentType, audioFileName, createdAt)
     .run();
+
+  await writeErpAudit(bindings.DB, {
+    principal: authorization.principal,
+    module: "hr",
+    action: "EMPLOYEE_INTERVIEW_RECORDED",
+    entityType: "employeeInterview",
+    entityId: id,
+    after: { employeeId, interviewAt, hasTranscript: Boolean(transcript), hasMemo: Boolean(memo), hasAudio: Boolean(audioKey) },
+  });
 
   return Response.json({ record: toRecord({
     id,

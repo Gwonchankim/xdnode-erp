@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { companyOrganizations } from "../../../hr-company-data";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type OrganizationRow = {
   organization_id: string;
@@ -31,6 +32,8 @@ function toOrganization(row: OrganizationRow) {
 
 export async function GET() {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "hr", "read");
+  if (authorization.response) return authorization.response;
   const result = await db.prepare(`SELECT organization_id, name, description, updated_at
     FROM hr_organization_records ORDER BY organization_id`).all<OrganizationRow>();
   return Response.json({ organizations: result.results.map(toOrganization) });
@@ -38,6 +41,8 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "hr", "write");
+  if (authorization.response) return authorization.response;
   const body = await request.json() as Record<string, unknown>;
   const organizationId = typeof body.organizationId === "string" ? body.organizationId.trim() : "";
   const name = typeof body.name === "string" ? body.name.trim() : "";
@@ -77,10 +82,25 @@ export async function PUT(request: Request) {
   }
   await db.batch(statements);
 
-  return Response.json({ organization: toOrganization({
+  const after = toOrganization({
     organization_id: organizationId,
     name,
     description,
     updated_at: updatedAt,
-  }) });
+  });
+  await writeErpAudit(db, {
+    principal: authorization.principal,
+    module: "hr",
+    action: "ORGANIZATION_UPDATED",
+    entityType: "organization",
+    entityId: organizationId,
+    before: existing ? toOrganization(existing) : baseOrganization ? {
+      organizationId,
+      name: baseOrganization.name,
+      description: baseOrganization.description,
+    } : null,
+    after,
+  });
+
+  return Response.json({ organization: after });
 }

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { companyEmployees } from "../../../hr-company-data";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type HrBindings = { DB: D1Database; HR_AUDIO: R2Bucket };
 const bindings = env as unknown as HrBindings;
@@ -59,6 +60,8 @@ function toApplicant(row: ApplicantRow) {
 
 export async function GET() {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "recruitment", "read");
+  if (authorization.response) return authorization.response;
   const [applicantResult, recruiterResult] = await Promise.all([
     db.prepare(`SELECT id, name, role, applied, owner_id, stage, experience, email, phone, source, summary,
       resume_file_name, resume_text, checklist_json, screening_memos_json, interview_json, interview_memos_json, updated_at
@@ -70,6 +73,8 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "recruitment", "write");
+  if (authorization.response) return authorization.response;
   const body = await request.json() as Record<string, unknown>;
   const stringValue = (key: string) => typeof body[key] === "string" ? String(body[key]) : "";
   const id = stringValue("id").trim();
@@ -78,6 +83,7 @@ export async function PUT(request: Request) {
   if (!id || !name || !email) return Response.json({ error: "지원자 ID, 이름, 이메일이 필요합니다." }, { status: 400 });
   const interview = body.interview && typeof body.interview === "object" ? JSON.stringify(body.interview) : null;
   const updatedAt = Date.now();
+  const before = await db.prepare("SELECT * FROM hr_applicants WHERE id = ?").bind(id).first<ApplicantRow>();
   await db.prepare(`INSERT INTO hr_applicants
     (id, name, role, applied, owner_id, stage, experience, email, phone, source, summary, resume_file_name,
       resume_text, checklist_json, screening_memos_json, interview_json, interview_memos_json, updated_at)
@@ -92,24 +98,46 @@ export async function PUT(request: Request) {
       stringValue("experience"), email, stringValue("phone"), stringValue("source"), stringValue("summary"),
       stringValue("resumeFileName"), stringValue("resumeText"), JSON.stringify(body.checklist ?? []),
       JSON.stringify(body.screeningMemos ?? []), interview, JSON.stringify(body.interviewMemos ?? []), updatedAt).run();
+  const after = await db.prepare("SELECT * FROM hr_applicants WHERE id = ?").bind(id).first<ApplicantRow>();
+  await writeErpAudit(db, {
+    principal: authorization.principal,
+    module: "recruitment",
+    action: before ? "APPLICANT_UPDATED" : "APPLICANT_CREATED",
+    entityType: "applicant",
+    entityId: id,
+    before: before ? toApplicant(before) : null,
+    after: after ? toApplicant(after) : null,
+  });
   return Response.json({ ok: true });
 }
 
 export async function POST(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "recruitment", "approve");
+  if (authorization.response) return authorization.response;
   const body = await request.json() as { employeeId?: string };
   const employeeId = body.employeeId?.trim() ?? "";
   if (!employeeIds.has(employeeId)) return Response.json({ error: "회사에 등록된 재직자만 지정할 수 있습니다." }, { status: 400 });
   await db.prepare("INSERT OR IGNORE INTO hr_recruiters (employee_id, created_at) VALUES (?, ?)").bind(employeeId, Date.now()).run();
+  await writeErpAudit(db, {
+    principal: authorization.principal,
+    module: "recruitment",
+    action: "RECRUITER_ASSIGNED",
+    entityType: "recruiter",
+    entityId: employeeId,
+    after: { employeeId },
+  });
   return Response.json({ employeeId }, { status: 201 });
 }
 
 export async function DELETE(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "recruitment", "delete");
+  if (authorization.response) return authorization.response;
   const body = await request.json() as { employeeId?: string; applicantId?: string };
   const applicantId = body.applicantId?.trim() ?? "";
   if (applicantId) {
-    const applicant = await db.prepare("SELECT id FROM hr_applicants WHERE id = ?").bind(applicantId).first<{ id: string }>();
+    const applicant = await db.prepare("SELECT * FROM hr_applicants WHERE id = ?").bind(applicantId).first<ApplicantRow>();
     if (!applicant) return Response.json({ error: "삭제할 지원자를 찾을 수 없습니다." }, { status: 404 });
 
     const recordingResult = await db.prepare("SELECT audio_key FROM applicant_interview_recordings WHERE applicant_id = ?")
@@ -121,11 +149,27 @@ export async function DELETE(request: Request) {
       db.prepare("DELETE FROM applicant_interview_recordings WHERE applicant_id = ?").bind(applicantId),
       db.prepare("DELETE FROM hr_applicants WHERE id = ?").bind(applicantId),
     ]);
+    await writeErpAudit(db, {
+      principal: authorization.principal,
+      module: "recruitment",
+      action: "APPLICANT_DELETED",
+      entityType: "applicant",
+      entityId: applicantId,
+      before: toApplicant(applicant),
+    });
     return Response.json({ applicantId });
   }
 
   const employeeId = body.employeeId?.trim() ?? "";
   if (!employeeId) return Response.json({ error: "삭제할 대상이 필요합니다." }, { status: 400 });
   await db.prepare("DELETE FROM hr_recruiters WHERE employee_id = ?").bind(employeeId).run();
+  await writeErpAudit(db, {
+    principal: authorization.principal,
+    module: "recruitment",
+    action: "RECRUITER_REMOVED",
+    entityType: "recruiter",
+    entityId: employeeId,
+    before: { employeeId },
+  });
   return Response.json({ employeeId });
 }

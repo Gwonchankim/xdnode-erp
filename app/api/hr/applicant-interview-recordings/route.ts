@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type RecordingRow = {
   id: string;
@@ -42,6 +43,8 @@ function toRecording(row: RecordingRow) {
 
 export async function GET(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(bindings.DB, "recruitment", "read");
+  if (authorization.response) return authorization.response;
   const url = new URL(request.url);
   const audioId = url.searchParams.get("audioId")?.trim();
 
@@ -72,6 +75,8 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(bindings.DB, "recruitment", "write");
+  if (authorization.response) return authorization.response;
   const form = await request.formData();
   const applicantId = String(form.get("applicantId") ?? "").trim();
   const recordedAt = String(form.get("recordedAt") ?? "").trim();
@@ -108,6 +113,15 @@ export async function POST(request: Request) {
     await bindings.HR_AUDIO.delete(audioKey);
     throw error;
   }
+
+  await writeErpAudit(bindings.DB, {
+    principal: authorization.principal,
+    module: "recruitment",
+    action: "APPLICANT_INTERVIEW_AUDIO_RECORDED",
+    entityType: "applicantInterviewRecording",
+    entityId: id,
+    after: { applicantId, recordedAt, audioFileName },
+  });
 
   return Response.json({ recording: toRecording({
     id,

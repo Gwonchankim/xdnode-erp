@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { companyEmployees } from "../../../hr-company-data";
 import { payrollSeedRecords } from "../../../payroll-seed-data";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type HrBindings = { DB: D1Database };
 const db = (env as unknown as HrBindings).DB;
@@ -39,6 +40,11 @@ type PayrollSummaryRow = {
   gross_pay: number;
   deductions: number;
   net_pay: number;
+  status: string;
+  prepared_by: string;
+  reviewed_by: string;
+  approved_by: string;
+  locked_at: number | null;
 };
 
 const employeeAliases: Record<string, string> = {
@@ -81,7 +87,25 @@ async function ensureSchema() {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_hr_payroll_records_month_name
       ON hr_payroll_records(year_month, employee_name)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_payroll_runs (
+      period TEXT PRIMARY KEY NOT NULL, status TEXT NOT NULL DEFAULT 'DRAFT', employee_count INTEGER NOT NULL DEFAULT 0,
+      gross_pay INTEGER NOT NULL DEFAULT 0, deductions INTEGER NOT NULL DEFAULT 0, net_pay INTEGER NOT NULL DEFAULT 0,
+      prepared_by TEXT NOT NULL DEFAULT '', reviewed_by TEXT NOT NULL DEFAULT '', approved_by TEXT NOT NULL DEFAULT '',
+      locked_at INTEGER, reopened_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
   ]);
+}
+
+async function syncPayrollRuns() {
+  const now = Date.now();
+  await db.prepare(`INSERT INTO hr_payroll_runs
+    (period, status, employee_count, gross_pay, deductions, net_pay, prepared_by, reviewed_by, approved_by,
+      locked_at, reopened_reason, created_at, updated_at)
+    SELECT year_month, 'DRAFT', COUNT(*), COALESCE(SUM(gross_pay), 0), COALESCE(SUM(deductions), 0),
+      COALESCE(SUM(net_pay), 0), '', '', '', NULL, '', ?, ? FROM hr_payroll_records GROUP BY year_month
+    ON CONFLICT(period) DO UPDATE SET employee_count = excluded.employee_count, gross_pay = excluded.gross_pay,
+      deductions = excluded.deductions, net_pay = excluded.net_pay, updated_at = excluded.updated_at`)
+    .bind(now, now).run();
 }
 
 async function seedPayrollRecords() {
@@ -166,7 +190,10 @@ function toRecord(row: PayrollRow) {
 
 export async function GET(request: Request) {
   await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "hr", "read");
+  if (authorization.response) return authorization.response;
   await seedPayrollRecords();
+  await syncPayrollRuns();
 
   const month = new URL(request.url).searchParams.get("month")?.trim();
   if (month) {
@@ -176,11 +203,11 @@ export async function GET(request: Request) {
     const [recordsResult, summary] = await Promise.all([
       db.prepare(`SELECT * FROM hr_payroll_records
         WHERE year_month = ? ORDER BY employee_name`).bind(month).all<PayrollRow>(),
-      db.prepare(`SELECT year_month, COUNT(*) AS employee_count,
-        COALESCE(SUM(gross_pay), 0) AS gross_pay,
-        COALESCE(SUM(deductions), 0) AS deductions,
-        COALESCE(SUM(net_pay), 0) AS net_pay
-        FROM hr_payroll_records WHERE year_month = ? GROUP BY year_month`).bind(month).first<PayrollSummaryRow>(),
+      db.prepare(`SELECT r.year_month, COUNT(*) AS employee_count,
+        COALESCE(SUM(r.gross_pay), 0) AS gross_pay, COALESCE(SUM(r.deductions), 0) AS deductions,
+        COALESCE(SUM(r.net_pay), 0) AS net_pay, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at
+        FROM hr_payroll_records r JOIN hr_payroll_runs p ON p.period = r.year_month
+        WHERE r.year_month = ? GROUP BY r.year_month, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at`).bind(month).first<PayrollSummaryRow>(),
     ]);
     return Response.json({
       summary: summary ? {
@@ -189,16 +216,21 @@ export async function GET(request: Request) {
         grossPay: summary.gross_pay,
         deductions: summary.deductions,
         netPay: summary.net_pay,
+        status: summary.status,
+        preparedBy: summary.prepared_by,
+        reviewedBy: summary.reviewed_by,
+        approvedBy: summary.approved_by,
+        lockedAt: summary.locked_at,
       } : null,
       records: recordsResult.results.map(toRecord),
     });
   }
 
-  const result = await db.prepare(`SELECT year_month, COUNT(*) AS employee_count,
-    COALESCE(SUM(gross_pay), 0) AS gross_pay,
-    COALESCE(SUM(deductions), 0) AS deductions,
-    COALESCE(SUM(net_pay), 0) AS net_pay
-    FROM hr_payroll_records GROUP BY year_month ORDER BY year_month DESC`).all<PayrollSummaryRow>();
+  const result = await db.prepare(`SELECT r.year_month, COUNT(*) AS employee_count,
+    COALESCE(SUM(r.gross_pay), 0) AS gross_pay, COALESCE(SUM(r.deductions), 0) AS deductions,
+    COALESCE(SUM(r.net_pay), 0) AS net_pay, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at
+    FROM hr_payroll_records r JOIN hr_payroll_runs p ON p.period = r.year_month
+    GROUP BY r.year_month, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at ORDER BY r.year_month DESC`).all<PayrollSummaryRow>();
 
   return Response.json({ summaries: result.results.map((summary) => ({
     yearMonth: summary.year_month,
@@ -206,5 +238,38 @@ export async function GET(request: Request) {
     grossPay: summary.gross_pay,
     deductions: summary.deductions,
     netPay: summary.net_pay,
+    status: summary.status,
+    preparedBy: summary.prepared_by,
+    reviewedBy: summary.reviewed_by,
+    approvedBy: summary.approved_by,
+    lockedAt: summary.locked_at,
   })) });
+}
+
+export async function PUT(request: Request) {
+  await ensureSchema();
+  const body = await request.json() as { period?: unknown; status?: unknown; reopenedReason?: unknown };
+  const period = typeof body.period === "string" ? body.period.trim() : "";
+  const status = typeof body.status === "string" ? body.status.trim() : "";
+  if (!/^\d{4}-\d{2}$/.test(period) || !["DRAFT", "REVIEW", "APPROVED", "LOCKED"].includes(status)) {
+    return Response.json({ error: "급여월과 처리 상태를 확인해 주세요." }, { status: 400 });
+  }
+  const action = ["APPROVED", "LOCKED"].includes(status) ? "approve" : "write";
+  const authorization = await authorizeErpRequest(db, "hr", action);
+  if (authorization.response) return authorization.response;
+  await syncPayrollRuns();
+  const before = await db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>();
+  if (!before) return Response.json({ error: "급여월을 찾을 수 없습니다." }, { status: 404 });
+  const now = Date.now();
+  await db.prepare(`UPDATE hr_payroll_runs SET status = ?, prepared_by = CASE WHEN ? IN ('REVIEW','APPROVED','LOCKED') THEN ? ELSE prepared_by END,
+    reviewed_by = CASE WHEN ? IN ('APPROVED','LOCKED') THEN ? ELSE reviewed_by END,
+    approved_by = CASE WHEN ? IN ('APPROVED','LOCKED') THEN ? ELSE '' END,
+    locked_at = CASE WHEN ? = 'LOCKED' THEN ? ELSE NULL END,
+    reopened_reason = CASE WHEN ? = 'DRAFT' THEN ? ELSE reopened_reason END, updated_at = ? WHERE period = ?`)
+    .bind(status, status, authorization.principal.employeeId, status, authorization.principal.employeeId,
+      status, authorization.principal.employeeId, status, now, status,
+      typeof body.reopenedReason === "string" ? body.reopenedReason.trim() : "", now, period).run();
+  const after = await db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>();
+  await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_RUN_STATUS_UPDATED", entityType: "payrollRun", entityId: period, before, after, reason: typeof body.reopenedReason === "string" ? body.reopenedReason : "" });
+  return Response.json({ item: after });
 }

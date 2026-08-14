@@ -64,6 +64,20 @@
       "when": 1786601530923,
       "tag": "0008_square_sunfire",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1786676506984,
+      "tag": "0009_greedy_gravity",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1786677507211,
+      "tag": "0010_ordinary_phantom_reporter",
+      "breakpoints": true
     }
   ]
 }

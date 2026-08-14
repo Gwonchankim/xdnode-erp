@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
+import { authorizeErpRequest } from "../../../erp-platform";
 
 type AiBindings = {
+  DB: D1Database;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_AI_MODEL?: string;
@@ -44,6 +46,8 @@ function quotaExceeded(response: Response, data: CloudflareEnvelope): boolean {
 
 export async function POST(request: Request) {
   const bindings = env as unknown as AiBindings;
+  const auth = await authorizeErpRequest(bindings.DB, "finance", "read");
+  if (auth.response) return auth.response;
   const accountId = bindings.CLOUDFLARE_ACCOUNT_ID?.trim();
   const apiToken = bindings.CLOUDFLARE_API_TOKEN?.trim();
   const model = bindings.CLOUDFLARE_AI_MODEL?.trim() || "@cf/qwen/qwen3-30b-a3b-fp8";

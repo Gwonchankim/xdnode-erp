@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import HRWorkspace from "./hr-workspace";
+import FinanceOperationsCenter from "./finance-operations-center";
+import SalesWorkspace from "./sales-workspace";
 import { financeCurrentData } from "./finance-current-data";
 import { financeHistoricalData } from "./finance-historical-data";
 
@@ -13,7 +15,20 @@ type ERPAlert = {
   title: string;
   description: string;
   time: string;
-  destination?: { module: ModuleKey; hrView?: string };
+  destination?: { module: ModuleKey; hrView?: string; financeView?: FinanceWorkspaceView };
+};
+
+type OperationTask = {
+  id: string;
+  module: string;
+  category: string;
+  title: string;
+  description: string;
+  ownerEmployeeId: string;
+  dueDate: string;
+  status: "OPEN" | "IN_PROGRESS" | "WAITING" | "DONE";
+  priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
+  destination: string;
 };
 
 const modules: Array<{
@@ -62,7 +77,7 @@ const cashTrend = [
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "control" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 type ReceivableStatus = "UNSET" | "PLANNED" | "PARTIAL" | "OVERDUE" | "HOLD" | "COMPLETE";
 type ReceivableManagementRecord = {
@@ -212,6 +227,9 @@ function formatCompactWon(value: number) {
 
 function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void; openRequestKey?: number }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [operationTasks, setOperationTasks] = useState<OperationTask[]>([]);
+  const [operationsLoading, setOperationsLoading] = useState(false);
+  const [operationsError, setOperationsError] = useState("");
   const [dismissedAlertIds, setDismissedAlertIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -222,10 +240,32 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
     }
   });
   const visibleAlerts = erpAlerts.filter((alert) => !dismissedAlertIds.includes(alert.id));
+  const activeTasks = operationTasks.filter((task) => task.status !== "DONE");
+  const notificationCount = activeTasks.length + visibleAlerts.length;
 
   useEffect(() => {
     if (openRequestKey > 0) setAlertsOpen(true);
   }, [openRequestKey]);
+
+  useEffect(() => {
+    if (!alertsOpen) return;
+    let cancelled = false;
+    setOperationsLoading(true);
+    setOperationsError("");
+    fetch("/api/operations")
+      .then(async (response) => {
+        const data = await response.json() as { tasks?: OperationTask[]; error?: string };
+        if (!response.ok) throw new Error(data.error || "통합 업무를 불러오지 못했습니다.");
+        if (!cancelled) setOperationTasks(data.tasks ?? []);
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) setOperationsError(error instanceof Error ? error.message : "통합 업무를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (!cancelled) setOperationsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [alertsOpen]);
 
   function dismissAlert(alertId: string) {
     setDismissedAlertIds((current) => {
@@ -238,6 +278,43 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   function openAlert(alert: ERPAlert) {
     if (!alert.destination) return;
     onOpenAlert(alert);
+    setAlertsOpen(false);
+  }
+
+  function taskDestination(task: OperationTask): ERPAlert["destination"] {
+    const [module, view] = task.destination.split(":");
+    if (module === "finance") return { module: "finance", financeView: view as FinanceWorkspaceView };
+    if (module === "hr") return { module: "hr", hrView: view || "dashboard" };
+    if (module === "sales") return { module: "sales" };
+    return undefined;
+  }
+
+  async function updateTask(task: OperationTask, status: OperationTask["status"]) {
+    setOperationsError("");
+    const response = await fetch("/api/operations", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: task.id, status, reason: status === "DONE" ? "알림 센터에서 완료 처리" : "알림 센터에서 처리 시작" }),
+    });
+    const data = await response.json() as { task?: OperationTask; error?: string };
+    if (!response.ok || !data.task) {
+      setOperationsError(data.error || "업무 상태를 변경하지 못했습니다.");
+      return;
+    }
+    setOperationTasks((current) => current.map((item) => item.id === task.id ? data.task! : item));
+  }
+
+  function openTask(task: OperationTask) {
+    const destination = taskDestination(task);
+    if (destination) onOpenAlert({
+      id: task.id,
+      category: task.category,
+      title: task.title,
+      description: task.description,
+      time: task.dueDate || "기한 없음",
+      destination,
+    });
+    void updateTask(task, "IN_PROGRESS");
     setAlertsOpen(false);
   }
 
@@ -278,13 +355,13 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         <button
           type="button"
           className="erp-alarm-button"
-          aria-label={`확인할 알람 ${visibleAlerts.length}건`}
+          aria-label={`확인할 알람과 업무 ${notificationCount}건`}
           aria-expanded={alertsOpen}
           onClick={() => setAlertsOpen(true)}
         >
           <span className="erp-alarm-glyph" aria-hidden="true">♢</span>
           <span>알람</span>
-          <em>{visibleAlerts.length}</em>
+          <em>{notificationCount}</em>
         </button>
       </header>
 
@@ -293,11 +370,26 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
           <button type="button" className="erp-alarm-backdrop" aria-label="알람 닫기" onClick={() => setAlertsOpen(false)} />
           <aside className="erp-alarm-panel" role="dialog" aria-modal="true" aria-label="확인할 알람">
             <div className="erp-alarm-panel-header">
-              <div><p>NOTIFICATION CENTER</p><h2>확인할 알람</h2></div>
+              <div><p>OPERATIONS &amp; NOTIFICATIONS</p><h2>통합 업무함</h2></div>
               <button type="button" aria-label="닫기" onClick={() => setAlertsOpen(false)}>×</button>
             </div>
-            <div className="erp-alarm-summary"><strong>확인 필요 {visibleAlerts.length}건</strong><span>업무 알람은 관련 화면에서 해결하고, 단순 알람은 확인 후 끌 수 있습니다.</span></div>
+            <div className="erp-alarm-summary"><strong>처리할 업무 {activeTasks.length}건 · 일반 알림 {visibleAlerts.length}건</strong><span>실제 데이터에서 생성된 업무는 처리상태와 감사기록이 서버에 저장됩니다.</span></div>
             <div className="erp-alarm-list">
+              {operationsLoading && <div className="erp-alarm-empty"><span>…</span><strong>통합 업무를 불러오는 중입니다.</strong></div>}
+              {operationsError && <div className="erp-alarm-empty"><span>!</span><strong>{operationsError}</strong><p>기존 일반 알림은 계속 확인할 수 있습니다.</p></div>}
+              {activeTasks.map((task) => (
+                <article key={task.id} className={`erp-alarm-item operation-task priority-${task.priority.toLowerCase()}`}>
+                  <span className="erp-alarm-unread" aria-hidden="true" />
+                  <div>
+                    <p><em>{task.category} · {task.priority}</em><time>{task.dueDate || "기한 없음"}</time></p>
+                    <h3>{task.title}</h3><span>{task.description}</span>
+                    <div className="operation-task-actions">
+                      {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>관련 업무 열기 →</button>}
+                      <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>
+                    </div>
+                  </div>
+                </article>
+              ))}
               {visibleAlerts.map((alert) => (
                 <article key={alert.id} className="erp-alarm-item">
                   <span className="erp-alarm-unread" aria-hidden="true" />
@@ -310,7 +402,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
                   </div>
                 </article>
               ))}
-              {visibleAlerts.length === 0 && <div className="erp-alarm-empty"><span>✓</span><strong>모든 알람을 확인했습니다.</strong><p>새로운 확인 사항이 생기면 이곳에 표시됩니다.</p></div>}
+              {!operationsLoading && activeTasks.length === 0 && visibleAlerts.length === 0 && <div className="erp-alarm-empty"><span>✓</span><strong>모든 업무와 알람을 확인했습니다.</strong><p>새로운 확인 사항이 생기면 이곳에 표시됩니다.</p></div>}
             </div>
           </aside>
         </>
@@ -329,9 +421,6 @@ export default function Home() {
   const [financeWorkspaceRequest, setFinanceWorkspaceRequest] = useState<{ view: FinanceWorkspaceView; requestKey: number }>({ view: "overview", requestKey: 0 });
   const [quickOpen, setQuickOpen] = useState(false);
   const [toast, setToast] = useState("");
-  const [salePrice, setSalePrice] = useState(100000000);
-  const [costPrice, setCostPrice] = useState(90000000);
-  const [leadType, setLeadType] = useState<"outbound" | "inbound" | "ram">("outbound");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -349,20 +438,15 @@ export default function Home() {
     return () => window.removeEventListener("keydown", focusSearch);
   }, []);
 
-  const incentive = useMemo(() => {
-    const margin = salePrice - costPrice;
-    const rate = salePrice > 0 ? margin / salePrice : 0;
-    const eligible = leadType === "outbound" && rate > 0.05;
-    const payout = eligible ? (margin - salePrice * 0.05) * 0.05 : 0;
-    return { margin, rate, eligible, payout };
-  }, [salePrice, costPrice, leadType]);
-
   const copy = moduleCopy[active];
 
   function openAlert(alert: ERPAlert) {
     if (!alert.destination) return;
     if (alert.destination.hrView) {
       setHrNavigation((current) => ({ view: alert.destination?.hrView ?? current.view, requestKey: current.requestKey + 1 }));
+    }
+    if (alert.destination.financeView) {
+      setFinanceWorkspaceRequest((current) => ({ view: alert.destination?.financeView ?? current.view, requestKey: current.requestKey + 1 }));
     }
     setActive(alert.destination.module);
     setSearch("");
@@ -469,18 +553,7 @@ export default function Home() {
         </div>}
 
         {active === "finance" && <FinanceDashboard search={search} requestedWorkspace={financeWorkspaceRequest.view} workspaceRequestKey={financeWorkspaceRequest.requestKey} requestedYear={financePeriod.year} yearRequestKey={financePeriod.requestKey} onOpenAlerts={() => setAlertRequestKey((key) => key + 1)} />}
-        {active === "sales" && (
-          <SalesDashboard
-            search={search}
-            salePrice={salePrice}
-            costPrice={costPrice}
-            leadType={leadType}
-            incentive={incentive}
-            onSalePrice={setSalePrice}
-            onCostPrice={setCostPrice}
-            onLeadType={setLeadType}
-          />
-        )}
+        {active === "sales" && <SalesWorkspace search={search} />}
         {active === "hr" && <HrDashboard search={search} />}
       </main>
 
@@ -788,7 +861,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   }, [normalizedSearch]);
 
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
-    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"]] },
+    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["control", "재무 운영센터", "운"]] },
     { title: "거래 관리", items: [["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
     { title: "재무 분석", items: [["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["quality", "원장·데이터 점검", "원"]] },
@@ -914,6 +987,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
           </section>
         </>
       )}
+
+      {workspace === "control" && <FinanceOperationsCenter />}
 
       {workspace === "commercial" && (
         <>
@@ -1250,6 +1325,9 @@ function SalesDashboard(props: {
     </div>
   );
 }
+
+// Kept for reference while historical mockup styles are migrated; the live sales workspace is rendered above.
+void SalesDashboard;
 
 function HrDashboard({ search }: { search: string }) {
   const rows = peopleRows.filter((person) => `${person.name} ${person.role}`.toLowerCase().includes(search.toLowerCase()));

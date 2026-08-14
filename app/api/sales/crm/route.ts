@@ -28,6 +28,9 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity_occurred ON sales_opportunity_activities(opportunity_id, occurred_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_stage_history_opportunity_changed ON sales_opportunity_stage_history(opportunity_id, changed_at)"),
   ]);
+  await db.prepare(`UPDATE sales_account_contacts SET is_primary = 0 WHERE is_primary = 1 AND id NOT IN (
+    SELECT MIN(id) FROM sales_account_contacts WHERE is_primary = 1 AND status = 'ACTIVE' GROUP BY account_id)`).run();
+  await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_contact_single_primary ON sales_account_contacts(account_id) WHERE is_primary = 1 AND status = 'ACTIVE'").run();
 }
 
 const toContact = (row: ContactRow) => ({
@@ -100,11 +103,15 @@ export async function POST(request: Request) {
     if (!account || name.length < 2 || (!email && !phone)) return Response.json({ error: "거래처, 담당자 이름과 이메일 또는 연락처를 확인해 주세요." }, { status: 400 });
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return Response.json({ error: "이메일 형식을 확인해 주세요." }, { status: 400 });
     try {
-      await db.prepare(`INSERT INTO sales_account_contacts
-        (id, account_id, contact_key, name, title, email, phone, is_primary, status, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`)
-        .bind(id, accountId, contactKey(name, email, phone), name, title, email, phone, body.isPrimary ? 1 : 0,
-          authorization.principal.employeeId, now, now).run();
+      const statements = [
+        ...(body.isPrimary ? [db.prepare("UPDATE sales_account_contacts SET is_primary = 0, updated_at = ? WHERE account_id = ? AND is_primary = 1").bind(now, accountId)] : []),
+        db.prepare(`INSERT INTO sales_account_contacts
+          (id, account_id, contact_key, name, title, email, phone, is_primary, status, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?)`)
+          .bind(id, accountId, contactKey(name, email, phone), name, title, email, phone, body.isPrimary ? 1 : 0,
+            authorization.principal.employeeId, now, now),
+      ];
+      await db.batch(statements);
     } catch (error) {
       if (String(error).includes("UNIQUE")) return Response.json({ error: "같은 거래처에 동일한 이메일·연락처의 담당자가 이미 있습니다." }, { status: 409 });
       throw error;
@@ -155,4 +162,29 @@ export async function POST(request: Request) {
   }
 
   return Response.json({ error: "지원하지 않는 CRM 항목입니다." }, { status: 400 });
+}
+
+export async function PUT(request: Request) {
+  await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "sales", "write");
+  if (authorization.response) return authorization.response;
+  const body = await request.json() as Record<string, unknown>;
+  const id = String(body.id ?? "").trim();
+  const before = await db.prepare("SELECT * FROM sales_account_contacts WHERE id = ?").bind(id).first<ContactRow>();
+  if (!before) return Response.json({ error: "고객 담당자를 찾을 수 없습니다." }, { status: 404 });
+  const status = String(body.status ?? before.status);
+  const isPrimary = Boolean(body.isPrimary) && status === "ACTIVE";
+  if (!["ACTIVE", "INACTIVE"].includes(status)) return Response.json({ error: "담당자 상태를 확인해 주세요." }, { status: 400 });
+  const now = Date.now();
+  await db.batch([
+    ...(isPrimary ? [db.prepare("UPDATE sales_account_contacts SET is_primary = 0, updated_at = ? WHERE account_id = ? AND id <> ? AND is_primary = 1")
+      .bind(now, before.account_id, id)] : []),
+    db.prepare("UPDATE sales_account_contacts SET status = ?, is_primary = ?, updated_at = ? WHERE id = ?")
+      .bind(status, isPrimary ? 1 : 0, now, id),
+  ]);
+  const after = await db.prepare("SELECT * FROM sales_account_contacts WHERE id = ?").bind(id).first<ContactRow>();
+  await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: status === "INACTIVE" ? "ACCOUNT_CONTACT_DEACTIVATED" : isPrimary ? "ACCOUNT_CONTACT_PRIMARY_CHANGED" : "ACCOUNT_CONTACT_UPDATED",
+    entityType: "salesAccountContact", entityId: id, before: toContact(before), after: after ? toContact(after) : body,
+    reason: String(body.reason ?? (status === "INACTIVE" ? "고객 담당자 비활성화" : "대표 담당자 변경")) });
+  return Response.json({ item: after ? toContact(after) : null });
 }

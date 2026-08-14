@@ -1914,10 +1914,63 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .sales-entry-panel form button { align-self: end; height: 38px; padding: 0 14px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 10px; font-weight: 900; }
 .opportunity-entry form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .sales-account-list { padding: 0 18px 10px; }
-.sales-account-list > div { min-height: 48px; display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: center; border-bottom: 1px solid #ececee; font-size: 10px; }
+.sales-account-list > div { min-height: 58px; display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(80px, .8fr) auto auto; gap: 10px; align-items: center; border-bottom: 1px solid #ececee; font-size: 10px; }
+.sales-account-list > div p { min-width: 0; margin: 0; display: grid; gap: 3px; }
+.sales-account-list > div p strong, .sales-account-list > div p small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sales-account-list > div p small { color: #a1a1aa; font-size: 9px; }
 .sales-account-list > div span { color: #71717a; }
 .sales-account-list > div em { font-style: normal; font-weight: 900; }
+.sales-account-list > div button { height: 32px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; color: #18181b; font-size: 9px; font-weight: 900; cursor: pointer; }
 .sales-account-list > p { padding: 20px 0; color: #71717a; text-align: center; font-size: 10px; }
+
+.sales-account-360 { overflow: hidden; }
+.sales-account-360.loading { min-height: 180px; display: grid; place-items: center; color: #71717a; font-size: 12px; }
+.sales-account-360-heading { min-height: 88px; padding: 18px 22px; display: flex; align-items: center; justify-content: space-between; gap: 18px; color: #fff; background: #18181b; }
+.sales-account-360-heading p { margin: 0 0 6px; color: #fb923c; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.sales-account-360-heading h2 { margin: 0 0 5px; font-size: 24px; }
+.sales-account-360-heading span { color: #d4d4d8; font-size: 10px; }
+.sales-account-360-heading button { height: 36px; padding: 0 14px; border: 1px solid #52525b; border-radius: 13px; color: #fff; background: #27272a; font-size: 10px; font-weight: 900; cursor: pointer; }
+.sales-account-360-message { padding: 11px 20px; color: #7c2d12; background: #fff7ed; border-bottom: 1px solid #fed7aa; font-size: 10px; font-weight: 800; }
+.sales-account-alerts { padding: 12px 20px 0; display: flex; flex-wrap: wrap; gap: 7px; background: #fafafa; }
+.sales-account-alerts span { padding: 7px 10px; border: 1px solid #fdba74; border-radius: 999px; color: #9a3412; background: #fff7ed; font-size: 9px; font-weight: 900; }
+.sales-account-alerts span.high { color: #991b1b; border-color: #fca5a5; background: #fef2f2; }
+.sales-account-360-metrics { padding: 14px 20px 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; background: #fafafa; border-bottom: 1px solid #e4e4e7; }
+.sales-account-360-metrics article { min-width: 0; padding: 14px 15px; display: grid; gap: 6px; border: 1px solid #e4e4e7; border-radius: 16px; background: #fff; }
+.sales-account-360-metrics small, .sales-account-360-metrics span { color: #71717a; font-size: 9px; }
+.sales-account-360-metrics strong { font-size: 17px; }
+.sales-account-governance-grid { display: grid; grid-template-columns: 1.1fr 1fr 1fr; border-bottom: 1px solid #e4e4e7; }
+.sales-account-governance-grid form { min-width: 0; padding: 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; align-content: start; }
+.sales-account-governance-grid form + form { border-left: 1px solid #e4e4e7; }
+.sales-account-governance-grid h3, .sales-account-governance-grid form > p, .sales-account-governance-grid form > small { grid-column: 1 / -1; }
+.sales-account-governance-grid h3 { margin: 0 0 4px; font-size: 15px; }
+.sales-account-governance-grid form > p { margin: 0; color: #c2410c; font-size: 9px; font-weight: 800; }
+.sales-account-governance-grid label { min-width: 0; display: grid; gap: 5px; color: #71717a; font-size: 9px; font-weight: 800; }
+.sales-account-governance-grid label.wide, .sales-account-governance-grid form > button { grid-column: 1 / -1; }
+.sales-account-governance-grid input, .sales-account-governance-grid select, .sales-account-governance-grid textarea { min-width: 0; width: 100%; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font: inherit; }
+.sales-account-governance-grid input, .sales-account-governance-grid select { height: 38px; }
+.sales-account-governance-grid textarea { min-height: 72px; padding-top: 9px; resize: vertical; }
+.sales-account-governance-grid form > button { height: 39px; border: 0; border-radius: 12px; color: #fff; background: #18181b; font-size: 10px; font-weight: 900; cursor: pointer; }
+.sales-account-governance-grid form > button:disabled { opacity: .4; cursor: not-allowed; }
+.sales-account-governance-grid form.danger { background: #fffafa; }
+.sales-account-governance-grid form.danger > button { background: #991b1b; }
+.sales-account-governance-grid form > small { color: #71717a; font-size: 8px; line-height: 1.5; }
+.sales-account-360-ledgers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sales-account-360-ledgers > article { min-width: 0; padding: 19px 20px; border-bottom: 1px solid #e4e4e7; }
+.sales-account-360-ledgers > article:nth-child(even) { border-left: 1px solid #e4e4e7; }
+.sales-account-360-ledgers > article > header { margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.sales-account-360-ledgers h3 { margin: 0; font-size: 15px; }
+.sales-account-360-ledgers header > span { color: #71717a; font-size: 9px; font-weight: 800; }
+.sales-account-360-ledgers > article > div { min-height: 56px; padding: 10px 0; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px 12px; align-items: center; border-top: 1px solid #ececee; }
+.sales-account-360-ledgers > article > div.inactive { opacity: .52; }
+.sales-account-360-ledgers p { min-width: 0; margin: 0; display: grid; gap: 4px; }
+.sales-account-360-ledgers p strong { font-size: 10px; }
+.sales-account-360-ledgers p small, .sales-account-360-ledgers time, .sales-account-360-ledgers > article > div > span { color: #71717a; font-size: 9px; line-height: 1.45; }
+.sales-account-360-ledgers p small { white-space: normal; }
+.sales-account-360-ledgers > article > div > strong { display: grid; gap: 3px; text-align: right; font-size: 10px; }
+.sales-account-360-ledgers > article > div > strong small { color: #dc2626; font-size: 8px; }
+.sales-account-360-ledgers > article > div > div { display: flex; gap: 6px; }
+.sales-account-360-ledgers button { min-height: 30px; padding: 0 9px; border: 1px solid #d4d4d8; border-radius: 10px; background: #fff; font-size: 8px; font-weight: 900; cursor: pointer; }
+.sales-account-360-ledgers .empty { padding: 20px 0; color: #71717a; text-align: center; font-size: 10px; }
 .sales-live-pipeline { overflow: hidden; }
 .sales-pipeline-row { min-height: 58px; padding: 0 18px; display: grid; grid-template-columns: minmax(170px, 1.4fr) 110px 1fr 1fr .55fr .8fr 56px; gap: 12px; align-items: center; border-top: 1px solid #ececee; font-size: 10px; }
 .sales-pipeline-row.head { min-height: 40px; color: #71717a; background: #f4f4f5; font-size: 9px; font-weight: 800; }
@@ -2009,6 +2062,9 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .sales-plan-toolbar { align-items: stretch; flex-direction: column; }
   .sales-plan-line-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sales-live-grid, .incentive-governance { grid-template-columns: 1fr; }
+  .sales-account-governance-grid { grid-template-columns: 1fr; }
+  .sales-account-governance-grid form + form { border-left: 0; border-top: 1px solid #e4e4e7; }
+  .sales-account-360-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sales-crm-grid, .sales-crm-ledgers { grid-template-columns: 1fr; }
   .sales-crm-grid > article + article, .sales-crm-ledgers > article + article { border-left: 0; border-top: 1px solid #e4e4e7; }
   .sales-document-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -2021,6 +2077,8 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .sales-planning-view header > div:last-child, .sales-plan-toolbar form { grid-template-columns: 1fr; display: grid; }
   .sales-plan-metrics { grid-template-columns: 1fr; }
   .sales-entry-panel form, .opportunity-entry form, .incentive-sandbox-body { grid-template-columns: 1fr 1fr; }
+  .sales-account-360-ledgers { grid-template-columns: 1fr; }
+  .sales-account-360-ledgers > article:nth-child(even) { border-left: 0; }
   .sales-live-pipeline { overflow-x: auto; }
   .sales-pipeline-row { min-width: 760px; }
   .sales-document-flow { overflow-x: auto; }

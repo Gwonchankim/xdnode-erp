@@ -1579,6 +1579,26 @@ export const salesAccounts = sqliteTable("sales_accounts", {
   index("idx_sales_accounts_owner_status").on(table.ownerEmployeeId, table.status),
 ]);
 
+export const salesAccountIdentityKeys = sqliteTable("sales_account_identity_keys", {
+  identityKey: text("identity_key").primaryKey(), accountId: text("account_id").notNull(),
+  isPrimary: integer("is_primary").notNull().default(1), originAccountId: text("origin_account_id").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_sales_account_identity_account").on(table.accountId),
+  uniqueIndex("idx_sales_account_identity_primary").on(table.accountId).where(sql`${table.isPrimary} = 1`),
+]);
+
+export const salesAccountOwnerHistory = sqliteTable("sales_account_owner_history", {
+  id: text("id").primaryKey(), accountId: text("account_id").notNull(),
+  fromOwnerEmployeeId: text("from_owner_employee_id").notNull().default(""), toOwnerEmployeeId: text("to_owner_employee_id").notNull(),
+  reason: text("reason").notNull(), changedBy: text("changed_by").notNull(), changedAt: integer("changed_at").notNull(),
+}, (table) => [index("idx_sales_account_owner_history_account_changed").on(table.accountId, table.changedAt)]);
+
+export const salesAccountMerges = sqliteTable("sales_account_merges", {
+  id: text("id").primaryKey(), sourceAccountId: text("source_account_id").notNull(), targetAccountId: text("target_account_id").notNull(),
+  reason: text("reason").notNull(), mergedBy: text("merged_by").notNull(), mergedAt: integer("merged_at").notNull(),
+}, (table) => [uniqueIndex("idx_sales_account_merge_source").on(table.sourceAccountId)]);
+
 export const salesOpportunities = sqliteTable("sales_opportunities", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull(),
@@ -1610,6 +1630,7 @@ export const salesAccountContacts = sqliteTable("sales_account_contacts", {
   createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
 }, (table) => [
   uniqueIndex("idx_sales_contact_account_key").on(table.accountId, table.contactKey),
+  uniqueIndex("idx_sales_contact_single_primary").on(table.accountId).where(sql`${table.isPrimary} = 1 AND ${table.status} = 'ACTIVE'`),
   index("idx_sales_contact_account_status").on(table.accountId, table.status),
 ]);
 

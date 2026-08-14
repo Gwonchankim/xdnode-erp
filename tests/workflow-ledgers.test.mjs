@@ -910,3 +910,68 @@ test("sales target plans keep one approved version and immutable forecast versio
   assert.ok(plan.some((row) => String(row.detail).includes("idx_sales_target_line_plan_period")));
   db.close();
 });
+
+test("sales account governance enforces identity, one primary contact and ownership history", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertAccount = db.prepare(`INSERT INTO sales_accounts
+    (id, name, business_number, industry, owner_employee_id, status, memo, created_at, updated_at, deleted_at)
+    VALUES (?, ?, ?, '', 'owner-1', 'ACTIVE', '', ?, ?, NULL)`);
+  insertAccount.run("account-governance-1", "엑스디 고객", "123-45-67890", now, now);
+  insertAccount.run("account-governance-2", "병합 대상", "", now, now);
+  const insertIdentity = db.prepare(`INSERT INTO sales_account_identity_keys
+    (identity_key, account_id, is_primary, origin_account_id, created_at) VALUES (?, ?, 1, ?, ?)`);
+  insertIdentity.run("business:1234567890", "account-governance-1", "account-governance-1", now);
+  assert.throws(() => insertIdentity.run("business:1234567890", "account-governance-2", "account-governance-2", now), /UNIQUE constraint failed/);
+  assert.throws(() => insertIdentity.run("name:다른키", "account-governance-1", "account-governance-1", now), /UNIQUE constraint failed/);
+
+  const insertContact = db.prepare(`INSERT INTO sales_account_contacts
+    (id, account_id, contact_key, name, title, email, phone, is_primary, status, created_by, created_at, updated_at)
+    VALUES (?, 'account-governance-1', ?, ?, '', ?, '', 1, 'ACTIVE', 'gc.kim', ?, ?)`);
+  insertContact.run("governance-contact-1", "email:first@example.com", "첫 담당자", "first@example.com", now, now);
+  assert.throws(() => insertContact.run("governance-contact-2", "email:second@example.com", "둘째 담당자", "second@example.com", now, now), /UNIQUE constraint failed/);
+  db.prepare("UPDATE sales_account_contacts SET is_primary = 0 WHERE id = 'governance-contact-1'").run();
+  insertContact.run("governance-contact-2", "email:second@example.com", "둘째 담당자", "second@example.com", now, now);
+
+  db.prepare(`INSERT INTO sales_account_owner_history
+    (id, account_id, from_owner_employee_id, to_owner_employee_id, reason, changed_by, changed_at)
+    VALUES ('owner-history-1', 'account-governance-1', 'owner-1', 'owner-2', '고객군 담당 조직 변경에 따른 이관', 'gc.kim', ?)`)
+    .run(now);
+  assert.equal(db.prepare("SELECT reason FROM sales_account_owner_history WHERE account_id = 'account-governance-1'").get().reason, "고객군 담당 조직 변경에 따른 이관");
+  db.prepare(`INSERT INTO sales_opportunities
+    (id, account_id, title, owner_employee_id, stage, lead_type, expected_revenue, expected_cost, probability,
+      expected_close_date, next_action, next_action_date, status, created_at, updated_at, deleted_at)
+    VALUES ('governance-opportunity', 'account-governance-1', '고객 360 검증', 'owner-1', 'CONTRACT', 'OUTBOUND',
+      10000, 5000, 80, '2026-09-01', '계약 확인', '2026-08-20', 'OPEN', ?, ?, NULL)`).run(now, now);
+  db.prepare(`INSERT INTO sales_documents
+    (id, opportunity_id, document_type, document_number, version, amount, status, issued_date, due_date, source_document_id, created_at, updated_at)
+    VALUES ('governance-invoice', 'governance-opportunity', 'INVOICE', 'INV-360', 1, 10000, 'ACCEPTED', '2026-08-15', '2026-08-31', '', ?, ?),
+      ('governance-payment', 'governance-opportunity', 'PAYMENT', 'PAY-360', 1, 4000, 'COMPLETED', '2026-08-16', '', '', ?, ?)`).run(now, now, now, now);
+  db.prepare(`INSERT INTO sales_payment_allocations
+    (id, payment_document_id, invoice_document_id, amount, created_by, created_at, updated_at)
+    VALUES ('governance-allocation', 'governance-payment', 'governance-invoice', 4000, 'gc.kim', ?, ?)`).run(now, now);
+  const outstanding = db.prepare(`SELECT COALESCE(SUM(MAX(0, invoice.amount - COALESCE((
+    SELECT SUM(allocation.amount) FROM sales_payment_allocations allocation
+    JOIN sales_documents payment ON payment.id = allocation.payment_document_id
+    WHERE allocation.invoice_document_id = invoice.id AND payment.status IN ('ACCEPTED','COMPLETED')), 0))), 0) AS amount
+    FROM sales_documents invoice JOIN sales_opportunities opportunity ON opportunity.id = invoice.opportunity_id
+    WHERE opportunity.account_id = 'account-governance-1' AND invoice.document_type = 'INVOICE'
+      AND invoice.status IN ('ACCEPTED','COMPLETED')`).get().amount;
+  assert.equal(outstanding, 6000);
+  const identityPlan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM sales_account_identity_keys WHERE account_id = 'account-governance-1'").all();
+  assert.ok(identityPlan.some((row) => String(row.detail).includes("idx_sales_account_identity_account")));
+  db.close();
+});
+
+test("customer 360 implementation includes guarded merge, reassignment and operating alerts", async () => {
+  const api = await readFile(new URL("../app/api/sales/accounts/route.ts", import.meta.url), "utf8");
+  const ui = await readFile(new URL("../app/sales-account-360-view.tsx", import.meta.url), "utf8");
+  const operations = await readFile(new URL("../app/api/operations/route.ts", import.meta.url), "utf8");
+  assert.match(api, /REASSIGN_OWNER/);
+  assert.match(api, /MERGE_ACCOUNT/);
+  assert.match(api, /진행 중 영업기회 또는 미수금이 있는 거래처는 비활성화할 수 없습니다/);
+  assert.match(api, /status NOT IN \('퇴직','입사 예정'\)/);
+  assert.match(ui, /CUSTOMER 360°/);
+  assert.match(ui, /재무 거래처 마스터는 자동 병합하지 않습니다/);
+  assert.match(operations, /sales-account-governance-risk/);
+  assert.match(operations, /30일 이상 미접촉 진행 건/);
+});

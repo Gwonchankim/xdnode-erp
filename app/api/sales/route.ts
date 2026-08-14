@@ -5,6 +5,9 @@ import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
 const partnerKey = (name: string, businessNumber: string) => businessNumber.replace(/\D/g, "") || name.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+const accountIdentityKey = (name: string, businessNumber: string) => businessNumber.replace(/\D/g, "")
+  ? `business:${businessNumber.replace(/\D/g, "")}`
+  : `name:${name.toLowerCase().replace(/[^0-9a-z가-힣]/g, "")}`;
 
 type AccountRow = { id: string; name: string; business_number: string; industry: string; owner_employee_id: string; status: string; memo: string; created_at: number; updated_at: number; deleted_at: number | null };
 type OpportunityRow = { id: string; account_id: string; title: string; owner_employee_id: string; stage: string; lead_type: string; expected_revenue: number; expected_cost: number; probability: number; expected_close_date: string; next_action: string; next_action_date: string; status: string; created_at: number; updated_at: number; deleted_at: number | null };
@@ -55,6 +58,9 @@ async function ensureSchema() {
       title TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
       is_primary INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE', created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_account_identity_keys (
+      identity_key TEXT PRIMARY KEY NOT NULL, account_id TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 1,
+      origin_account_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sales_opportunity_activities (
       id TEXT PRIMARY KEY NOT NULL, opportunity_id TEXT NOT NULL, contact_id TEXT NOT NULL DEFAULT '',
       activity_type TEXT NOT NULL, occurred_at TEXT NOT NULL, summary TEXT NOT NULL,
@@ -75,6 +81,8 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_payment_allocation_invoice ON sales_payment_allocations(invoice_document_id)"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_contact_account_key ON sales_account_contacts(account_id, contact_key)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_contact_account_status ON sales_account_contacts(account_id, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_account_identity_account ON sales_account_identity_keys(account_id)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_account_identity_primary ON sales_account_identity_keys(account_id) WHERE is_primary = 1"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity_occurred ON sales_opportunity_activities(opportunity_id, occurred_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_stage_history_opportunity_changed ON sales_opportunity_stage_history(opportunity_id, changed_at)"),
   ]);
@@ -166,23 +174,32 @@ export async function POST(request: Request) {
     const name = String(body.name ?? "").trim();
     const businessNumber = String(body.businessNumber ?? "").trim();
     if (!name) return Response.json({ error: "거래처명이 필요합니다." }, { status: 400 });
-    await db.prepare(`INSERT INTO sales_accounts (id, name, business_number, industry, owner_employee_id, status, memo, created_at, updated_at, deleted_at)
-      VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, NULL)`)
-      .bind(id, name, businessNumber, String(body.industry ?? "").trim(), authorization.principal.employeeId, String(body.memo ?? "").trim(), now, now).run();
+    const identityKey = accountIdentityKey(name, businessNumber);
     const normalizedKey = partnerKey(name, businessNumber);
     const masterId = `partner:${normalizedKey}`;
-    await db.batch([
-      db.prepare(`INSERT OR IGNORE INTO finance_master_partners
-        (id, canonical_name, normalized_key, business_number, partner_type, payment_terms_days, status, source, created_by, created_at, updated_at)
-        VALUES (?, ?, ?, ?, 'CUSTOMER', 30, 'ACTIVE', 'SALES', ?, ?, ?)`)
-        .bind(masterId, name, normalizedKey, businessNumber, authorization.principal.employeeId, now, now),
-      db.prepare(`INSERT OR IGNORE INTO finance_master_partner_aliases
-        (id, mapping_key, source_system, source_entity_id, source_name, partner_id, created_at, updated_at)
-        SELECT ?, ?, 'SALES', ?, ?, id, ?, ? FROM finance_master_partners WHERE normalized_key = ?`)
-        .bind(`alias:SALES:${id}`, `SALES:${id}`, id, name, now, now, normalizedKey),
-      db.prepare("UPDATE finance_master_partners SET partner_type = CASE WHEN partner_type = 'VENDOR' THEN 'BOTH' ELSE partner_type END, updated_at = ? WHERE normalized_key = ?")
-        .bind(now, normalizedKey),
-    ]);
+    try {
+      await db.batch([
+        db.prepare(`INSERT INTO sales_accounts (id, name, business_number, industry, owner_employee_id, status, memo, created_at, updated_at, deleted_at)
+          VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, NULL)`)
+          .bind(id, name, businessNumber, String(body.industry ?? "").trim(), authorization.principal.employeeId, String(body.memo ?? "").trim(), now, now),
+        db.prepare(`INSERT INTO sales_account_identity_keys (identity_key, account_id, is_primary, origin_account_id, created_at)
+          VALUES (?, ?, 1, ?, ?)`)
+          .bind(identityKey, id, id, now),
+        db.prepare(`INSERT OR IGNORE INTO finance_master_partners
+          (id, canonical_name, normalized_key, business_number, partner_type, payment_terms_days, status, source, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'CUSTOMER', 30, 'ACTIVE', 'SALES', ?, ?, ?)`)
+          .bind(masterId, name, normalizedKey, businessNumber, authorization.principal.employeeId, now, now),
+        db.prepare(`INSERT OR IGNORE INTO finance_master_partner_aliases
+          (id, mapping_key, source_system, source_entity_id, source_name, partner_id, created_at, updated_at)
+          SELECT ?, ?, 'SALES', ?, ?, id, ?, ? FROM finance_master_partners WHERE normalized_key = ?`)
+          .bind(`alias:SALES:${id}`, `SALES:${id}`, id, name, now, now, normalizedKey),
+        db.prepare("UPDATE finance_master_partners SET partner_type = CASE WHEN partner_type = 'VENDOR' THEN 'BOTH' ELSE partner_type END, updated_at = ? WHERE normalized_key = ?")
+          .bind(now, normalizedKey),
+      ]);
+    } catch (error) {
+      if (String(error).includes("UNIQUE")) return Response.json({ error: "같은 사업자번호 또는 거래처명의 거래처가 이미 있습니다." }, { status: 409 });
+      throw error;
+    }
     const row = await db.prepare("SELECT * FROM sales_accounts WHERE id = ?").bind(id).first<AccountRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "ACCOUNT_CREATED", entityType: "salesAccount", entityId: id, after: row ? toAccount(row) : body });
     return Response.json({ item: row ? toAccount(row) : null }, { status: 201 });
@@ -193,7 +210,7 @@ export async function POST(request: Request) {
     const title = String(body.title ?? "").trim();
     const expectedRevenue = Number(body.expectedRevenue ?? 0);
     const expectedCost = Number(body.expectedCost ?? 0);
-    const account = await db.prepare("SELECT id, name FROM sales_accounts WHERE id = ? AND deleted_at IS NULL").bind(accountId).first<{ id: string; name: string }>();
+    const account = await db.prepare("SELECT id, name FROM sales_accounts WHERE id = ? AND status = 'ACTIVE' AND deleted_at IS NULL").bind(accountId).first<{ id: string; name: string }>();
     if (!account || !title || !Number.isFinite(expectedRevenue) || expectedRevenue < 0 || !Number.isFinite(expectedCost) || expectedCost < 0) return Response.json({ error: "거래처·영업 건명·금액을 확인해 주세요." }, { status: 400 });
     await db.batch([
       db.prepare(`INSERT INTO sales_opportunities

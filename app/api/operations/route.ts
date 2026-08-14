@@ -697,6 +697,34 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const staleCutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const accountRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM (
+        SELECT CASE WHEN replace(replace(replace(trim(business_number), '-', ''), ' ', ''), '.', '') <> ''
+          THEN 'business:' || replace(replace(replace(trim(business_number), '-', ''), ' ', ''), '.', '')
+          ELSE 'name:' || lower(replace(replace(replace(replace(replace(replace(replace(trim(name), ' ', ''), '-', ''), '.', ''), '(', ''), ')', ''), '㈜', ''), '/', '')) END AS identity_key
+        FROM sales_accounts WHERE deleted_at IS NULL GROUP BY identity_key HAVING COUNT(*) > 1)) AS duplicate_group_count,
+      (SELECT COUNT(*) FROM sales_accounts account LEFT JOIN hr_employee_records employee
+        ON employee.employee_id = account.owner_employee_id AND employee.status NOT IN ('퇴직','입사 예정')
+        WHERE account.deleted_at IS NULL AND account.status = 'ACTIVE' AND (account.owner_employee_id = '' OR employee.employee_id IS NULL)) AS missing_owner_count,
+      (SELECT COUNT(*) FROM sales_opportunities opportunity WHERE opportunity.deleted_at IS NULL AND opportunity.status = 'OPEN'
+        AND COALESCE((SELECT MAX(activity.occurred_at) FROM sales_opportunity_activities activity
+          WHERE activity.opportunity_id = opportunity.id), '') < ?) AS stale_opportunity_count`)
+      .bind(staleCutoff).first<{ duplicate_group_count: number; missing_owner_count: number; stale_opportunity_count: number }>();
+    const duplicates = Number(accountRisk?.duplicate_group_count ?? 0); const missingOwners = Number(accountRisk?.missing_owner_count ?? 0);
+    const stale = Number(accountRisk?.stale_opportunity_count ?? 0); const riskCount = duplicates + missingOwners + stale;
+    if (riskCount > 0) await upsertRuleTask({
+      id: "sales-account-governance-risk", module: "sales", category: "거래처 마스터",
+      title: `거래처·고객 접점 ${riskCount}건 확인`,
+      description: `중복 거래처 그룹 ${duplicates}건 · 재직 담당자 공백 ${missingOwners}곳 · 30일 이상 미접촉 진행 건 ${stale}건입니다. 고객 360도에서 병합·이관·접점 기록을 처리해 주세요.`,
+      dueDate: today, priority: duplicates + missingOwners > 0 ? "HIGH" : "NORMAL", destination: "sales:account",
+      sourceId: `${today}:${duplicates}:${missingOwners}:${stale}`,
+    }); else await closeRuleTask("sales-account-governance-risk");
+  } catch {
+    // 거래처 마스터 통제 원장이 배포된 뒤부터 중복·담당자 공백·장기 미접촉을 평가합니다.
+  }
+
+  try {
     const documentRisk = await db.prepare(`SELECT
       (SELECT COUNT(*) FROM sales_documents document
         WHERE document.document_type <> 'PAYMENT' AND document.status NOT IN ('COMPLETED','CANCELLED')

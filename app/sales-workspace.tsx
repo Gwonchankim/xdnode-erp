@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import IncentiveGovernance from "./incentive-governance";
 import SalesPlanningView from "./sales-planning-view";
+import SalesAccount360View from "./sales-account-360-view";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
@@ -39,6 +40,7 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", sourceDocumentId: "", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
   const [documentLines, setDocumentLines] = useState<Array<{ catalogItemId: string; quantity: string; unitPrice: string; sourceLineId: string; maxQuantity: number | null }>>([{ catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }]);
   const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
+  const [selectedAccountId, setSelectedAccountId] = useState("");
   const [crm, setCrm] = useState<CrmData | null>(null);
   const [contactDraft, setContactDraft] = useState({ name: "", title: "", email: "", phone: "", isPrimary: false });
   const [activityDraft, setActivityDraft] = useState({ activityType: "CALL", contactId: "", occurredAt: localDateTime(), summary: "", nextAction: "", nextActionDate: "" });
@@ -51,7 +53,8 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       const result = await response.json() as SalesData & { error?: string };
       if (!response.ok) throw new Error(result.error || "영업 데이터를 불러오지 못했습니다.");
       setData(result);
-      if (!opportunityDraft.accountId && result.accounts[0]) setOpportunityDraft((current) => ({ ...current, accountId: result.accounts[0].id }));
+      const firstActiveAccount = result.accounts.find((account) => account.status === "ACTIVE");
+      if (!opportunityDraft.accountId && firstActiveAccount) setOpportunityDraft((current) => ({ ...current, accountId: firstActiveAccount.id }));
       if (!documentDraft.opportunityId && result.opportunities[0]) setDocumentDraft((current) => ({ ...current, opportunityId: result.opportunities[0].id }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "영업 데이터를 불러오지 못했습니다.");
@@ -216,13 +219,13 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       <article className="panel sales-entry-panel">
         <header><div><p>ACCOUNT</p><h2>거래처 등록</h2></div><span>{data?.accounts.length ?? 0}곳</span></header>
         <form onSubmit={(event) => void create(event, "account")}><label>거래처명<input required value={accountDraft.name} onChange={(event) => setAccountDraft({ ...accountDraft, name: event.target.value })} /></label><label>사업자번호<input value={accountDraft.businessNumber} onChange={(event) => setAccountDraft({ ...accountDraft, businessNumber: event.target.value })} /></label><label>업종<input value={accountDraft.industry} onChange={(event) => setAccountDraft({ ...accountDraft, industry: event.target.value })} /></label><button type="submit">+ 거래처 등록</button></form>
-        <div className="sales-account-list">{(data?.accounts ?? []).map((item) => <div key={item.id}><strong>{item.name}</strong><span>{item.industry || "업종 미입력"}</span><em>{item.status}</em></div>)}{!data?.accounts.length && <p>등록된 거래처가 없습니다.</p>}</div>
+        <div className="sales-account-list">{(data?.accounts ?? []).map((item) => <div key={item.id}><p><strong>{item.name}</strong><small>{item.businessNumber || "사업자번호 미입력"}</small></p><span>{item.industry || "업종 미입력"}</span><em>{item.status === "ACTIVE" ? "활성" : "비활성"}</em><button type="button" onClick={() => setSelectedAccountId(item.id)} aria-label={`${item.name} 고객 360도 열기`}>360°</button></div>)}{!data?.accounts.length && <p>등록된 거래처가 없습니다.</p>}</div>
       </article>
 
       <article className="panel sales-entry-panel opportunity-entry" ref={opportunityPanelRef}>
         <header><div><p>OPPORTUNITY</p><h2>영업 건 등록</h2></div><span>원가 포함</span></header>
         <form onSubmit={(event) => void create(event, "opportunity")}>
-          <label>거래처<select required value={opportunityDraft.accountId} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, accountId: event.target.value })}><option value="">선택</option>{(data?.accounts ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>거래처<select required value={opportunityDraft.accountId} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, accountId: event.target.value })}><option value="">선택</option>{(data?.accounts ?? []).filter((item) => item.status === "ACTIVE").map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label>영업 건명<input ref={opportunityTitleRef} required value={opportunityDraft.title} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, title: event.target.value })} /></label>
           <label>유형<select value={opportunityDraft.leadType} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, leadType: event.target.value })}><option value="OUTBOUND">아웃바운드</option><option value="INBOUND">인바운드</option><option value="RAM">RAM 단독</option></select></label>
           <label>예상 매출<input required type="number" min="0" value={opportunityDraft.expectedRevenue} onChange={(event) => setOpportunityDraft({ ...opportunityDraft, expectedRevenue: event.target.value })} /></label>
@@ -234,6 +237,8 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
         </form>
       </article>
     </section>
+
+    {selectedAccountId && <SalesAccount360View accountId={selectedAccountId} onClose={() => setSelectedAccountId("")} onChanged={load} />}
 
     <section className="panel sales-live-pipeline">
       <header><div><p>PIPELINE</p><h2>실제 영업 파이프라인</h2></div><span>{opportunities.length}건</span></header>

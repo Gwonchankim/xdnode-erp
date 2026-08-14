@@ -230,7 +230,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [dataGovernanceOpen, setDataGovernanceOpen] = useState(false);
-  const [dataGovernanceView, setDataGovernanceView] = useState<"trust" | "integration">("trust");
+  const [dataGovernanceView, setDataGovernanceView] = useState<"trust" | "integration" | "audit" | "impact">("trust");
   const [approvalRequestKey, setApprovalRequestKey] = useState(0);
   const [operationTasks, setOperationTasks] = useState<OperationTask[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
@@ -312,6 +312,12 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
       setWorkbenchOpen(false);
       return;
     }
+    if (destination === "data-control:master-impact") {
+      setDataGovernanceView("impact");
+      setDataGovernanceOpen(true);
+      setWorkbenchOpen(false);
+      return;
+    }
     const [module, view] = destination.split(":");
     const target = module === "finance"
       ? { module: "finance" as const, financeView: financeDestinationView(destination) }
@@ -338,6 +344,12 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   }
 
   function openTask(task: OperationTask) {
+    if (task.destination === "data-control:master-impact") {
+      setDataGovernanceView("impact");
+      setDataGovernanceOpen(true);
+      setAlertsOpen(false);
+      return;
+    }
     if (task.destination === "settings:data-governance") {
       setDataGovernanceView("trust");
       setDataGovernanceOpen(true);
@@ -447,7 +459,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
                     <h3>{task.title}</h3><span>{task.description}</span>
                     <div className="operation-task-actions">
                       {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>{task.module === "finance" && task.sourceType === "SYSTEM_RULE" ? "조치 등록 →" : "관련 업무 열기 →"}</button>}
-                      {task.sourceType !== "APPROVAL" && task.id !== "data-governance-attention" && task.id !== "integration-center-attention" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
+                      {task.sourceType !== "APPROVAL" && task.sourceType !== "MASTER_IMPACT_CASE" && task.id !== "data-governance-attention" && task.id !== "integration-center-attention" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
                     </div>
                   </div>
                 </article>

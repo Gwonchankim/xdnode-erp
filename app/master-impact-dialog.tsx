@@ -51,7 +51,7 @@ export default function MasterImpactDialog({ entityType, entityId, action, onClo
           {assessment.entries.map((entry) => <article className={entry.severity.toLowerCase()} key={entry.code}><span>{severityLabels[entry.severity]}</span><div><h3>{entry.label}</h3><p>{entry.detail}</p></div><strong>{entry.count.toLocaleString("ko-KR")}건{Number(entry.amount) > 0 && <small>{won(Number(entry.amount))}</small>}</strong></article>)}
           {!assessment.entries.length && <div className="master-impact-empty"><strong>연결된 운영 원장이 없습니다.</strong><span>현재 상태에서는 안전하게 변경을 진행할 수 있습니다.</span></div>}
         </div>
-        <footer><div><span>확인 #{assessment.checksum.slice(0, 10)}</span><small>{new Date(assessment.expiresAt).toLocaleTimeString("ko-KR")}까지 유효 · 변경 직전 서버에서 다시 검증</small></div><button type="button" onClick={onClose} disabled={working}>취소</button><button className="primary" type="button" onClick={() => void proceed()} disabled={working || assessment.blockingCount > 0}>{assessment.blockingCount > 0 ? "차단 항목 해결 필요" : working ? "확인 중…" : "영향 확인 · 변경 계속"}</button></footer>
+        <footer><div><span>확인 #{assessment.checksum.slice(0, 10)}</span><small>{assessment.blockingCount > 0 ? "차단 항목은 데이터 통제의 기준정보 영향 큐에 자동 등록됩니다." : `${new Date(assessment.expiresAt).toLocaleTimeString("ko-KR")}까지 유효 · 변경 직전 서버에서 다시 검증`}</small></div><button type="button" onClick={onClose} disabled={working}>취소</button><button className="primary" type="button" onClick={() => void proceed()} disabled={working || assessment.blockingCount > 0}>{assessment.blockingCount > 0 ? "차단 항목 해결 필요" : working ? "확인 중…" : "영향 확인 · 변경 계속"}</button></footer>
       </>}
     </section>
   </div>;

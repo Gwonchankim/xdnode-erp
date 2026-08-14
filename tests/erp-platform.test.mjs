@@ -32,6 +32,27 @@ test("master data changes freeze, validate and consume a server-side impact asse
   assert.match(plan, /자동 병합·자동 계정 치환하지 않는다/); assert.match(plan, /localStorage.*사용하지 않는다/);
 });
 
+test("master impact blockers become controlled resolution cases with recheck and evidence gates", async () => {
+  const [server, api, operations, workbench, workspace, center, page, schema, migration, plan] = await Promise.all([
+    read("app/master-impact.ts"), read("app/api/master-impact-cases/route.ts"), read("app/api/operations/route.ts"),
+    read("app/api/workbench/route.ts"), read("app/master-impact-case-workspace.tsx"), read("app/data-governance-center.tsx"), read("app/page.tsx"), read("db/schema.ts"),
+    read("drizzle/0062_master_impact_resolution_queue.sql"), read("docs/master-impact-resolution-queue-plan.md"),
+  ]);
+  for (const source of [server, api, schema, migration]) for (const table of ["erp_master_impact_cases", "erp_master_impact_case_events"]) assert.match(source, new RegExp(table));
+  assert.match(server, /entry\.severity === "BLOCKER" && entry\.count > 0/);
+  assert.match(server, /MASTER_IMPACT_CASE/); assert.match(server, /source_type, source_id/);
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /reassessMasterImpact/); assert.match(api, /currentCount === 0 \? "VERIFIED"/);
+  assert.match(api, /resolutionNote\.length < 10 \|\| evidenceRef\.length < 3/);
+  assert.match(api, /expectedVersion !== before\.version/); assert.match(api, /status = 'CLOSED'/);
+  assert.match(workspace, /자동 해결 없음/); assert.match(workspace, /회사 직원만 배정/); assert.match(workspace, /원장 재검증/); assert.match(workspace, /증빙 남기고 종결/);
+  assert.match(operations, /before\.source_type === "MASTER_IMPACT_CASE" && status !== before\.status/);
+  assert.match(workbench, /row\.source_type !== "MASTER_IMPACT_CASE"/);
+  assert.match(center, /기준정보 영향/); assert.match(page, /destination === "data-control:master-impact"/); assert.match(page, /task\.sourceType !== "MASTER_IMPACT_CASE"/);
+  assert.match(plan, /`BLOCKER`이면서 연결 건수가 1건 이상/); assert.match(plan, /OPEN → IN_PROGRESS → VERIFIED → CLOSED/);
+  assert.match(plan, /자동 해결, 자동 계정 치환, 자동 병합, 자동 종결은 하지 않는다/);
+});
+
 test("finance assistant answers become traceable decision drafts without bypassing review and approval", async () => {
   const [api, page, workspace, schema, migration, plan] = await Promise.all([
     read("app/api/finance/management-report/route.ts"), read("app/page.tsx"),

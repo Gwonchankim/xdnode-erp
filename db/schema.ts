@@ -1145,6 +1145,31 @@ export const erpMasterImpactAssessments = sqliteTable("erp_master_impact_assessm
   index("idx_erp_master_impact_expiry_used").on(table.expiresAt, table.usedAt),
 ]);
 
+export const erpMasterImpactCases = sqliteTable("erp_master_impact_cases", {
+  id: text("id").primaryKey(), assessmentId: text("assessment_id").notNull(),
+  entityType: text("entity_type").notNull(), entityId: text("entity_id").notNull(), action: text("action").notNull(),
+  impactCode: text("impact_code").notNull(), impactLabel: text("impact_label").notNull(), impactDetail: text("impact_detail").notNull(),
+  severity: text("severity").notNull(), initialCount: integer("initial_count").notNull(), currentCount: integer("current_count").notNull(),
+  initialAmount: integer("initial_amount").notNull().default(0), currentAmount: integer("current_amount").notNull().default(0),
+  status: text("status").notNull().default("OPEN"), ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  dueDate: text("due_date").notNull().default(""), resolutionNote: text("resolution_note").notNull().default(""),
+  evidenceRef: text("evidence_ref").notNull().default(""), lastRecheckedBy: text("last_rechecked_by").notNull().default(""),
+  lastRecheckedAt: integer("last_rechecked_at"), createdBy: text("created_by").notNull(), version: integer("version").notNull().default(1),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(), closedBy: text("closed_by").notNull().default(""),
+  closedAt: integer("closed_at"),
+}, (table) => [
+  uniqueIndex("idx_erp_master_impact_case_open").on(table.entityType, table.entityId, table.action, table.impactCode).where(sql`${table.status} <> 'CLOSED'`),
+  index("idx_erp_master_impact_case_status_due").on(table.status, table.dueDate),
+  index("idx_erp_master_impact_case_owner_status").on(table.ownerEmployeeId, table.status),
+]);
+
+export const erpMasterImpactCaseEvents = sqliteTable("erp_master_impact_case_events", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull(), action: text("action").notNull(),
+  actorEmployeeId: text("actor_employee_id").notNull(), fromStatus: text("from_status").notNull().default(""),
+  toStatus: text("to_status").notNull().default(""), note: text("note").notNull().default(""),
+  snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_erp_master_impact_case_event_created").on(table.caseId, table.createdAt)]);
+
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),
   requestKind: text("request_kind").notNull().default("EXPENSE"),

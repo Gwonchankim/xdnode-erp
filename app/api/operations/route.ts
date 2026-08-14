@@ -1124,6 +1124,9 @@ export async function POST(request: Request) {
   if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     return Response.json({ error: "기한은 YYYY-MM-DD 형식으로 입력해 주세요." }, { status: 400 });
   }
+  if (before.source_type === "MASTER_IMPACT_CASE" && status !== before.status) {
+    return Response.json({ error: "기준정보 영향 업무 상태는 데이터 통제 센터에서 재검증과 증빙 절차로만 변경할 수 있습니다." }, { status: 409 });
+  }
   const now = Date.now();
   const task = {
     id: crypto.randomUUID(), module: taskModule, category, title, description, ownerEmployeeId,

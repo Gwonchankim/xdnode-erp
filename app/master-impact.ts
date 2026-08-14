@@ -1,5 +1,5 @@
 import { companyOrganizations } from "./hr-company-data";
-import type { ErpPrincipal } from "./erp-platform";
+import { ensureErpPlatformSchema, type ErpPrincipal } from "./erp-platform";
 
 export type MasterImpactEntityType = "FINANCE_ACCOUNT" | "FINANCE_PARTNER" | "FINANCE_BANK" | "FINANCE_TAX" | "SALES_ACCOUNT" | "HR_ORGANIZATION";
 export type MasterImpactAction = "UPDATE" | "DEACTIVATE" | "ACTIVATE" | "MERGE";
@@ -65,6 +65,86 @@ export async function ensureMasterImpactSchema(db: D1Database) {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_entity_created ON erp_master_impact_assessments(entity_type, entity_id, created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_expiry_used ON erp_master_impact_assessments(expires_at, used_at)"),
   ]);
+}
+
+export async function ensureMasterImpactCaseSchema(db: D1Database) {
+  await ensureErpPlatformSchema(db);
+  await db.batch([
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_cases (
+      id TEXT PRIMARY KEY NOT NULL, assessment_id TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
+      action TEXT NOT NULL, impact_code TEXT NOT NULL, impact_label TEXT NOT NULL, impact_detail TEXT NOT NULL,
+      severity TEXT NOT NULL, initial_count INTEGER NOT NULL, current_count INTEGER NOT NULL,
+      initial_amount INTEGER NOT NULL DEFAULT 0, current_amount INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'OPEN', owner_employee_id TEXT NOT NULL DEFAULT '', due_date TEXT NOT NULL DEFAULT '',
+      resolution_note TEXT NOT NULL DEFAULT '', evidence_ref TEXT NOT NULL DEFAULT '', last_rechecked_by TEXT NOT NULL DEFAULT '',
+      last_rechecked_at INTEGER, created_by TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, closed_by TEXT NOT NULL DEFAULT '', closed_at INTEGER)`),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_master_impact_case_open ON erp_master_impact_cases(entity_type, entity_id, action, impact_code) WHERE status <> 'CLOSED'"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_case_status_due ON erp_master_impact_cases(status, due_date)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_case_owner_status ON erp_master_impact_cases(owner_employee_id, status)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_case_events (
+      id TEXT PRIMARY KEY NOT NULL, case_id TEXT NOT NULL, action TEXT NOT NULL, actor_employee_id TEXT NOT NULL,
+      from_status TEXT NOT NULL DEFAULT '', to_status TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL)`),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_case_event_created ON erp_master_impact_case_events(case_id, created_at)"),
+  ]);
+}
+
+function caseModule(entityType: MasterImpactEntityType) {
+  return entityType.startsWith("FINANCE_") ? "finance" : entityType === "SALES_ACCOUNT" ? "sales" : "hr";
+}
+
+function defaultCaseDueDate() {
+  return new Date(Date.now() + (3 * 24 + 9) * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+async function materializeBlockingCases(db: D1Database, assessmentId: string, principal: ErpPrincipal, calculated: Awaited<ReturnType<typeof calculate>>) {
+  const blockers = calculated.entries.filter((entry) => entry.severity === "BLOCKER" && entry.count > 0);
+  if (!blockers.length) return;
+  await ensureMasterImpactCaseSchema(db);
+  const now = Date.now();
+  for (const entry of blockers) {
+    const existing = await db.prepare(`SELECT id, status FROM erp_master_impact_cases
+      WHERE entity_type = ? AND entity_id = ? AND action = ? AND impact_code = ? AND status <> 'CLOSED' LIMIT 1`)
+      .bind(calculated.entityType, calculated.entityId, calculated.action, entry.code).first<{ id: string; status: string }>();
+    const caseId = existing?.id ?? crypto.randomUUID();
+    const statements: D1PreparedStatement[] = [];
+    if (existing) {
+      statements.push(db.prepare(`UPDATE erp_master_impact_cases SET assessment_id = ?, impact_label = ?, impact_detail = ?,
+        current_count = ?, current_amount = ?, status = CASE WHEN status = 'VERIFIED' THEN 'IN_PROGRESS' ELSE status END,
+        last_rechecked_by = CASE WHEN status = 'VERIFIED' THEN '' ELSE last_rechecked_by END,
+        last_rechecked_at = CASE WHEN status = 'VERIFIED' THEN NULL ELSE last_rechecked_at END,
+        updated_at = ?, version = version + 1 WHERE id = ? AND status <> 'CLOSED'`)
+        .bind(assessmentId, entry.label, entry.detail, entry.count, entry.amount ?? 0, now, caseId));
+    } else {
+      statements.push(db.prepare(`INSERT INTO erp_master_impact_cases
+        (id, assessment_id, entity_type, entity_id, action, impact_code, impact_label, impact_detail, severity,
+          initial_count, current_count, initial_amount, current_amount, status, owner_employee_id, due_date,
+          created_by, version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BLOCKER', ?, ?, ?, ?, 'OPEN', ?, ?, ?, 1, ?, ?)`)
+        .bind(caseId, assessmentId, calculated.entityType, calculated.entityId, calculated.action, entry.code, entry.label,
+          entry.detail, entry.count, entry.count, entry.amount ?? 0, entry.amount ?? 0, principal.employeeId,
+          defaultCaseDueDate(), principal.employeeId, now, now));
+    }
+    statements.push(
+      db.prepare(`INSERT INTO erp_master_impact_case_events
+        (id, case_id, action, actor_employee_id, from_status, to_status, note, snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), caseId, existing ? "SOURCE_REFRESHED" : "CASE_CREATED", principal.employeeId,
+          existing?.status ?? "", existing?.status ?? "OPEN", existing ? "새 영향도 계산 결과로 현재 건수를 갱신" : "차단 영향도에서 해결 업무 자동 생성",
+          JSON.stringify({ assessmentId, impactCode: entry.code, count: entry.count, amount: entry.amount ?? 0, checksum: calculated.checksum }), now),
+      db.prepare(`INSERT INTO erp_tasks
+        (id, module, category, title, description, owner_employee_id, due_date, status, priority, destination, source_type, source_id, created_at, updated_at)
+        VALUES (?, ?, '기준정보 영향', ?, ?, ?, ?, 'OPEN', 'CRITICAL', 'data-control:master-impact', 'MASTER_IMPACT_CASE', ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET title = excluded.title, description = excluded.description,
+          status = CASE WHEN erp_tasks.status = 'DONE' THEN 'OPEN' ELSE erp_tasks.status END,
+          completed_at = CASE WHEN erp_tasks.status = 'DONE' THEN NULL ELSE erp_tasks.completed_at END, updated_at = excluded.updated_at`)
+        .bind(`master-impact:${caseId}`, caseModule(calculated.entityType), `[기준정보] ${calculated.entityLabel} · ${entry.label}`,
+          `${entry.count}건의 차단 연결 원장을 정리하고 영향도를 재검증해 주세요.`, principal.employeeId,
+          defaultCaseDueDate(), caseId, now, now),
+    );
+    await db.batch(statements);
+  }
 }
 
 async function tableExists(db: D1Database, table: string) {
@@ -274,6 +354,7 @@ export async function createMasterImpactAssessment(db: D1Database, principal: Er
     .bind(assessmentId, entityType, entityId, action, calculated.entityVersion, calculated.entityLabel, calculated.riskLevel,
       calculated.blockingCount, calculated.warningCount, calculated.impactedRecordCount, JSON.stringify(calculated.entries),
       calculated.checksum, principal.employeeId, createdAt, expiresAt).run();
+  await materializeBlockingCases(db, assessmentId, principal, calculated);
   return { assessmentId, ...calculated, requestedBy: principal.employeeId, createdAt, expiresAt };
 }
 

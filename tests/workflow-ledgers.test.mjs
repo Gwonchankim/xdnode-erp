@@ -55,6 +55,34 @@ test("master impact assessments preserve frozen evidence and one-time consumptio
   assert.match(queryPlan.map((item) => item.detail).join(" "), /idx_erp_master_impact_entity_created/); db.close();
 });
 
+test("master impact resolution cases prevent duplicate active work and preserve append-only evidence", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertAssessment = db.prepare(`INSERT INTO erp_master_impact_assessments
+    (id,entity_type,entity_id,proposed_action,entity_version,entity_label,risk_level,blocking_count,warning_count,
+      impacted_record_count,impact_json,checksum,requested_by,created_at,expires_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insertAssessment.run("assessment-case-1","FINANCE_ACCOUNT","account-1","DEACTIVATE","100","10100 · 현금","HIGH",1,0,2,"[]","checksum-case-1","gc.kim",now,now+900000);
+  insertAssessment.run("assessment-case-2","FINANCE_ACCOUNT","account-1","DEACTIVATE","100","10100 · 현금","HIGH",1,0,1,"[]","checksum-case-2","gc.kim",now+1,now+900001);
+  const insertCase = db.prepare(`INSERT INTO erp_master_impact_cases
+    (id,assessment_id,entity_type,entity_id,action,impact_code,impact_label,impact_detail,severity,initial_count,current_count,
+      initial_amount,current_amount,status,owner_employee_id,due_date,created_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insertCase.run("case-1","assessment-case-1","FINANCE_ACCOUNT","account-1","DEACTIVATE","UNPOSTED_JOURNAL","미전기 분개","미전기 2건","BLOCKER",2,2,10000,10000,"OPEN","gc.kim","2026-08-18","gc.kim",now,now);
+  assert.throws(() => insertCase.run("case-duplicate","assessment-case-2","FINANCE_ACCOUNT","account-1","DEACTIVATE","UNPOSTED_JOURNAL","미전기 분개","미전기 1건","BLOCKER",1,1,5000,5000,"OPEN","gc.kim","2026-08-18","gc.kim",now,now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO erp_master_impact_case_events
+    (id,case_id,action,actor_employee_id,from_status,to_status,note,snapshot_json,created_at)
+    VALUES ('case-event-1','case-1','CASE_CREATED','gc.kim','','OPEN','차단 업무 생성','{"count":2}',?)`).run(now);
+  db.prepare("UPDATE erp_master_impact_cases SET status='CLOSED',current_count=0,resolution_note='연결 전표 정리 후 재검증 완료',evidence_ref='VOUCHER-1',last_rechecked_at=?,closed_by='gc.kim',closed_at=? WHERE id='case-1'").run(now+1,now+1);
+  insertCase.run("case-2","assessment-case-2","FINANCE_ACCOUNT","account-1","DEACTIVATE","UNPOSTED_JOURNAL","미전기 분개","재발 1건","BLOCKER",1,1,5000,5000,"OPEN","gc.kim","2026-08-19","gc.kim",now+2,now+2);
+  db.prepare(`INSERT INTO erp_master_impact_case_events
+    (id,case_id,action,actor_employee_id,from_status,to_status,note,snapshot_json,created_at)
+    VALUES ('case-event-2','case-1','CLOSE','gc.kim','VERIFIED','CLOSED','증빙 확인','{"evidenceRef":"VOUCHER-1"}',?)`).run(now+1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_master_impact_case_events WHERE case_id='case-1'").get().count, 2);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_master_impact_cases WHERE entity_id='account-1'").get().count, 2);
+  const queryPlan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM erp_master_impact_cases WHERE status=? AND due_date<?").all("OPEN","2026-08-20");
+  assert.match(queryPlan.map((item) => item.detail).join(" "), /idx_erp_master_impact_case_status_due/); db.close();
+});
+
 test("finance risk policy extends the single cash-policy record with safe defaults", async () => {
   const db = await migratedDatabase();
   const columns = db.prepare("PRAGMA table_info(finance_cash_forecast_settings)").all().map((column) => column.name);

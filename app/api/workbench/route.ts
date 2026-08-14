@@ -112,7 +112,7 @@ export async function GET() {
       category: String(row.category), title: String(row.title), description: String(row.description),
       ownerEmployeeId: String(row.owner_employee_id), dueDate: String(row.due_date), status: String(row.status),
       priority: String(row.priority), destination: String(row.destination), sourceType: String(row.source_type),
-      canStart: canWriteOperations && row.status === "OPEN", canComplete: canWriteOperations && row.source_type === "MANUAL", updatedAt: Number(row.updated_at),
+      canStart: canWriteOperations && row.status === "OPEN" && row.source_type !== "MASTER_IMPACT_CASE", canComplete: canWriteOperations && row.source_type === "MANUAL", updatedAt: Number(row.updated_at),
     })),
     ...actions.results.map((row) => decorate({
       key: `MANAGEMENT_ACTION:${row.id}`, itemType: "MANAGEMENT_ACTION", itemId: String(row.id), reportId: String(row.report_id),

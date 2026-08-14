@@ -68,6 +68,21 @@ test("finance overview uses live operation tasks and saved treasury reports inst
   assert.match(plan, /API가 실패한 경우 이를 명시/);
 });
 
+test("finance charts derive balance endpoints and invoice flows from shared source data", async () => {
+  const [page, series, plan] = await Promise.all([
+    read("app/page.tsx"), read("app/finance-time-series.ts"), read("docs/finance-time-series-plan.md"),
+  ]);
+  assert.match(page, /buildBalanceSeries\(financeCurrentData\.balanceTrend, period\)/);
+  assert.match(page, /buildAmountSeries\(financeCurrentData\.salesDaily2026, period, financeCurrentInsights\.taxInvoicesAsOf\)/);
+  assert.match(page, /세금계산서 매출 공급가액/);
+  assert.doesNotMatch(page, /const cashTrend\s*=/);
+  assert.doesNotMatch(page, /const financeChartSeries\s*=/);
+  assert.match(series, /주간 마지막 관측값/);
+  assert.match(series, /무발행 구간은 0원/);
+  assert.match(plan, /잔액은 특정 시점 값이고 매출은 기간 합계/);
+  assert.match(plan, /은행의 매출성 입금이나 판매채널 정산액과 합치지 않는다/);
+});
+
 test("finance master changes are approval-gated and new finance inputs validate active master records", async () => {
   const [api, workspace, engine, operations, budget, sales, purchasing, page, plan, taskRoute] = await Promise.all([
     read("app/api/finance/master-data/route.ts"), read("app/finance-master-workspace.tsx"),

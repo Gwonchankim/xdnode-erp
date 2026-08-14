@@ -2,6 +2,7 @@
 // Values are kept separate from accounting revenue because bank inflows/outflows
 // can include transfers and other non-revenue cash movements.
 export const financeCurrentInsights = {
+  taxInvoicesAsOf: "2026-08-13",
   bankActivity31Days: {
     startDate: "2026-07-14",
     endDate: "2026-08-13",

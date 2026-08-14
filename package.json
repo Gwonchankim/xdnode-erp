@@ -9,7 +9,7 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/finance-data.test.mjs tests/erp-platform.test.mjs tests/workflow-ledgers.test.mjs",
+    "test": "npm run build && node --test tests/rendered-html.test.mjs tests/finance-data.test.mjs tests/finance-time-series.test.mjs tests/erp-platform.test.mjs tests/workflow-ledgers.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate"
   },

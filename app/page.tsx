@@ -23,6 +23,7 @@ import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
+import { buildAmountSeries, buildBalanceSeries, type FinancePeriod } from "./finance-time-series";
 
 type ModuleKey = "finance" | "sales" | "hr";
 
@@ -113,21 +114,6 @@ const financeChecks = [
   { label: "2025년 중복 후보 32행 원문 확인", owner: "자동 삭제하지 않음", done: false },
 ];
 
-const cashTrend = [
-  { date: "6/05", balance: 92151803 },
-  { date: "6/12", balance: 110625598 },
-  { date: "6/19", balance: 328227448 },
-  { date: "6/26", balance: 98166115 },
-  { date: "7/03", balance: 392253624 },
-  { date: "7/10", balance: 368571497 },
-  { date: "7/17", balance: 492885005 },
-  { date: "7/24", balance: 1175979470 },
-  { date: "7/31", balance: 1692218331 },
-  { date: "8/07", balance: 2220797669 },
-  { date: "8/14", balance: 1632535863 },
-];
-
-type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
 type FinanceWorkspaceView = "overview" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
@@ -153,52 +139,6 @@ const financePeriodLabels: Record<FinancePeriod, string> = {
   week: "주",
   month: "월",
   quarter: "분기",
-};
-
-const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ label: string; value: number }>>> = {
-  cash: {
-    day: [
-      { label: "8/01", value: 1692218331 },
-      { label: "8/02", value: 1692218331 },
-      { label: "8/03", value: 1857132856 },
-      { label: "8/04", value: 2238650482 },
-      { label: "8/05", value: 2189041634 },
-      { label: "8/06", value: 2234967908 },
-      { label: "8/07", value: 2220797669 },
-      { label: "8/08", value: 2220797669 },
-      { label: "8/09", value: 2220797669 },
-      { label: "8/10", value: 1716273550 },
-      { label: "8/11", value: 1746986430 },
-      { label: "8/12", value: 1721282194 },
-      { label: "8/13", value: 1632647344 },
-      { label: "8/14", value: 1632535863 },
-    ],
-    week: cashTrend.map((item) => ({ label: item.date, value: item.balance })),
-    month: [
-      { label: "5월", value: 90193013 },
-      { label: "6월", value: 1242819712 },
-      { label: "7월", value: 1692218331 },
-      { label: "8월", value: 1632535863 },
-    ],
-    quarter: [
-      { label: "2분기", value: 1242819712 },
-      { label: "3분기", value: 1632535863 },
-    ],
-  },
-  sales: {
-    day: [{ label: "6/01", value: 21510000 }],
-    week: [{ label: "6/01주", value: 21510000 }],
-    month: [
-      { label: "1월", value: 0 }, { label: "2월", value: 0 }, { label: "3월", value: 0 },
-      { label: "4월", value: 0 }, { label: "5월", value: 0 }, { label: "6월", value: 21510000 },
-      { label: "7월", value: 0 }, { label: "8월", value: 0 },
-    ],
-    quarter: [
-      { label: "1분기", value: 0 },
-      { label: "2분기", value: 21510000 },
-      { label: "3분기", value: 0 },
-    ],
-  },
 };
 
 const deals = [
@@ -808,7 +748,10 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
         const value = year === "2024" ? financeHistoricalData.years["2024"] : financeHistoricalData.years["2025"];
         return { label: year, value: historicalMetric === "cashBalance" ? value.cash : value[historicalMetric] };
       });
-  const currentChartData = financeChartSeries[metric][period];
+  const currentChartSeries = useMemo(() => metric === "cash"
+    ? buildBalanceSeries(financeCurrentData.balanceTrend, period)
+    : buildAmountSeries(financeCurrentData.salesDaily2026, period, financeCurrentInsights.taxInvoicesAsOf), [metric, period]);
+  const currentChartData = currentChartSeries.points;
   const overviewChart = overviewYear === "2026" ? currentChartData : historicalChartData;
   const chartLast = overviewChart.at(-1)?.value ?? 0;
   const chartFirst = overviewChart[0]?.value ?? 0;
@@ -970,11 +913,11 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
           <section className="content-grid finance-insight-grid">
             <article className="panel finance-chart-panel">
               <div className="finance-chart-head">
-                <div><p>FINANCIAL TREND</p><h2>{overviewYear === "2026" ? (metric === "cash" ? "자금 잔액 변화" : "연동 채널 매출") : (historicalMetric === "cashBalance" ? "보통예금 추이" : historicalMetric === "revenue" ? "회계상 매출 추이" : "당기순이익 추이")}</h2></div>
+                <div><p>FINANCIAL TREND</p><h2>{overviewYear === "2026" ? (metric === "cash" ? "자금 잔액 변화" : "세금계산서 매출 공급가액") : (historicalMetric === "cashBalance" ? "보통예금 추이" : historicalMetric === "revenue" ? "회계상 매출 추이" : "당기순이익 추이")}</h2></div>
                 <div className="finance-chart-controls">
                   {overviewYear === "2026" ? (
                     <>
-                      <div className="segment-control"><button className={metric === "cash" ? "active" : ""} onClick={() => setMetric("cash")}>자금</button><button className={metric === "sales" ? "active" : ""} onClick={() => setMetric("sales")}>연동매출</button></div>
+                      <div className="segment-control"><button className={metric === "cash" ? "active" : ""} onClick={() => setMetric("cash")}>자금</button><button className={metric === "sales" ? "active" : ""} onClick={() => setMetric("sales")}>세금계산서 매출</button></div>
                       <div className="segment-control period">{(Object.keys(financePeriodLabels) as FinancePeriod[]).map((key) => <button key={key} className={period === key ? "active" : ""} onClick={() => setPeriod(key)}>{financePeriodLabels[key]}</button>)}</div>
                     </>
                   ) : (
@@ -982,9 +925,9 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
                   )}
                 </div>
               </div>
-              <div className="finance-chart-summary"><div><strong>{formatCompactWon(chartLast)}</strong><span>선택 기간 값</span></div><em className={chartChange >= 0 ? "positive" : "negative"}>{chartFirst ? `${chartChange >= 0 ? "+" : ""}${chartChange.toFixed(1)}%` : "비교 기준 없음"}</em></div>
+              <div className="finance-chart-summary"><div><strong>{formatCompactWon(chartLast)}</strong><span>{overviewYear === "2026" ? currentChartSeries.summaryLabel : "선택 기간 값"}</span></div><em className={chartChange >= 0 ? "positive" : "negative"}>{chartFirst ? `${chartChange >= 0 ? "+" : ""}${chartChange.toFixed(1)}%` : "비교 기준 없음"}</em></div>
               <FinanceBars data={overviewChart} />
-              <div className="chart-coverage-note"><span>i</span>{overviewYear === "2026" ? "2026년은 Clobe 수집 범위의 최신 스냅샷이며 아직 결산 자료가 아닙니다." : overviewYear === "2025" ? "월별 수치는 계정별원장의 결산 및 이월 전표를 포함해 재구성했습니다." : "2024년은 연말 기준 자료만 제공되어 2024·2025 연간 값을 비교합니다."}</div>
+              <div className="chart-coverage-note"><span>i</span>{overviewYear === "2026" ? currentChartSeries.coverageNote : overviewYear === "2025" ? "월별 수치는 계정별원장의 결산 및 이월 전표를 포함해 재구성했습니다." : "2024년은 연말 기준 자료만 제공되어 2024·2025 연간 값을 비교합니다."}</div>
             </article>
 
             <article className="panel ai-daily-brief">

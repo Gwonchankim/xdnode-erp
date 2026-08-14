@@ -1726,6 +1726,44 @@ export const salesDocumentPricingReviews = sqliteTable("sales_document_pricing_r
   snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("idx_sales_pricing_review_outcome").on(table.outcome, table.updatedAt)]);
 
+export const salesContractGovernanceSettings = sqliteTable("sales_contract_governance_settings", {
+  id: text("id").primaryKey(), enforcementStartedAt: integer("enforcement_started_at").notNull(),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+});
+
+export const salesContracts = sqliteTable("sales_contracts", {
+  id: text("id").primaryKey(), orderDocumentId: text("order_document_id").notNull(), contractNumber: text("contract_number").notNull(),
+  title: text("title").notNull(), version: integer("version").notNull().default(1), amountSnapshot: integer("amount_snapshot").notNull(),
+  currency: text("currency").notNull().default("KRW"), startDate: text("start_date").notNull(), endDate: text("end_date").notNull(),
+  autoRenewal: integer("auto_renewal").notNull().default(0), renewalNoticeDays: integer("renewal_notice_days").notNull().default(30),
+  paymentTerms: text("payment_terms").notNull(), acceptanceCriteria: text("acceptance_criteria").notNull(),
+  deliveryTerms: text("delivery_terms").notNull(), ownerEmployeeId: text("owner_employee_id").notNull(),
+  signedDocumentId: text("signed_document_id").notNull().default(""), status: text("status").notNull().default("DRAFT"),
+  createdBy: text("created_by").notNull(), approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_contract_order").on(table.orderDocumentId),
+  uniqueIndex("idx_sales_contract_number").on(table.contractNumber),
+  index("idx_sales_contract_status_end").on(table.status, table.endDate),
+]);
+
+export const salesContractObligations = sqliteTable("sales_contract_obligations", {
+  id: text("id").primaryKey(), contractId: text("contract_id").notNull(), obligationType: text("obligation_type").notNull(),
+  title: text("title").notNull(), ownerEmployeeId: text("owner_employee_id").notNull(), dueDate: text("due_date").notNull(),
+  evidenceRequired: integer("evidence_required").notNull().default(1), status: text("status").notNull().default("OPEN"),
+  completionNote: text("completion_note").notNull().default(""), completedBy: text("completed_by").notNull().default(""),
+  completedAt: integer("completed_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("idx_sales_contract_obligation_contract_due").on(table.contractId, table.status, table.dueDate)]);
+
+export const salesContractChangeRequests = sqliteTable("sales_contract_change_requests", {
+  id: text("id").primaryKey(), contractId: text("contract_id").notNull(), changeType: text("change_type").notNull(),
+  reason: text("reason").notNull(), beforeJson: text("before_json").notNull(), afterJson: text("after_json").notNull(),
+  effectiveDate: text("effective_date").notNull(), status: text("status").notNull().default("SUBMITTED"),
+  createdBy: text("created_by").notNull(), approvalRequestId: text("approval_request_id").notNull().default(""),
+  approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("idx_sales_contract_change_contract_created").on(table.contractId, table.createdAt)]);
+
 export const salesTargetPlans = sqliteTable("sales_target_plans", {
   id: text("id").primaryKey(), year: integer("year").notNull(), version: integer("version").notNull(),
   name: text("name").notNull(), status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),

@@ -1012,3 +1012,36 @@ test("sales pricing ledgers keep one active master version and one review snapsh
   assert.equal(db.prepare("SELECT outcome FROM sales_document_pricing_reviews WHERE document_id = 'pricing-document-1'").get().outcome, "PASS");
   db.close();
 });
+
+test("sales contracts keep one order link, unique numbers and append-only change evidence", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO sales_contracts
+    (id, order_document_id, contract_number, title, version, amount_snapshot, currency, start_date, end_date,
+      auto_renewal, renewal_notice_days, payment_terms, acceptance_criteria, delivery_terms, owner_employee_id,
+      signed_document_id, status, created_by, approved_by, approved_at, created_at, updated_at)
+    VALUES ('contract-1', 'order-contract-1', 'CTR-2026-001', '계약 검증', 1, 1000000, 'KRW', '2026-08-15', '2027-08-14',
+      1, 30, '월말 현금 지급', '검수서 서명 완료', '지정 장소 납품', 'gc.kim', 'document-1', 'ACTIVE', 'gc.kim', 'gc.kim', ?, ?, ?)`).run(now, now, now);
+  const duplicateOrder = db.prepare(`INSERT INTO sales_contracts
+    (id, order_document_id, contract_number, title, version, amount_snapshot, currency, start_date, end_date,
+      auto_renewal, renewal_notice_days, payment_terms, acceptance_criteria, delivery_terms, owner_employee_id,
+      signed_document_id, status, created_by, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, ?, ?, '중복', 1, 1, 'KRW', '2026-08-15', '2027-08-14', 0, 30, '지급 조건', '검수 조건', '납품 조건',
+      'gc.kim', '', 'DRAFT', 'gc.kim', '', NULL, ?, ?)`);
+  assert.throws(() => duplicateOrder.run("contract-order-duplicate", "order-contract-1", "CTR-2026-002", now, now), /UNIQUE constraint failed/);
+  assert.throws(() => duplicateOrder.run("contract-number-duplicate", "order-contract-2", "CTR-2026-001", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO sales_contract_obligations
+    (id, contract_id, obligation_type, title, owner_employee_id, due_date, evidence_required, status,
+      completion_note, completed_by, completed_at, created_at, updated_at)
+    VALUES ('obligation-1', 'contract-1', 'DELIVERY', '1차 납품 완료', 'gc.kim', '2026-09-30', 1, 'OPEN', '', '', NULL, ?, ?)`).run(now, now);
+  db.prepare(`INSERT INTO sales_contract_change_requests
+    (id, contract_id, change_type, reason, before_json, after_json, effective_date, status, created_by,
+      approval_request_id, approved_by, approved_at, created_at, updated_at)
+    VALUES ('contract-change-1', 'contract-1', 'PERIOD', '고객 요청으로 계약기간 연장', '{"endDate":"2027-08-14"}',
+      '{"endDate":"2027-12-31"}', '2027-08-01', 'SCHEDULED', 'gc.kim', 'approval-1', 'gc.kim', ?, ?, ?)`).run(now, now, now);
+  const settings = db.prepare("SELECT enforcement_started_at FROM sales_contract_governance_settings WHERE id = 'default'").get();
+  assert.ok(Number(settings.enforcement_started_at) > 0);
+  const duePlan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM sales_contract_obligations WHERE contract_id = 'contract-1' AND status = 'OPEN' ORDER BY due_date").all();
+  assert.ok(duePlan.some((row) => String(row.detail).includes("idx_sales_contract_obligation_contract_due")));
+  assert.equal(db.prepare("SELECT json_extract(after_json, '$.endDate') AS end_date FROM sales_contract_change_requests WHERE id = 'contract-change-1'").get().end_date, "2027-12-31");
+  db.close();
+});

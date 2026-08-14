@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createApprovalRequest } from "../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 import { ensureSalesPricingSchema, evaluateSalesDocumentPricing, getSalesPricingGate } from "../../sales-pricing";
+import { ensureSalesContractSchema, getSalesContractGate } from "../../sales-contracts";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -88,6 +89,7 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_stage_history_opportunity_changed ON sales_opportunity_stage_history(opportunity_id, changed_at)"),
   ]);
   await ensureSalesPricingSchema(db);
+  await ensureSalesContractSchema(db);
 }
 
 const toAccount = (row: AccountRow) => ({ id: row.id, name: row.name, businessNumber: row.business_number, industry: row.industry, ownerEmployeeId: row.owner_employee_id, status: row.status, memo: row.memo });
@@ -311,6 +313,10 @@ export async function POST(request: Request) {
       if (documentType === "ORDER" && source?.document_type === "QUOTE") {
         const pricingGate = await getSalesPricingGate(db, source.id);
         if (!pricingGate.canProceed) return Response.json({ error: "가격 검토를 통과하거나 예외 승인을 받은 견적만 수주로 전환할 수 있습니다." }, { status: 409 });
+      }
+      if ((documentType === "DELIVERY" || documentType === "INVOICE") && source?.document_type === "ORDER") {
+        const contractGate = await getSalesContractGate(db, source.id);
+        if (!contractGate.canProceed) return Response.json({ error: contractGate.reason }, { status: 409 });
       }
       const catalogRows = await db.prepare("SELECT * FROM sales_catalog_items").all<CatalogItemRow>();
       const catalogById = new Map(catalogRows.results.map((item) => [item.id, item]));

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 import type { ErpModule } from "../../erp-platform";
 import { ensureFinanceAlertActionSchema } from "../../finance-alert-actions-server";
+import { ensureSalesContractSchema } from "../../sales-contracts";
 
 type Bindings = { DB: D1Database; HR_AUDIO: R2Bucket };
 const bindings = env as unknown as Bindings;
@@ -102,6 +103,21 @@ export async function POST(request: Request) {
     if (!rule) return Response.json({ error: "인센티브 규정 초안을 먼저 등록해 주세요." }, { status: 404 });
     if (rule.status !== "DRAFT") return Response.json({ error: "제출·승인된 인센티브 규정에는 근거문서를 추가할 수 없습니다." }, { status: 409 });
   }
+  if (moduleName === "sales" && entityType === "salesContract") {
+    await ensureSalesContractSchema(db);
+    const contract = await db.prepare("SELECT status FROM sales_contracts WHERE id = ?").bind(entityId).first<{ status: string }>();
+    if (!contract) return Response.json({ error: "계약 원장을 먼저 등록해 주세요." }, { status: 404 });
+    if (contract.status !== "DRAFT") return Response.json({ error: "제출·승인된 계약에는 서명본을 추가할 수 없습니다. 계약 변경 절차를 이용해 주세요." }, { status: 409 });
+  }
+  if (moduleName === "sales" && entityType === "salesContractObligation") {
+    await ensureSalesContractSchema(db);
+    const obligation = await db.prepare(`SELECT obligation.status, contract.status AS contract_status FROM sales_contract_obligations obligation
+      JOIN sales_contracts contract ON contract.id = obligation.contract_id WHERE obligation.id = ?`).bind(entityId)
+      .first<{ status: string; contract_status: string }>();
+    if (!obligation || obligation.contract_status !== "ACTIVE" || !["OPEN", "IN_PROGRESS"].includes(obligation.status)) {
+      return Response.json({ error: "활성 계약의 미완료 의무에만 증빙을 추가할 수 있습니다." }, { status: 409 });
+    }
+  }
   if (file.size > 25 * 1024 * 1024) return Response.json({ error: "파일은 25MB 이하만 저장할 수 있습니다." }, { status: 413 });
   const contentType = file.type || "application/octet-stream";
   if (!allowedTypes.has(contentType)) return Response.json({ error: "PDF, DOCX, XLSX, PNG, JPG, TXT, CSV 파일만 저장할 수 있습니다." }, { status: 415 });
@@ -175,6 +191,19 @@ export async function DELETE(request: Request) {
     if (validation || (rule && rule.status !== "DRAFT")) {
       return Response.json({ error: "검증 또는 승인 절차에 사용된 인센티브 근거문서는 삭제할 수 없습니다." }, { status: 409 });
     }
+  }
+  if (row.module === "sales" && row.entity_type === "salesContract") {
+    await ensureSalesContractSchema(db);
+    const contract = await db.prepare("SELECT status, signed_document_id FROM sales_contracts WHERE id = ?").bind(row.entity_id)
+      .first<{ status: string; signed_document_id: string }>();
+    if (contract && (contract.status !== "DRAFT" || contract.signed_document_id === row.id)) {
+      return Response.json({ error: "제출·승인 또는 활성 계약의 서명본은 감사 이력 보호를 위해 삭제할 수 없습니다." }, { status: 409 });
+    }
+  }
+  if (row.module === "sales" && row.entity_type === "salesContractObligation") {
+    await ensureSalesContractSchema(db);
+    const obligation = await db.prepare("SELECT status FROM sales_contract_obligations WHERE id = ?").bind(row.entity_id).first<{ status: string }>();
+    if (obligation?.status === "COMPLETED") return Response.json({ error: "완료 근거로 사용된 계약 의무 증빙은 삭제할 수 없습니다." }, { status: 409 });
   }
   const deletedAt = Date.now();
   await db.prepare("UPDATE erp_documents SET deleted_at = ? WHERE id = ?").bind(deletedAt, id).run();

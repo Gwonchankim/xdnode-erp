@@ -6,6 +6,7 @@ import { hasClosedFinanceAlertCase } from "../../finance-alert-actions-server";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../erp-platform";
 import { companyEmployees, companyOrganizations } from "../../hr-company-data";
 import { ensureSalesPricingSchema } from "../../sales-pricing";
+import { ensureSalesContractSchema } from "../../sales-contracts";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -777,6 +778,32 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const contractRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM sales_documents document JOIN sales_contract_governance_settings setting ON setting.id = 'default'
+        WHERE document.document_type = 'ORDER' AND document.status IN ('ACCEPTED','COMPLETED')
+          AND document.created_at >= setting.enforcement_started_at
+          AND NOT EXISTS (SELECT 1 FROM sales_contracts contract WHERE contract.order_document_id = document.id AND contract.status = 'ACTIVE')) AS missing_contract_count,
+      (SELECT COUNT(*) FROM sales_contract_obligations obligation JOIN sales_contracts contract ON contract.id = obligation.contract_id
+        WHERE contract.status = 'ACTIVE' AND obligation.status <> 'COMPLETED' AND obligation.due_date < ?) AS overdue_obligation_count,
+      (SELECT COUNT(*) FROM sales_contracts contract WHERE contract.status = 'ACTIVE' AND contract.auto_renewal = 1
+        AND date(contract.end_date, '-' || contract.renewal_notice_days || ' days') <= ?) AS renewal_due_count,
+      (SELECT COUNT(*) FROM sales_contract_change_requests WHERE status = 'SCHEDULED' AND effective_date <= ?) AS scheduled_due_count`)
+      .bind(today, today, today).first<{ missing_contract_count: number; overdue_obligation_count: number; renewal_due_count: number; scheduled_due_count: number }>();
+    const missing = Number(contractRisk?.missing_contract_count ?? 0); const overdue = Number(contractRisk?.overdue_obligation_count ?? 0);
+    const renewals = Number(contractRisk?.renewal_due_count ?? 0); const scheduled = Number(contractRisk?.scheduled_due_count ?? 0);
+    const riskCount = missing + overdue + renewals + scheduled;
+    if (riskCount > 0) await upsertRuleTask({
+      id: "sales-contract-lifecycle-risk", module: "sales", category: "계약·이행 관리",
+      title: `계약·이행 후속조치 ${riskCount}건`,
+      description: `활성 계약 누락 수주 ${missing}건 · 기한 경과 의무 ${overdue}건 · 갱신 통지 도래 ${renewals}건 · 적용 대기 변경 ${scheduled}건입니다.`,
+      dueDate: today, priority: missing + overdue + scheduled > 0 ? "HIGH" : "NORMAL", destination: "sales:contracts",
+      sourceId: `${today}:${missing}:${overdue}:${renewals}:${scheduled}`,
+    }); else await closeRuleTask("sales-contract-lifecycle-risk");
+  } catch {
+    // 계약·이행 원장이 배포된 뒤부터 계약 누락·의무·갱신·예약 변경을 평가합니다.
+  }
+
+  try {
     const targetYear = Number(today.slice(0, 4));
     const plan = await db.prepare("SELECT id, version FROM sales_target_plans WHERE year = ? AND status = 'APPROVED' LIMIT 1")
       .bind(targetYear).first<{ id: string; version: number }>();
@@ -988,6 +1015,7 @@ export async function GET() {
   const auth = await authorizeErpRequest(db, "operations", "read");
   if (auth.response) return auth.response;
   await ensureSalesPricingSchema(db);
+  await ensureSalesContractSchema(db);
   await seedCurrentOperations();
   await seedStateDrivenOperations();
 

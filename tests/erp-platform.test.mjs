@@ -1246,3 +1246,48 @@ test("sales pricing uses versioned masters, immutable reviews and approval-gated
   assert.match(migration, /sales_document_pricing_reviews/);
   assert.match(plan, /데이터 누락은 예외 승인으로 우회할 수 없다/);
 });
+
+test("sales contracts require signed evidence, obligations and governed changes before fulfillment", async () => {
+  const [api, helper, sales, documents, view, workspace, approval, approvalCenter, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/sales/contracts/route.ts"), read("app/sales-contracts.ts"), read("app/api/sales/route.ts"),
+    read("app/api/documents/route.ts"), read("app/sales-contract-management.tsx"), read("app/sales-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/approval-center.tsx"), read("app/api/operations/route.ts"),
+    read("db/schema.ts"), read("drizzle/0049_sales_contract_lifecycle.sql"), read("docs/sales-contract-lifecycle-plan.md"),
+  ]);
+  assert.match(api, /action === "CREATE_CONTRACT"/);
+  assert.match(api, /document_type = 'ORDER' AND status IN \('ACCEPTED','COMPLETED'\)/);
+  assert.match(api, /action === "ADD_OBLIGATION"/);
+  assert.match(api, /서명 계약서와 최소 1개의 이행 의무/);
+  assert.match(api, /requestType: "CONTRACT"/);
+  assert.match(api, /targetEntityType: "SALES_CONTRACT"/);
+  assert.match(api, /action === "REQUEST_CHANGE"/);
+  assert.match(api, /이미 결재 또는 적용 대기 중인 계약 변경/);
+  assert.match(api, /requestType: "CONTRACT_CHANGE"/);
+  assert.match(api, /action === "APPLY_SCHEDULED_CHANGE"/);
+  assert.match(api, /OBLIGATION_EVIDENCE/);
+  assert.match(helper, /enforcement_started_at/);
+  assert.match(helper, /order\.created_at >=/);
+  assert.match(helper, /도입 이후 수주는 승인된 계약 원장/);
+  assert.match(sales, /getSalesContractGate/);
+  assert.match(documents, /entityType === "salesContract"/);
+  assert.match(documents, /entityType === "salesContractObligation"/);
+  assert.match(documents, /감사 이력 보호/);
+  assert.match(view, /계약·이행 관리/);
+  assert.match(view, /서명 계약서/);
+  assert.match(view, /계약 변경요청/);
+  assert.match(workspace, /<SalesContractManagement/);
+  assert.match(approval, /CONTRACT: "계약 활성화 승인"/);
+  assert.match(approval, /CONTRACT_CHANGE: "계약 변경 승인"/);
+  assert.match(approval, /targetEntityType === "SALES_CONTRACT"/);
+  assert.match(approval, /targetEntityType === "SALES_CONTRACT_CHANGE"/);
+  assert.match(approval, /'SCHEDULED'/);
+  assert.match(approvalCenter, /계약 활성화 승인/);
+  assert.match(operations, /sales-contract-lifecycle-risk/);
+  assert.match(operations, /갱신 통지 도래/);
+  assert.match(schema, /salesContracts/);
+  assert.match(schema, /salesContractObligations/);
+  assert.match(schema, /salesContractChangeRequests/);
+  assert.match(migration, /idx_sales_contract_order/);
+  assert.match(migration, /idx_sales_contract_number/);
+  assert.match(plan, /도입 이전 수주는 기존 운영을 보존/);
+});

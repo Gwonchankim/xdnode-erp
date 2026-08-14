@@ -235,13 +235,13 @@ export async function PUT(request: Request) {
   const before = await getSettings();
   if (!before) return Response.json({ error: "자금예측 설정을 찾을 수 없습니다." }, { status: 404 });
   const body = await request.json() as Record<string, unknown>;
-  const minimumCashBalance = Number(body.minimumCashBalance ?? before.minimum_cash_balance);
+  const minimumCashBalance = before.minimum_cash_balance;
   const includeFx = body.includeFx === undefined ? Boolean(before.include_fx) : Boolean(body.includeFx);
   const defaultScenario = String(body.defaultScenario ?? before.default_scenario).toUpperCase();
   const collectionProbability = Number(body.collectionProbability ?? before.collection_probability);
-  if (!Number.isInteger(minimumCashBalance) || minimumCashBalance < 0 || !["BASE", "CONSERVATIVE", "OPTIMISTIC"].includes(defaultScenario)
+  if (!["BASE", "CONSERVATIVE", "OPTIMISTIC"].includes(defaultScenario)
     || !Number.isInteger(collectionProbability) || collectionProbability < 0 || collectionProbability > 100) {
-    return Response.json({ error: "최소운영자금·기본 시나리오·수금확률을 확인해 주세요." }, { status: 400 });
+    return Response.json({ error: "기본 시나리오와 수금확률을 확인해 주세요." }, { status: 400 });
   }
   const now = Date.now();
   await db.prepare(`UPDATE finance_cash_forecast_settings SET minimum_cash_balance = ?, include_fx = ?,

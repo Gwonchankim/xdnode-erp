@@ -1320,14 +1320,69 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .account-register-list em.watch { color: #9a3412; background: #ffedd5; }
 .account-register-list em.high { color: #be123c; background: #ffe4e6; }
 
+/* Finance governance policy */
+.finance-policy-workspace { display: grid; gap: 18px; }
+.finance-policy-loading { padding: 28px; color: #71717a; font-size: 11px; }
+.finance-policy-hero { min-height: 158px; padding: 27px 30px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border: 1px solid #e4e4e7; border-radius: 22px; background: #fff; }
+.finance-policy-hero p, .finance-policy-form header p, .finance-policy-preview header p { margin: 0; color: #71717a; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.finance-policy-hero h1 { margin: 8px 0 7px; font-size: 32px; letter-spacing: -.05em; }
+.finance-policy-hero > div:first-child > span { color: #71717a; font-size: 10px; }
+.finance-policy-score { min-width: 158px; padding: 17px 20px; border-radius: 18px; color: #fff; background: #18181b; }
+.finance-policy-score small, .finance-policy-score strong, .finance-policy-score > span { display: block; }
+.finance-policy-score small { color: #a1a1aa; font-size: 8px; font-weight: 900; }
+.finance-policy-score strong { margin: 5px 0 2px; font-size: 31px; letter-spacing: -.05em; }
+.finance-policy-score strong em { color: #a1a1aa; font-size: 9px; font-style: normal; }
+.finance-policy-score > span { color: #fff; font-size: 9px; font-weight: 900; }
+.finance-policy-score.watch { background: #9a3412; }
+.finance-policy-score.high { background: #9f1239; }
+.finance-policy-message { padding: 12px 15px; border-radius: 14px; color: #1d4ed8; background: #dbeafe; font-size: 10px; font-weight: 800; }
+.finance-policy-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(360px, .7fr); gap: 18px; align-items: start; }
+.finance-policy-form, .finance-policy-preview { padding: 22px; }
+.finance-policy-form header, .finance-policy-preview header { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.finance-policy-form header h2, .finance-policy-preview header h2 { margin: 6px 0 0; font-size: 20px; }
+.finance-policy-form header > span, .finance-policy-preview header > span { padding: 6px 8px; border-radius: 9px; color: #52525b; background: #f4f4f5; font-size: 8px; font-weight: 900; }
+.finance-policy-fields { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.finance-policy-fields label, .finance-policy-reason { display: grid; gap: 6px; }
+.finance-policy-fields label > span, .finance-policy-reason > span { color: #3f3f46; font-size: 10px; font-weight: 850; }
+.finance-policy-fields label > div { position: relative; }
+.finance-policy-fields input, .finance-policy-reason textarea { width: 100%; padding: 11px 12px; border: 1px solid #d4d4d8; border-radius: 13px; color: #18181b; background: #fff; font: inherit; outline: none; }
+.finance-policy-fields label > div input { padding-right: 62px; }
+.finance-policy-fields label > div b { position: absolute; top: 50%; right: 12px; color: #ff5a1f; font-size: 9px; transform: translateY(-50%); }
+.finance-policy-fields input:focus, .finance-policy-reason textarea:focus { border-color: #71717a; box-shadow: 0 0 0 3px rgba(24,24,27,.06); }
+.finance-policy-fields small { color: #8b9491; font-size: 8px; line-height: 1.45; }
+.finance-policy-reason { margin-top: 16px; }
+.finance-policy-reason textarea { resize: vertical; line-height: 1.55; }
+.finance-policy-form-footer { margin-top: 15px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.finance-policy-form-footer p { margin: 0; color: #71717a; font-size: 8px; line-height: 1.5; }
+.finance-policy-form-footer button { min-width: 142px; height: 42px; border: 0; border-radius: 14px; color: #fff; background: #18181b; font-size: 9px; font-weight: 900; cursor: pointer; }
+.finance-policy-form-footer button:disabled { opacity: .55; cursor: wait; }
+.finance-policy-driver-list { margin-top: 17px; display: grid; gap: 8px; }
+.finance-policy-driver-list > div { padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; border-radius: 14px; background: #f4f4f5; }
+.finance-policy-driver-list > div > span { font-size: 9px; font-weight: 900; }
+.finance-policy-driver-list > div > strong { color: #18181b; font-size: 13px; }
+.finance-policy-driver-list > div.watch > strong { color: #c2410c; }
+.finance-policy-driver-list > div.high > strong { color: #be123c; }
+.finance-policy-driver-list > div > strong small { color: #a1a1aa; font-size: 7px; }
+.finance-policy-driver-list p, .finance-policy-driver-list em { grid-column: 1 / -1; margin: 0; }
+.finance-policy-driver-list p { color: #52525b; font-size: 8px; }
+.finance-policy-driver-list em { color: #a1a1aa; font-size: 7px; font-style: normal; }
+.finance-policy-linkage { margin-top: 16px; padding: 13px; display: flex; flex-wrap: wrap; gap: 7px; border-radius: 14px; color: #fff; background: #18181b; }
+.finance-policy-linkage strong { width: 100%; margin-bottom: 2px; font-size: 9px; }
+.finance-policy-linkage span { padding: 5px 7px; border-radius: 8px; background: #27272a; font-size: 7px; font-weight: 800; }
+.finance-policy-preview > small { margin-top: 12px; display: block; color: #71717a; font-size: 8px; line-height: 1.5; }
+
 @media (max-width: 1180px) {
   .finance-alert-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .finance-insight-grid, .finance-assistant-grid, .finance-liquidity-grid, .finance-quality-grid, .commercial-forecast-grid, .receivable-control-grid, .account-risk-grid { grid-template-columns: 1fr; }
   .finance-quality-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .receivable-editor-panel { position: static; }
+  .finance-policy-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 760px) {
+  .finance-policy-hero, .finance-policy-form-footer { align-items: stretch; flex-direction: column; }
+  .finance-policy-score { width: 100%; }
+  .finance-policy-fields { grid-template-columns: 1fr; }
   .finance-alert-grid { grid-template-columns: 1fr; }
   .finance-chart-head { display: grid; }
   .finance-chart-controls { justify-content: start; }

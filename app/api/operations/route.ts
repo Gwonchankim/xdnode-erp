@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
 import { financeCurrentData } from "../../finance-current-data";
+import { buildAccountRiskModel } from "../../finance-decision-model";
+import { loadFinanceRiskPolicy } from "../../finance-risk-policy-server";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../erp-platform";
 
 type Bindings = { DB: D1Database };
@@ -702,6 +704,31 @@ async function seedStateDrivenOperations() {
     else await closeRuleTask("management-report-actions");
   } catch {
     // 경영보고 원장이 배포된 뒤부터 기한·후속조치 규칙을 평가합니다.
+  }
+
+  try {
+    const policy = await loadFinanceRiskPolicy(db);
+    const model = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend, policy);
+    if (!policy.configured) await upsertRuleTask({
+      id: "finance-risk-policy-missing", module: "finance", category: "재무정책",
+      title: "회사 재무 위험정책 확정 필요",
+      description: "최소 운영자금·대출 커버리지·외화 집중·잔액 감소 경보 기준이 초기값 상태입니다. 경영진 방침을 등록해 주세요.",
+      dueDate: today, priority: "HIGH", destination: "finance:policy",
+      sourceId: `UNCONFIGURED:${policy.version}`,
+    });
+    else await closeRuleTask("finance-risk-policy-missing");
+
+    if (model.level !== "안정") await upsertRuleTask({
+      id: "account-liquidity-policy-risk", module: "finance", category: "계좌 위험",
+      title: `회사 재무정책 기준 계좌 위험도 ${model.score}점 · ${model.level}`,
+      description: model.drivers.filter((driver) => driver.points > 0)
+        .map((driver) => `${driver.label} +${driver.points}점`).join(" · ") || "정책 기준을 확인해 주세요.",
+      dueDate: today, priority: model.level === "높음" ? "CRITICAL" : "HIGH", destination: "finance:policy",
+      sourceId: `${financeCurrentData.asOf}:v${policy.version}:${model.score}`,
+    });
+    else await closeRuleTask("account-liquidity-policy-risk");
+  } catch {
+    // 재무정책 마이그레이션 적용 전에는 다음 통합 업무 조회에서 다시 평가합니다.
   }
 }
 

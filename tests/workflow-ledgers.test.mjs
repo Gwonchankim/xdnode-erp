@@ -37,6 +37,27 @@ test("new workflow ledgers migrate cleanly and enforce one payment per request",
   assert.throws(() => insertJournal.run("journal-2", "expense-1", "2026-08-14", "중복", "소모품비", "보통예금", 10000, "gc.kim", now, now), /UNIQUE constraint failed/);
 });
 
+test("finance risk policy extends the single cash-policy record with safe defaults", async () => {
+  const db = await migratedDatabase();
+  const columns = db.prepare("PRAGMA table_info(finance_cash_forecast_settings)").all().map((column) => column.name);
+  for (const name of ["risk_policy_configured", "risk_policy_version", "minimum_debt_coverage_bps",
+    "maximum_fx_concentration_bps", "warning_drawdown_bps", "critical_drawdown_bps", "low_balance_threshold"]) {
+    assert.ok(columns.includes(name), `${name} column should exist`);
+  }
+  const now = Date.now();
+  db.prepare(`INSERT INTO finance_cash_forecast_settings
+    (id, minimum_cash_balance, include_fx, default_scenario, collection_probability, updated_by, created_at, updated_at)
+    VALUES ('default', 0, 0, 'BASE', 85, '', ?, ?)`).run(now, now);
+  const policy = db.prepare(`SELECT risk_policy_configured, risk_policy_version, minimum_debt_coverage_bps,
+    maximum_fx_concentration_bps, warning_drawdown_bps, critical_drawdown_bps, low_balance_threshold
+    FROM finance_cash_forecast_settings WHERE id = 'default'`).get();
+  assert.deepEqual({ ...policy }, {
+    risk_policy_configured: 0, risk_policy_version: 1, minimum_debt_coverage_bps: 12500,
+    maximum_fx_concentration_bps: 5000, warning_drawdown_bps: 2000,
+    critical_drawdown_bps: 3500, low_balance_threshold: 100000,
+  });
+});
+
 test("daily treasury reports keep immutable-style versions unique per report date", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

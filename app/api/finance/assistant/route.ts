@@ -3,6 +3,7 @@ import { authorizeErpRequest } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { financeCurrentInsights } from "../../../finance-current-insights";
 import { buildAccountRiskModel, buildSalesForecast } from "../../../finance-decision-model";
+import { loadFinanceRiskPolicy } from "../../../finance-risk-policy-server";
 
 type AiBindings = {
   DB: D1Database;
@@ -20,10 +21,10 @@ type CloudflareEnvelope = {
 const currentBankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
 const bankActivity = financeCurrentInsights.bankActivity31Days;
 const salesForecast = buildSalesForecast(financeCurrentData.salesDaily2026, financeCurrentInsights.taxInvoicesAsOf);
-const accountRiskModel = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend);
 const forecastScenarios = salesForecast.scenarios.map((scenario) => `${scenario.label} ${scenario.projectedTotal.toLocaleString("ko-KR")}원(${scenario.basis})`).join(", ");
-const riskDrivers = accountRiskModel.drivers.map((driver) => `${driver.label} +${driver.points}/${driver.maxPoints}점: ${driver.evidence}`).join(", ");
-const financeContext = `
+function buildFinanceContext(accountRiskModel: ReturnType<typeof buildAccountRiskModel>) {
+  const riskDrivers = accountRiskModel.drivers.map((driver) => `${driver.label} +${driver.points}/${driver.maxPoints}점: ${driver.evidence}`).join(", ");
+  return `
 자료 범위: 2024년·2025년은 사용자가 승인한 이카운트 결산 자료이며, 2026년 은행·분개장 자료는 2026-08-14 기준 Clobe 최신 스냅샷이다. 전자세금계산서는 2026-08-13까지이며 서로 다른 기준기간을 반드시 구분한다.
 2024년 결산: 자산총계 9,163,347,943원, 보통예금 4,440,692,099원, 외상매출금 2,938,482,814원, 외상매입금 4,833,825,237원, 장기차입금 100,000,000원, 상품매출 18,003,003,195원, 상품매출원가 15,443,129,733원, 당기순이익 2,506,308,507원. 합계잔액시산표 차변·대변 각 101,164,394,499원이며 재무상태표와 대사 완료.
 2025년 결산: 자산총계 14,042,172,078원, 보통예금 7,362,455,598원, 외상매출금 2,282,636,500원, 외상매입금 5,549,840,004원, 장기차입금 83,333,336원, 상품매출 35,245,919,310원, 상품매출원가 34,418,332,396원, 매출총이익 827,586,914원, 당기순이익 796,938,875원. 합계잔액시산표 차변·대변 각 262,960,719,308원이며 원장·자금현황표와 대사 완료.
@@ -44,6 +45,7 @@ const financeContext = `
 연동 채널 매출은 쿠팡 마켓플레이스 2026년 6월 21,510,000원, 정산액 19,940,696원, 수수료 1,514,304원이다.
 중요: 은행 거래의 ‘매출성 입금’과 연동 판매채널의 ‘회계상 매출’은 서로 다른 지표이므로 합산하거나 동일시하지 않는다.
 `;
+}
 
 function providerMessage(data: CloudflareEnvelope): string {
   return data.errors?.map((item) => item.message).filter(Boolean).join(" ") ?? "";
@@ -57,6 +59,9 @@ export async function POST(request: Request) {
   const bindings = env as unknown as AiBindings;
   const auth = await authorizeErpRequest(bindings.DB, "finance", "read");
   if (auth.response) return auth.response;
+  const riskPolicy = await loadFinanceRiskPolicy(bindings.DB);
+  const accountRiskModel = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend, riskPolicy);
+  const financeContext = buildFinanceContext(accountRiskModel);
   const accountId = bindings.CLOUDFLARE_ACCOUNT_ID?.trim();
   const apiToken = bindings.CLOUDFLARE_API_TOKEN?.trim();
   const model = bindings.CLOUDFLARE_AI_MODEL?.trim() || "@cf/qwen/qwen3-30b-a3b-fp8";

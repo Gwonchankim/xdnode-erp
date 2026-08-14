@@ -18,13 +18,14 @@ import ProjectCostingWorkspace from "./project-costing-workspace";
 import ExpenseControlWorkspace from "./expense-control-workspace";
 import DebtManagementWorkspace from "./debt-management-workspace";
 import DailyTreasuryWorkspace from "./daily-treasury-workspace";
+import FinanceRiskPolicyWorkspace from "./finance-risk-policy-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
 import { buildAmountSeries, buildBalanceSeries, type FinancePeriod } from "./finance-time-series";
-import { buildAccountRiskModel, buildSalesForecast } from "./finance-decision-model";
+import { buildAccountRiskModel, buildSalesForecast, DEFAULT_FINANCE_RISK_POLICY, type FinanceRiskPolicy } from "./finance-decision-model";
 
 type ModuleKey = "finance" | "sales" | "hr";
 
@@ -116,12 +117,12 @@ const financeChecks = [
 ];
 
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality" | "policy";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
   "overview", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
   "project-costing", "expense-control", "debt", "reconciliation", "forecast", "budget", "close", "master",
-  "commercial", "receivables", "statements", "liquidity", "quality",
+  "commercial", "receivables", "statements", "liquidity", "quality", "policy",
 ]);
 const treasuryStatusLabels: Record<TreasuryOverviewReport["status"], string> = {
   DRAFT: "작성 중",
@@ -601,6 +602,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const [assistantAnswer, setAssistantAnswer] = useState("2024~2026년 재무 데이터 범위와 출처를 구분해 답변합니다. 궁금한 항목을 선택하거나 질문을 입력해 주세요.");
   const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
   const [financeOverviewRefreshKey, setFinanceOverviewRefreshKey] = useState(0);
+  const [riskPolicy, setRiskPolicy] = useState<FinanceRiskPolicy>(DEFAULT_FINANCE_RISK_POLICY);
   const [financeOverview, setFinanceOverview] = useState<{
     loading: boolean;
     operationsError: string;
@@ -646,6 +648,15 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
     return () => { cancelled = true; };
   }, [financeOverviewRefreshKey, overviewYear, workspace]);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/finance/risk-policy", { cache: "no-store" })
+      .then((response) => financeResponseJson<{ policy: FinanceRiskPolicy }>(response))
+      .then((result) => { if (!cancelled) setRiskPolicy(result.policy); })
+      .catch(() => { /* 초기 정책으로 화면을 유지하고 정책 화면에서 오류를 상세 표시합니다. */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const selectedHistorical = statementYear === "2024" ? financeHistoricalData.years["2024"] : financeHistoricalData.years["2025"];
   const trialBalanceSource = statementYear === "2024" ? financeHistoricalData.trialBalance2024 : financeHistoricalData.trialBalance2025;
   const trialBalance = trialBalanceSource.filter((row) => `${row.code} ${row.name}`.toLowerCase().includes(search.toLowerCase()));
@@ -678,7 +689,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const bankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
   const bankLoans = financeCurrentData.accountSummary.loanBalanceSum;
   const liquidityCoverage = bankLoans ? bankAssets / bankLoans : 0;
-  const accountRiskModel = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend);
+  const accountRiskModel = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend, riskPolicy);
   const accountRiskLevel = accountRiskModel.level;
   const bankActivity = financeCurrentInsights.bankActivity31Days;
   const activeFinanceTasks = financeOverview.tasks.filter((task) => task.module === "finance" && task.status !== "DONE");
@@ -809,7 +820,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["daily-report", "일일 자금일보", "일"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["expense-control", "법인카드·지출증빙", "증"], ["inventory", "재고·상품원가", "재"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
     { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
-    { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"]] },
+    { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"], ["policy", "회사 재무정책", "설"]] },
   ];
 
   return (
@@ -979,6 +990,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       {workspace === "close" && <FinanceCloseWorkspace />}
 
       {workspace === "master" && <FinanceMasterWorkspace />}
+
+      {workspace === "policy" && <FinanceRiskPolicyWorkspace onPolicyChange={setRiskPolicy} />}
 
       {workspace === "commercial" && (
         <>

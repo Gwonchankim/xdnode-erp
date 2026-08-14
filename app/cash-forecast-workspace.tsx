@@ -98,7 +98,7 @@ export default function CashForecastWorkspace() {
       body: JSON.stringify({ ...settings, minimumCashBalance: Number(settings.minimumCashBalance), collectionProbability: Number(settings.collectionProbability) }) });
     const result = await response.json() as { error?: string };
     if (!response.ok) return setMessage(result.error || "자금예측 설정을 저장하지 못했습니다.");
-    setMessage("최소운영자금과 시나리오 설정을 저장하고 예측을 다시 계산했습니다."); setSettingsOpen(false);
+    setMessage("시나리오·수금확률 설정을 저장하고 예측을 다시 계산했습니다. 최소운영자금은 회사 재무정책에서 관리합니다."); setSettingsOpen(false);
     await load(settings.defaultScenario); setScenario(settings.defaultScenario);
   }
 
@@ -123,7 +123,7 @@ export default function CashForecastWorkspace() {
     {message && <div className="cash-forecast-message" role="status">{message}</div>}
 
     {settingsOpen && <form className="panel cash-forecast-settings" onSubmit={saveSettings}>
-      <label>최소운영자금<input type="number" min="0" step="10000" value={settings.minimumCashBalance} onChange={(event) => setSettings({ ...settings, minimumCashBalance: event.target.value })} /></label>
+      <label>최소운영자금<input type="number" value={settings.minimumCashBalance} disabled /><span>재무정책</span></label>
       <label>미수금 기준 회수확률<input type="number" min="0" max="100" value={settings.collectionProbability} onChange={(event) => setSettings({ ...settings, collectionProbability: event.target.value })} /><span>%</span></label>
       <label>기본 시나리오<select value={settings.defaultScenario} onChange={(event) => setSettings({ ...settings, defaultScenario: event.target.value as Scenario })}><option value="BASE">기준</option><option value="CONSERVATIVE">보수</option><option value="OPTIMISTIC">낙관</option></select></label>
       <label className="cash-forecast-check"><input type="checkbox" checked={settings.includeFx} onChange={(event) => setSettings({ ...settings, includeFx: event.target.checked })} /><span>외화예금 원화환산액 포함</span></label>

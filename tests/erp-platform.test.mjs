@@ -96,9 +96,36 @@ test("finance forecast and account risk share explainable decision models with t
   assert.doesNotMatch(page, /const accountRiskScore/);
   assert.match(assistant, /buildSalesForecast/);
   assert.match(assistant, /buildAccountRiskModel/);
-  assert.match(model, /2026\.08-v1/);
+  assert.match(model, /2026\.08-v2/);
   assert.match(model, /회사 최소 운영자금·외화 한도 정책 미등록/);
   assert.match(plan, /보수 ≤ 기준 ≤ 낙관/);
+});
+
+test("company finance policy is durable, admin-controlled, audited and connected to risk tasks", async () => {
+  const [api, server, view, page, schema, migration, operations, assistant, forecast, plan] = await Promise.all([
+    read("app/api/finance/risk-policy/route.ts"), read("app/finance-risk-policy-server.ts"),
+    read("app/finance-risk-policy-workspace.tsx"), read("app/page.tsx"), read("db/schema.ts"),
+    read("drizzle/0035_finance_risk_policy.sql"), read("app/api/operations/route.ts"),
+    read("app/api/finance/assistant/route.ts"), read("app/api/finance/forecast/route.ts"),
+    read("docs/finance-risk-policy-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "finance", "read"\)/);
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /FINANCE_RISK_POLICY_UPDATED/);
+  assert.match(api, /changeReason\.length < 2/);
+  assert.match(server, /finance_cash_forecast_settings/);
+  assert.match(schema, /riskPolicyConfigured/);
+  assert.match(migration, /minimum_debt_coverage_bps/);
+  assert.match(view, /정책 저장·재평가/);
+  assert.match(view, /감사기록에 남습니다/);
+  assert.match(page, /\["policy", "회사 재무정책", "설"\]/);
+  assert.match(page, /FinanceRiskPolicyWorkspace/);
+  assert.match(operations, /finance-risk-policy-missing/);
+  assert.match(operations, /account-liquidity-policy-risk/);
+  assert.match(operations, /destination: "finance:policy"/);
+  assert.match(assistant, /loadFinanceRiskPolicy/);
+  assert.doesNotMatch(forecast, /Number\(body\.minimumCashBalance/);
+  assert.match(plan, /일반 재무 쓰기 권한으로 정책을 변경할 수 없어야 한다/);
 });
 
 test("finance master changes are approval-gated and new finance inputs validate active master records", async () => {

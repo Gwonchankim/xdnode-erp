@@ -198,7 +198,15 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
       AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(status, approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
     if (approved) {
-      statements.push(db.prepare(`UPDATE hr_employee_records SET status = '퇴직 예정',
+      statements.push(db.prepare(`INSERT OR IGNORE INTO hr_retirement_settlements
+        (request_id, final_salary, retirement_pay, unused_leave_pay, deductions, net_settlement,
+          payroll_confirmed, insurance_confirmed, access_revoked, assets_returned, handover_confirmed,
+          status, prepared_by, completed_by, completed_at, created_at, updated_at)
+        SELECT ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'DRAFT', '', '', NULL, ?, ?
+        WHERE EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)
+          AND EXISTS (SELECT 1 FROM hr_retirement_requests WHERE id = ? AND status = 'IN_PROGRESS' AND updated_at = ?)`)
+        .bind(targetEntityId, now, now, requestId, transitionToken, targetEntityId, now),
+      db.prepare(`UPDATE hr_employee_records SET status = '퇴직 예정',
         retirement_json = json((SELECT json_object('requestId', id, 'date', retirement_date, 'reason', reason,
           'completedTaskIds', json(checklist_json), 'status', 'IN_PROGRESS') FROM hr_retirement_requests WHERE id = ?)),
         history_json = json_insert(CASE WHEN json_valid(history_json) THEN history_json ELSE '[]' END, '$[#]',

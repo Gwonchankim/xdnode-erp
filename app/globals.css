@@ -664,6 +664,14 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .quick-modal { border-radius: 48px; }
 }
 
+.journal-ledger { margin-top: 22px; padding-top: 18px; border-top: 1px solid #e4e4e7; }
+.journal-ledger h3 { margin: 0 0 10px; font-size: 15px; }
+.journal-row { min-height: 62px; display: grid; grid-template-columns: minmax(180px, 1.25fr) minmax(130px, 1fr) minmax(130px, 1fr) 110px 96px 70px; gap: 12px; align-items: center; border-bottom: 1px solid #ececee; font-size: 10px; }
+.journal-row.head { min-height: 38px; color: #71717a; font-size: 9px; font-weight: 900; }
+.journal-row p { margin: 0; }.journal-row p strong, .journal-row p small { display: block; }.journal-row p small { margin-top: 4px; color: #71717a; }
+.journal-row > div:last-child button { min-height: 34px; padding: 0 12px; color: #fff; border: 0; border-radius: 11px; background: #18181b; font-size: 9px; font-weight: 900; cursor: pointer; }
+@media (max-width: 980px) { .journal-ledger { overflow-x: auto; }.journal-row { min-width: 760px; } }
+
 /* Global notification center */
 .erp-alarm-button {
   min-height: 48px;

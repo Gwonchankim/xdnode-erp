@@ -16,6 +16,11 @@ type ExpenseItem = {
   journalStatus: string; evidenceRequired: boolean; evidenceCount: number;
 };
 type PaymentItem = { id: string; requestId: string; paymentDate: string; amount: number; paymentMethod: string; bankReference: string; paidBy: string; status: string };
+type JournalItem = {
+  id: string; paymentRequestId: string; voucherDate: string; description: string;
+  debitAccountCode: string; debitAccountName: string; creditAccountCode: string;
+  creditAccountName: string; amount: number; status: string; preparedBy: string; postedBy: string;
+};
 type OperationsData = {
   asOf: string;
   sourceStatus: Record<string, "LIVE" | "IMPORTED" | "MANUAL" | "NOT_CONNECTED">;
@@ -25,6 +30,7 @@ type OperationsData = {
   reconciliations: unknown[];
   expenses: ExpenseItem[];
   payments: PaymentItem[];
+  journals: JournalItem[];
 };
 
 const statusLabel: Record<string, string> = {
@@ -32,7 +38,7 @@ const statusLabel: Record<string, string> = {
   OPEN: "미착수", IN_PROGRESS: "진행 중", COMPLETED: "완료", APPROVED: "승인 완료",
   EXPECTED: "예정", CONFIRMED: "확정", CANCELLED: "취소",
   DRAFT: "작성 중", SUBMITTED: "검토 요청",
-  REJECTED: "반려", PAID: "지급 완료", READY: "분개 준비",
+  REJECTED: "반려", PAID: "지급 완료", READY: "분개 준비", POSTED: "전기 완료",
 };
 
 function won(value: number) {
@@ -136,17 +142,40 @@ export default function FinanceOperationsCenter() {
     await load();
   }
 
-  async function expenseAction(item: ExpenseItem, action: "SUBMIT" | "PAY") {
+  async function expenseAction(item: ExpenseItem, action: "SUBMIT" | "PAY" | "CREATE_JOURNAL") {
     const paymentDate = action === "PAY" ? window.prompt("지급일을 YYYY-MM-DD 형식으로 입력하세요.", financeCurrentData.asOf) : "";
     if (action === "PAY" && !paymentDate) return;
     const bankReference = action === "PAY" ? window.prompt("은행 이체번호 또는 지급 참조값을 입력하세요. (선택)", "") ?? "" : "";
+    const voucherDate = action === "CREATE_JOURNAL" ? window.prompt("전표일을 YYYY-MM-DD 형식으로 입력하세요.", financeCurrentData.asOf) : "";
+    if (action === "CREATE_JOURNAL" && !voucherDate) return;
+    const debitAccountName = action === "CREATE_JOURNAL" ? window.prompt("차변 계정명을 입력하세요.", item.accountName || "지급수수료") : "";
+    if (action === "CREATE_JOURNAL" && !debitAccountName) return;
+    const creditAccountName = action === "CREATE_JOURNAL" ? window.prompt("대변 계정명을 입력하세요.", "보통예금") : "";
+    if (action === "CREATE_JOURNAL" && !creditAccountName) return;
+    const description = action === "CREATE_JOURNAL" ? window.prompt("전표 적요를 입력하세요.", `${item.vendor ? `${item.vendor} · ` : ""}${item.title}`) : "";
+    if (action === "CREATE_JOURNAL" && !description) return;
     const response = await fetch("/api/finance/operations", {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ resource: "expense", id: item.id, action, paymentDate, paymentMethod: item.paymentMethod, bankReference }),
+      body: JSON.stringify({ resource: "expense", id: item.id, action, paymentDate, paymentMethod: item.paymentMethod, bankReference,
+        voucherDate, debitAccountCode: item.accountCode, debitAccountName, creditAccountName, description }),
     });
     const result = await response.json() as { error?: string; approvalSubmitted?: boolean };
     if (!response.ok) return setMessage(result.error || "요청을 처리하지 못했습니다.");
-    setMessage(action === "PAY" ? "지급원장에 반영했으며 분개 준비 상태로 전환했습니다." : "전자결재를 제출했습니다. 최종 승인 후 지급할 수 있습니다.");
+    setMessage(action === "PAY" ? "지급원장에 반영했으며 분개 준비 상태로 전환했습니다."
+      : action === "CREATE_JOURNAL" ? "차변·대변을 확인한 전표 초안을 만들었습니다. 전기 전 최종 검토해 주세요."
+        : "전자결재를 제출했습니다. 최종 승인 후 지급할 수 있습니다.");
+    await load();
+  }
+
+  async function postJournal(item: JournalItem) {
+    if (!window.confirm(`${item.voucherDate} ${item.description}\n차변 ${item.debitAccountName} / 대변 ${item.creditAccountName}\n${won(item.amount)}을 전기할까요?`)) return;
+    const response = await fetch("/api/finance/operations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "journal", id: item.id, action: "POST" }),
+    });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) return setMessage(result.error || "전표를 전기하지 못했습니다.");
+    setMessage("전표를 전기하고 지출·지급 요청과 연결했습니다.");
     await load();
   }
 
@@ -188,9 +217,21 @@ export default function FinanceOperationsCenter() {
           <b>{won(item.amount)}</b>
           <label className="expense-evidence"><input type="file" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt,.csv" disabled={item.status !== "DRAFT"} onChange={(event) => void uploadEvidence(item.id, event.target.files?.[0])} /><span>{item.evidenceCount ? `${item.evidenceCount}개 첨부` : "증빙 첨부"}</span></label>
           <em className={`expense-status ${item.status.toLowerCase()}`}>{statusLabel[item.status] ?? item.status}{item.status === "PAID" ? ` · ${statusLabel[item.journalStatus] ?? item.journalStatus}` : ""}</em>
-          <div>{item.status === "DRAFT" && <button type="button" onClick={() => void expenseAction(item, "SUBMIT")}>결재 제출</button>}{item.status === "APPROVED" && <button type="button" onClick={() => void expenseAction(item, "PAY")}>지급 반영</button>}</div>
+          <div>{item.status === "DRAFT" && <button type="button" onClick={() => void expenseAction(item, "SUBMIT")}>결재 제출</button>}{item.status === "APPROVED" && <button type="button" onClick={() => void expenseAction(item, "PAY")}>지급 반영</button>}{item.status === "PAID" && item.journalStatus === "READY" && <button type="button" onClick={() => void expenseAction(item, "CREATE_JOURNAL")}>전표 작성</button>}</div>
         </div>)}
         {!data?.expenses.length && <div className="finance-empty">지출 또는 지급 초안을 등록하고 증빙을 첨부하면 결재와 지급원장까지 연결됩니다.</div>}
+      </div>
+      <div className="journal-ledger">
+        <h3>회계전표</h3>
+        <div className="journal-row head"><span>전표일·적요</span><span>차변</span><span>대변</span><span>금액</span><span>상태</span><span>처리</span></div>
+        {(data?.journals ?? []).map((item) => <div className="journal-row" key={item.id}>
+          <p><strong>{item.voucherDate}</strong><small>{item.description}</small></p>
+          <p><strong>{item.debitAccountName}</strong><small>{item.debitAccountCode || "코드 미입력"}</small></p>
+          <p><strong>{item.creditAccountName}</strong><small>{item.creditAccountCode || "코드 미입력"}</small></p>
+          <b>{won(item.amount)}</b><em className={`expense-status ${item.status.toLowerCase()}`}>{statusLabel[item.status] ?? item.status}</em>
+          <div>{item.status === "DRAFT" && <button type="button" onClick={() => void postJournal(item)}>전기</button>}</div>
+        </div>)}
+        {!data?.journals.length && <div className="finance-empty">지급 완료 건에서 차변·대변 계정을 확인하면 전표 초안이 이곳에 생성됩니다.</div>}
       </div>
     </section>
 

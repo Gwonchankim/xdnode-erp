@@ -37,6 +37,12 @@ type PaymentRow = {
   id: string; request_id: string; payment_date: string; amount: number; payment_method: string;
   bank_reference: string; paid_by: string; status: string; created_at: number; updated_at: number;
 };
+type JournalRow = {
+  id: string; payment_request_id: string; voucher_date: string; description: string;
+  debit_account_code: string; debit_account_name: string; credit_account_code: string;
+  credit_account_name: string; amount: number; status: string; prepared_by: string;
+  posted_by: string; posted_at: number | null; created_at: number; updated_at: number;
+};
 
 async function ensureSchema() {
   await db.batch([
@@ -79,6 +85,13 @@ async function ensureSchema() {
       payment_method TEXT NOT NULL, bank_reference TEXT NOT NULL DEFAULT '', paid_by TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'PAID', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS finance_journal_entries (
+      id TEXT PRIMARY KEY NOT NULL, payment_request_id TEXT NOT NULL UNIQUE, voucher_date TEXT NOT NULL,
+      description TEXT NOT NULL, debit_account_code TEXT NOT NULL DEFAULT '', debit_account_name TEXT NOT NULL,
+      credit_account_code TEXT NOT NULL DEFAULT '', credit_account_name TEXT NOT NULL, amount INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'DRAFT', prepared_by TEXT NOT NULL, posted_by TEXT NOT NULL DEFAULT '',
+      posted_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS erp_documents (
       id TEXT PRIMARY KEY NOT NULL, module TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL,
       category TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, file_name TEXT NOT NULL,
@@ -92,6 +105,7 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_expense_status_due ON finance_expense_requests(status, due_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_expense_requester_created ON finance_expense_requests(requester_employee_id, created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_payment_date ON finance_payment_ledger(payment_date)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_journal_status_date ON finance_journal_entries(status, voucher_date)"),
   ]);
 }
 
@@ -129,6 +143,13 @@ const toPayment = (row: PaymentRow) => ({
   id: row.id, requestId: row.request_id, paymentDate: row.payment_date, amount: row.amount,
   paymentMethod: row.payment_method, bankReference: row.bank_reference, paidBy: row.paid_by, status: row.status,
 });
+const toJournal = (row: JournalRow) => ({
+  id: row.id, paymentRequestId: row.payment_request_id, voucherDate: row.voucher_date,
+  description: row.description, debitAccountCode: row.debit_account_code,
+  debitAccountName: row.debit_account_name, creditAccountCode: row.credit_account_code,
+  creditAccountName: row.credit_account_name, amount: row.amount, status: row.status,
+  preparedBy: row.prepared_by, postedBy: row.posted_by, postedAt: row.posted_at,
+});
 
 async function seedCloseTasks() {
   const period = financeCurrentData.asOf.slice(0, 7);
@@ -156,7 +177,7 @@ export async function GET() {
   if (authorization.response) return authorization.response;
   await seedCloseTasks();
 
-  const [forecast, closeTasks, budgets, reconciliations, expenses, payments] = await Promise.all([
+  const [forecast, closeTasks, budgets, reconciliations, expenses, payments, journals] = await Promise.all([
     db.prepare("SELECT * FROM finance_cash_forecast_items WHERE status <> 'DELETED' ORDER BY expected_date, created_at").all<ForecastRow>(),
     db.prepare("SELECT * FROM finance_close_tasks ORDER BY period DESC, created_at").all<CloseRow>(),
     db.prepare("SELECT * FROM finance_budgets ORDER BY fiscal_year DESC, month, department, account_code").all<BudgetRow>(),
@@ -166,6 +187,7 @@ export async function GET() {
         AND document.entity_id = expense.id AND document.deleted_at IS NULL
       GROUP BY expense.id ORDER BY expense.created_at DESC`).all<ExpenseRow>(),
     db.prepare("SELECT * FROM finance_payment_ledger ORDER BY payment_date DESC, created_at DESC").all<PaymentRow>(),
+    db.prepare("SELECT * FROM finance_journal_entries ORDER BY voucher_date DESC, created_at DESC").all<JournalRow>(),
   ]);
 
   return Response.json({
@@ -183,6 +205,7 @@ export async function GET() {
     reconciliations: reconciliations.results.map(toReconciliation),
     expenses: expenses.results.map(toExpense),
     payments: payments.results.map(toPayment),
+    journals: journals.results.map(toJournal),
   });
 }
 
@@ -393,7 +416,77 @@ export async function PUT(request: Request) {
       await writeErpAudit(db, { principal: approvalAuthorization.principal, module: "finance", action: "EXPENSE_PAID", entityType: "financeExpense", entityId: id, before: toExpense(before), after: payment ? toPayment(payment) : { paymentId } });
       return Response.json({ item: payment ? toPayment(payment) : null });
     }
+    if (action === "CREATE_JOURNAL") {
+      const existing = await db.prepare("SELECT * FROM finance_journal_entries WHERE payment_request_id = ?")
+        .bind(id).first<JournalRow>();
+      if (existing) return Response.json({ item: toJournal(existing) });
+      if (before.status !== "PAID" || before.journal_status !== "READY") {
+        return Response.json({ error: "지급 완료 후 전표 준비 상태인 요청만 전표를 작성할 수 있습니다." }, { status: 409 });
+      }
+      const voucherDate = String(body.voucherDate ?? "").trim();
+      const debitAccountCode = String(body.debitAccountCode ?? before.account_code).trim();
+      const debitAccountName = String(body.debitAccountName ?? before.account_name).trim();
+      const creditAccountCode = String(body.creditAccountCode ?? "").trim();
+      const creditAccountName = String(body.creditAccountName ?? "").trim();
+      const description = String(body.description ?? `${before.vendor ? `${before.vendor} · ` : ""}${before.title}`).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(voucherDate) || !debitAccountName || !creditAccountName || !description) {
+        return Response.json({ error: "전표일·적요·차변 계정·대변 계정을 모두 확인해 주세요." }, { status: 400 });
+      }
+      if ((debitAccountCode && debitAccountCode === creditAccountCode) || debitAccountName === creditAccountName) {
+        return Response.json({ error: "차변과 대변에는 서로 다른 계정을 지정해 주세요." }, { status: 400 });
+      }
+      const journalId = crypto.randomUUID();
+      const result = await db.batch([
+        db.prepare(`INSERT INTO finance_journal_entries
+          (id, payment_request_id, voucher_date, description, debit_account_code, debit_account_name,
+            credit_account_code, credit_account_name, amount, status, prepared_by, posted_by, posted_at, created_at, updated_at)
+          SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, '', NULL, ?, ?
+          WHERE EXISTS (SELECT 1 FROM finance_expense_requests WHERE id = ? AND status = 'PAID' AND journal_status = 'READY')`)
+          .bind(journalId, id, voucherDate, description, debitAccountCode, debitAccountName,
+            creditAccountCode, creditAccountName, before.amount, authorization.principal.employeeId, now, now, id),
+        db.prepare(`UPDATE finance_expense_requests SET journal_status = 'DRAFT', updated_at = ?
+          WHERE id = ? AND journal_status = 'READY'
+            AND EXISTS (SELECT 1 FROM finance_journal_entries WHERE id = ? AND created_at = ?)`)
+          .bind(now, id, journalId, now),
+      ]);
+      if ((result[0].meta.changes ?? 0) < 1 || (result[1].meta.changes ?? 0) < 1) {
+        const raced = await db.prepare("SELECT * FROM finance_journal_entries WHERE payment_request_id = ?").bind(id).first<JournalRow>();
+        if (raced) return Response.json({ item: toJournal(raced) });
+        return Response.json({ error: "요청 상태가 변경되어 전표 초안을 만들지 못했습니다." }, { status: 409 });
+      }
+      const journal = await db.prepare("SELECT * FROM finance_journal_entries WHERE id = ?").bind(journalId).first<JournalRow>();
+      await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "JOURNAL_DRAFT_CREATED", entityType: "financeJournal", entityId: journalId, before: toExpense(before), after: journal ? toJournal(journal) : { journalId } });
+      return Response.json({ item: journal ? toJournal(journal) : null }, { status: 201 });
+    }
     return Response.json({ error: "지원하지 않는 지출·지급 처리입니다." }, { status: 400 });
+  }
+
+  if (resource === "journal") {
+    const approvalAuthorization = await authorizeErpRequest(db, "finance", "approve");
+    if (approvalAuthorization.response) return approvalAuthorization.response;
+    const before = await db.prepare("SELECT * FROM finance_journal_entries WHERE id = ?").bind(id).first<JournalRow>();
+    if (!before) return Response.json({ error: "회계전표를 찾을 수 없습니다." }, { status: 404 });
+    if (String(body.action ?? "POST").toUpperCase() !== "POST") {
+      return Response.json({ error: "지원하지 않는 전표 처리입니다." }, { status: 400 });
+    }
+    if (before.status !== "DRAFT") return Response.json({ error: "작성 중인 전표만 전기할 수 있습니다." }, { status: 409 });
+    if (before.amount <= 0 || !before.debit_account_name || !before.credit_account_name || before.debit_account_name === before.credit_account_name) {
+      return Response.json({ error: "차변·대변 계정과 균형 금액을 다시 확인해 주세요." }, { status: 409 });
+    }
+    const result = await db.batch([
+      db.prepare("UPDATE finance_journal_entries SET status = 'POSTED', posted_by = ?, posted_at = ?, updated_at = ? WHERE id = ? AND status = 'DRAFT'")
+        .bind(approvalAuthorization.principal.employeeId, now, now, id),
+      db.prepare(`UPDATE finance_expense_requests SET journal_status = 'POSTED', updated_at = ?
+        WHERE id = ? AND journal_status = 'DRAFT'
+          AND EXISTS (SELECT 1 FROM finance_journal_entries WHERE id = ? AND status = 'POSTED' AND updated_at = ?)`)
+        .bind(now, before.payment_request_id, id, now),
+    ]);
+    if ((result[0].meta.changes ?? 0) < 1 || (result[1].meta.changes ?? 0) < 1) {
+      return Response.json({ error: "전표 상태가 변경되어 전기하지 못했습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    }
+    const after = await db.prepare("SELECT * FROM finance_journal_entries WHERE id = ?").bind(id).first<JournalRow>();
+    await writeErpAudit(db, { principal: approvalAuthorization.principal, module: "finance", action: "JOURNAL_POSTED", entityType: "financeJournal", entityId: id, before: toJournal(before), after: after ? toJournal(after) : null });
+    return Response.json({ item: after ? toJournal(after) : null });
   }
 
   return Response.json({ error: "지원하지 않는 재무 운영 항목입니다." }, { status: 400 });

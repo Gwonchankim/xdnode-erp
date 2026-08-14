@@ -73,10 +73,31 @@ test("leave and attendance workflows persist real manual records and approval ta
   assert.match(api, /resource === "leaveRequest"/);
   assert.match(api, /createApprovalRequest/);
   assert.match(engine, /source_type, source_id/);
-  assert.match(api, /resource === "retirementChecklist" \? "write" : "approve"/);
+  assert.match(api, /\["retirementChecklist", "retirementSettlement", "lifecycleTask"\]\.includes\(resource\) \? "write" : "approve"/);
   assert.match(api, /'RECORDED', 'MANUAL'/);
   assert.match(view, /자동연동 전까지 자료 출처는 수기 입력/);
   assert.match(view, /Math\.round\(Number\(leaveDraft\.units\) \* 100\)/);
+});
+
+test("post-approval finance and HR workflows require explicit controls before completion", async () => {
+  const [finance, recruitment, hr, onboarding, workspace, migration] = await Promise.all([
+    read("app/api/finance/operations/route.ts"), read("app/api/hr/recruitment/route.ts"),
+    read("app/api/hr/operations/route.ts"), read("app/hr-onboarding.ts"),
+    read("app/hr-workspace.tsx"), read("drizzle/0015_redundant_aqueduct.sql"),
+  ]);
+  assert.match(finance, /action === "CREATE_JOURNAL"/);
+  assert.match(finance, /resource === "journal"/);
+  assert.match(finance, /debit_account_name === before\.credit_account_name/);
+  assert.match(recruitment, /resource === "offerResponse"/);
+  assert.match(recruitment, /'ONBOARDING'/);
+  assert.match(recruitment, /status = 'ACCEPTED'/);
+  assert.match(onboarding, /status = '입사 예정'/);
+  assert.match(onboarding, /ONBOARDING_EFFECTIVE/);
+  assert.match(hr, /resource === "retirementSettlement"/);
+  assert.match(hr, /settlement\?\.status !== "READY"/);
+  assert.match(workspace, /제안 수락·입사 전환/);
+  assert.match(workspace, /퇴직 정산·회수 통제/);
+  for (const table of ["finance_journal_entries", "hr_retirement_settlements"]) assert.match(migration, new RegExp(table));
 });
 
 test("employee documents are versioned, audited, downloadable and recoverably deleted", async () => {

@@ -443,6 +443,27 @@ export const financePaymentLedger = sqliteTable("finance_payment_ledger", {
   index("idx_finance_payment_date").on(table.paymentDate),
 ]);
 
+export const financeJournalEntries = sqliteTable("finance_journal_entries", {
+  id: text("id").primaryKey(),
+  paymentRequestId: text("payment_request_id").notNull(),
+  voucherDate: text("voucher_date").notNull(),
+  description: text("description").notNull(),
+  debitAccountCode: text("debit_account_code").notNull().default(""),
+  debitAccountName: text("debit_account_name").notNull(),
+  creditAccountCode: text("credit_account_code").notNull().default(""),
+  creditAccountName: text("credit_account_name").notNull(),
+  amount: integer("amount").notNull(),
+  status: text("status").notNull().default("DRAFT"),
+  preparedBy: text("prepared_by").notNull(),
+  postedBy: text("posted_by").notNull().default(""),
+  postedAt: integer("posted_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_journal_payment_unique").on(table.paymentRequestId),
+  index("idx_finance_journal_status_date").on(table.status, table.voucherDate),
+]);
+
 export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   period: text("period").primaryKey(),
   status: text("status").notNull().default("DRAFT"),
@@ -552,6 +573,26 @@ export const hrRetirementRequests = sqliteTable("hr_retirement_requests", {
   index("idx_hr_retirement_status_date").on(table.status, table.retirementDate),
 ]);
 
+export const hrRetirementSettlements = sqliteTable("hr_retirement_settlements", {
+  requestId: text("request_id").primaryKey(),
+  finalSalary: integer("final_salary").notNull().default(0),
+  retirementPay: integer("retirement_pay").notNull().default(0),
+  unusedLeavePay: integer("unused_leave_pay").notNull().default(0),
+  deductions: integer("deductions").notNull().default(0),
+  netSettlement: integer("net_settlement").notNull().default(0),
+  payrollConfirmed: integer("payroll_confirmed", { mode: "boolean" }).notNull().default(false),
+  insuranceConfirmed: integer("insurance_confirmed", { mode: "boolean" }).notNull().default(false),
+  accessRevoked: integer("access_revoked", { mode: "boolean" }).notNull().default(false),
+  assetsReturned: integer("assets_returned", { mode: "boolean" }).notNull().default(false),
+  handoverConfirmed: integer("handover_confirmed", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull().default("DRAFT"),
+  preparedBy: text("prepared_by").notNull().default(""),
+  completedBy: text("completed_by").notNull().default(""),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const hrOfferRequests = sqliteTable("hr_offer_requests", {
   id: text("id").primaryKey(),
   applicantId: text("applicant_id").notNull(),
@@ -566,6 +607,9 @@ export const hrOfferRequests = sqliteTable("hr_offer_requests", {
   requestedBy: text("requested_by").notNull(),
   approvedBy: text("approved_by").notNull().default(""),
   approvedAt: integer("approved_at"),
+  employeeId: text("employee_id").notNull().default(""),
+  responseNote: text("response_note").notNull().default(""),
+  respondedBy: text("responded_by").notNull().default(""),
   respondedAt: integer("responded_at"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),

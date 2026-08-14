@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { companyEmployees } from "../../../hr-company-data";
+import { applyDueOnboarding } from "../../../hr-onboarding";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -44,6 +45,16 @@ async function ensureSchema() {
       requested_by TEXT NOT NULL, approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER, completed_at INTEGER,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_retirement_settlements (
+      request_id TEXT PRIMARY KEY NOT NULL, final_salary INTEGER NOT NULL DEFAULT 0,
+      retirement_pay INTEGER NOT NULL DEFAULT 0, unused_leave_pay INTEGER NOT NULL DEFAULT 0,
+      deductions INTEGER NOT NULL DEFAULT 0, net_settlement INTEGER NOT NULL DEFAULT 0,
+      payroll_confirmed INTEGER NOT NULL DEFAULT 0, insurance_confirmed INTEGER NOT NULL DEFAULT 0,
+      access_revoked INTEGER NOT NULL DEFAULT 0, assets_returned INTEGER NOT NULL DEFAULT 0,
+      handover_confirmed INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'DRAFT',
+      prepared_by TEXT NOT NULL DEFAULT '', completed_by TEXT NOT NULL DEFAULT '', completed_at INTEGER,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_employee_records (
       employee_id TEXT PRIMARY KEY, name TEXT NOT NULL, birth TEXT NOT NULL, email TEXT NOT NULL,
       phone TEXT NOT NULL, address TEXT NOT NULL, department TEXT NOT NULL, manager TEXT NOT NULL,
@@ -67,15 +78,20 @@ export async function GET(request: Request) {
   const employeeId = new URL(request.url).searchParams.get("employeeId")?.trim() ?? "";
   const where = employeeId ? " WHERE employee_id = ?" : "";
   const bind = <T,>(sql: string) => employeeId ? db.prepare(sql + where).bind(employeeId).all<T>() : db.prepare(sql).all<T>();
-  const [actions, lifecycle, leaves, attendance, payrollRuns, retirements] = await Promise.all([
+  const [actions, lifecycle, leaves, attendance, payrollRuns, retirements, settlements] = await Promise.all([
     bind<Record<string, unknown>>("SELECT * FROM hr_personnel_actions"),
     bind<Record<string, unknown>>("SELECT * FROM hr_lifecycle_tasks"),
     bind<Record<string, unknown>>("SELECT * FROM hr_leave_requests"),
     bind<Record<string, unknown>>("SELECT * FROM hr_attendance_records"),
     db.prepare("SELECT * FROM hr_payroll_runs ORDER BY period DESC").all<Record<string, unknown>>(),
     bind<Record<string, unknown>>("SELECT * FROM hr_retirement_requests"),
+    employeeId
+      ? db.prepare(`SELECT settlement.* FROM hr_retirement_settlements settlement
+          INNER JOIN hr_retirement_requests request ON request.id = settlement.request_id WHERE request.employee_id = ?`)
+        .bind(employeeId).all<Record<string, unknown>>()
+      : db.prepare("SELECT * FROM hr_retirement_settlements").all<Record<string, unknown>>(),
   ]);
-  return Response.json({ personnelActions: actions.results, lifecycleTasks: lifecycle.results, leaveRequests: leaves.results, attendanceRecords: attendance.results, payrollRuns: payrollRuns.results, retirementRequests: retirements.results });
+  return Response.json({ personnelActions: actions.results, lifecycleTasks: lifecycle.results, leaveRequests: leaves.results, attendanceRecords: attendance.results, payrollRuns: payrollRuns.results, retirementRequests: retirements.results, retirementSettlements: settlements.results });
 }
 
 export async function POST(request: Request) {
@@ -248,7 +264,7 @@ export async function PUT(request: Request) {
   const resource = String(body.resource ?? "");
   const id = String(body.id ?? "").trim();
   if (!id) return Response.json({ error: "수정할 항목 ID가 필요합니다." }, { status: 400 });
-  const authorization = await authorizeErpRequest(db, "hr", resource === "retirementChecklist" ? "write" : "approve");
+  const authorization = await authorizeErpRequest(db, "hr", ["retirementChecklist", "retirementSettlement", "lifecycleTask"].includes(resource) ? "write" : "approve");
   if (authorization.response) return authorization.response;
   const now = Date.now();
 
@@ -283,6 +299,59 @@ export async function PUT(request: Request) {
     return Response.json({ item: after });
   }
 
+  if (resource === "lifecycleTask") {
+    const before = await db.prepare(`SELECT task.*, employee.status AS employee_status FROM hr_lifecycle_tasks task
+      INNER JOIN hr_employee_records employee ON employee.employee_id = task.employee_id
+      WHERE task.id = ? AND task.lifecycle_type = 'ONBOARDING'`)
+      .bind(id).first<Record<string, unknown>>();
+    if (!before) return Response.json({ error: "온보딩 업무를 찾을 수 없습니다." }, { status: 404 });
+    if (before.employee_status !== "입사 예정") return Response.json({ error: "재직 전환이 완료된 온보딩 기록은 변경할 수 없습니다." }, { status: 409 });
+    const status = String(body.status ?? "DONE").toUpperCase();
+    if (!["OPEN", "DONE"].includes(status)) return Response.json({ error: "온보딩 업무 상태를 확인해 주세요." }, { status: 400 });
+    await db.prepare("UPDATE hr_lifecycle_tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ? AND lifecycle_type = 'ONBOARDING'")
+      .bind(status, status === "DONE" ? now : null, now, id).run();
+    await applyDueOnboarding(db, now);
+    const after = await db.prepare("SELECT * FROM hr_lifecycle_tasks WHERE id = ?").bind(id).first<Record<string, unknown>>();
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: `ONBOARDING_TASK_${status}`, entityType: "lifecycleTask", entityId: id, before, after });
+    return Response.json({ item: after });
+  }
+
+  if (resource === "retirementSettlement") {
+    const request = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
+    if (!request) return Response.json({ error: "퇴직 요청을 찾을 수 없습니다." }, { status: 404 });
+    if (!["IN_PROGRESS", "READY"].includes(String(request.status ?? ""))) return Response.json({ error: "승인 완료된 퇴직 요청만 정산할 수 있습니다." }, { status: 409 });
+    const before = await db.prepare("SELECT * FROM hr_retirement_settlements WHERE request_id = ?").bind(id).first<Record<string, unknown>>();
+    const amounts = ["finalSalary", "retirementPay", "unusedLeavePay", "deductions"].map((key) => Number(body[key] ?? 0));
+    if (amounts.some((value) => !Number.isFinite(value) || value < 0)) return Response.json({ error: "정산 금액은 0원 이상으로 입력해 주세요." }, { status: 400 });
+    const [finalSalary, retirementPay, unusedLeavePay, deductions] = amounts.map(Math.round);
+    const netSettlement = finalSalary + retirementPay + unusedLeavePay - deductions;
+    const controls = {
+      payrollConfirmed: Boolean(body.payrollConfirmed), insuranceConfirmed: Boolean(body.insuranceConfirmed),
+      accessRevoked: Boolean(body.accessRevoked), assetsReturned: Boolean(body.assetsReturned),
+      handoverConfirmed: Boolean(body.handoverConfirmed),
+    };
+    const ready = Object.values(controls).every(Boolean);
+    await db.prepare(`INSERT INTO hr_retirement_settlements
+      (request_id, final_salary, retirement_pay, unused_leave_pay, deductions, net_settlement,
+        payroll_confirmed, insurance_confirmed, access_revoked, assets_returned, handover_confirmed,
+        status, prepared_by, completed_by, completed_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
+      ON CONFLICT(request_id) DO UPDATE SET final_salary=excluded.final_salary, retirement_pay=excluded.retirement_pay,
+        unused_leave_pay=excluded.unused_leave_pay, deductions=excluded.deductions, net_settlement=excluded.net_settlement,
+        payroll_confirmed=excluded.payroll_confirmed, insurance_confirmed=excluded.insurance_confirmed,
+        access_revoked=excluded.access_revoked, assets_returned=excluded.assets_returned,
+        handover_confirmed=excluded.handover_confirmed, status=excluded.status,
+        prepared_by=excluded.prepared_by, updated_at=excluded.updated_at`)
+      .bind(id, finalSalary, retirementPay, unusedLeavePay, deductions, netSettlement,
+        controls.payrollConfirmed ? 1 : 0, controls.insuranceConfirmed ? 1 : 0,
+        controls.accessRevoked ? 1 : 0, controls.assetsReturned ? 1 : 0,
+        controls.handoverConfirmed ? 1 : 0, ready ? "READY" : "DRAFT",
+        authorization.principal.employeeId, now, now).run();
+    const after = await db.prepare("SELECT * FROM hr_retirement_settlements WHERE request_id = ?").bind(id).first<Record<string, unknown>>();
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_SETTLEMENT_UPDATED", entityType: "retirementSettlement", entityId: id, before, after });
+    return Response.json({ item: after });
+  }
+
   if (resource === "retirementChecklist") {
     const before = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
     if (!before) return Response.json({ error: "퇴직 요청을 찾을 수 없습니다." }, { status: 404 });
@@ -294,6 +363,11 @@ export async function PUT(request: Request) {
     const validCompleted = [...new Set(completedTaskIds.filter((taskId) => allowedIds.has(taskId)))];
     const totalTasks = Number(before.total_tasks ?? taskRows.results.length);
     const allComplete = totalTasks > 0 && validCompleted.length === totalTasks;
+    if (allComplete) {
+      const settlement = await db.prepare("SELECT status FROM hr_retirement_settlements WHERE request_id = ?")
+        .bind(id).first<{ status: string }>();
+      if (settlement?.status !== "READY") return Response.json({ error: "퇴직 정산 금액과 급여·보험·계정·자산·인수인계 확인을 먼저 완료해 주세요." }, { status: 409 });
+    }
     const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const due = String(before.retirement_date ?? "") <= koreaDate;
     const nextStatus = allComplete ? (due ? "COMPLETED" : "READY") : "IN_PROGRESS";
@@ -312,6 +386,10 @@ export async function PUT(request: Request) {
           '$.completedTaskIds', json(?), '$.status', ?), updated_at = ?
         WHERE employee_id = ?`)
         .bind(nextStatus === "COMPLETED" ? "퇴직" : "퇴직 예정", JSON.stringify(validCompleted), nextStatus, now, String(before.employee_id ?? "")),
+      db.prepare(`UPDATE hr_retirement_settlements SET status = CASE WHEN ? = 'COMPLETED' THEN 'COMPLETED' ELSE status END,
+        completed_by = CASE WHEN ? = 'COMPLETED' THEN ? ELSE completed_by END,
+        completed_at = CASE WHEN ? = 'COMPLETED' THEN ? ELSE completed_at END, updated_at = ? WHERE request_id = ?`)
+        .bind(nextStatus, nextStatus, authorization.principal.employeeId, nextStatus, now, now, id),
     ]);
     const after = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_CHECKLIST_UPDATED", entityType: "employeeRetirement", entityId: id, before, after });

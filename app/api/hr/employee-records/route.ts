@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { applyDuePersonnelActions } from "../../../hr-personnel-actions";
 import { applyDueRetirements } from "../../../hr-retirements";
+import { applyDueOnboarding } from "../../../hr-onboarding";
 
 type EmployeeRecordRow = {
   employee_id: string;
@@ -88,6 +89,7 @@ export async function GET() {
   await ensureSchema();
   await applyDuePersonnelActions(db);
   await applyDueRetirements(db);
+  await applyDueOnboarding(db);
   const result = await db.prepare(`SELECT employee_id, name, birth, email, phone, address,
     department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json, updated_at
     FROM hr_employee_records ORDER BY employee_id`).all<EmployeeRecordRow>();

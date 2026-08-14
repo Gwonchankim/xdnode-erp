@@ -459,8 +459,13 @@ type RecruitmentOffer = {
   requestedBy: string;
   approvedBy: string;
   approvedAt: number | null;
+  employeeId: string;
+  responseNote: string;
+  respondedBy: string;
   respondedAt: number | null;
 };
+
+type RecruitmentOfferDraft = Pick<RecruitmentOffer, "proposedTitle" | "department" | "employmentType" | "startDate" | "annualSalary" | "probationMonths" | "notes">;
 
 type ResumeAnalysis = {
   name: string;
@@ -1272,7 +1277,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     showToast("면접 메모를 저장했습니다.");
   }
 
-  async function submitRecruitmentOffer(applicantId: string, draft: Omit<RecruitmentOffer, "id" | "applicantId" | "status" | "requestedBy" | "approvedBy" | "approvedAt" | "respondedAt">) {
+  async function submitRecruitmentOffer(applicantId: string, draft: RecruitmentOfferDraft) {
     try {
       const response = await fetch("/api/hr/recruitment", {
         method: "POST", headers: { "Content-Type": "application/json" },
@@ -1284,6 +1289,22 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       showToast("채용 제안 결재를 제출했습니다. 승인 결과가 지원자 상태에 자동 반영됩니다.");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "채용 제안 결재를 제출하지 못했습니다.");
+    }
+  }
+
+  async function respondRecruitmentOffer(applicantId: string, offerId: string, action: "ACCEPT" | "DECLINE", input: { employeeId?: string; position?: string; jobTitle?: string; responseNote: string }) {
+    try {
+      const response = await fetch("/api/hr/recruitment", {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resource: "offerResponse", id: offerId, action, ...input }),
+      });
+      const payload = await response.json() as { offer?: RecruitmentOffer; error?: string };
+      if (!response.ok || !payload.offer) throw new Error(payload.error || "채용 제안 회신을 반영하지 못했습니다.");
+      setApplicants((items) => items.map((item) => item.id === applicantId
+        ? { ...item, offer: payload.offer, stage: action === "ACCEPT" ? "입사 확정" : "채용 제안 거절" } : item));
+      showToast(action === "ACCEPT" ? "입사예정자와 온보딩 필수 업무를 생성했습니다." : "채용 제안 거절 회신을 기록했습니다.");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "채용 제안 회신을 반영하지 못했습니다.");
     }
   }
 
@@ -1350,9 +1371,10 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview onSelectMonth={setSelectedPayrollMonth} />)}
         {active === "recruitment" && (screeningApplicant ? <ScreeningWorkflow applicant={screeningApplicant} applicants={applicants} recruiters={recruiters} onBack={() => setScreeningApplicantId(null)} onSave={saveScreeningApplicant} /> : <RecruitmentView applicants={applicants} recruiters={recruiters} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onOwnerChange={assignRecruiter} onScreening={setScreeningApplicantId} onReject={rejectApplicant} onDelete={deleteApplicant} />)}
         {active === "recruiters" && <RecruiterManagement employees={employees} recruiterIds={recruiterIds} onAdd={addRecruiter} onRemove={removeRecruiter} />}
-        {active === "interviews" && (interviewApplicant ? <InterviewCandidateView applicant={interviewApplicant} applicants={applicants} organizations={organizations} onBack={() => setInterviewApplicantId(null)} onSaveMemo={addInterviewMemo} onSubmitOffer={submitRecruitmentOffer} /> : <InterviewManagement interviews={interviews} onSelectApplicant={setInterviewApplicantId} onDirect={() => setDirectInterviewPickerOpen(true)} />)}
+        {active === "interviews" && (interviewApplicant ? <InterviewCandidateView applicant={interviewApplicant} applicants={applicants} organizations={organizations} onBack={() => setInterviewApplicantId(null)} onSaveMemo={addInterviewMemo} onSubmitOffer={submitRecruitmentOffer} onRespondOffer={respondRecruitmentOffer} /> : <InterviewManagement interviews={interviews} onSelectApplicant={setInterviewApplicantId} onDirect={() => setDirectInterviewPickerOpen(true)} />)}
+        {active === "onboarding" && <LifecycleManagementView />}
         {active === "settings" && <SettingsView employees={employees} onSave={() => showToast("환경설정을 저장했습니다.")} onNotify={showToast} />}
-        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "recruitment", "recruiters", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
+        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "recruitment", "recruiters", "interviews", "onboarding", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
@@ -2096,13 +2118,14 @@ function InterviewManagement({ interviews, onSelectApplicant, onDirect }: { inte
   return <div className="page-wrap module-page"><section className="module-hero"><div><p className="eyebrow">INTERVIEWS</p><h1>면접관리</h1><p>일정 회신이 등록된 지원자의 정보와 면접 기록을 관리합니다.</p></div><button type="button" className="primary-button" onClick={onDirect}>+ 면접 직접 등록</button></section><section className="metric-grid module-metrics">{[{ label: "전체 일정", value: `${interviews.length}건`, note: "회신 등록 기준" }, { label: "일정 확정", value: `${interviews.filter((item) => item.status === "확정").length}건`, note: "일시 입력 완료", tone: "blue" }, { label: "회신 중", value: `${interviews.filter((item) => item.status === "회신 중").length}건`, note: "일부 내용 미정", tone: "orange" }, { label: "평가 미제출", value: "0건", note: "면접 메모 확인", tone: "green" }].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>면접 일정</h2><span>총 {interviews.length}건</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>지원자</th><th>일시</th><th>직무</th><th>면접 유형</th><th>면접관</th><th>상태</th></tr></thead><tbody>{interviews.length ? interviews.map((item) => <tr key={item.id}><td><button type="button" className="name-link interview-candidate-link" onClick={() => onSelectApplicant(item.applicantId)}><span>{item.name.slice(0, 1)}</span>{item.name}</button></td><td>{item.time}</td><td>{item.role}</td><td>{item.type}</td><td>{item.interviewers}</td><td><StatusPill value={item.status} /></td></tr>) : <tr><td colSpan={6} className="empty-cell">등록된 면접 일정이 없습니다.</td></tr>}</tbody></table></div></section></div>;
 }
 
-function InterviewCandidateView({ applicant, applicants, organizations, onBack, onSaveMemo, onSubmitOffer }: {
+function InterviewCandidateView({ applicant, applicants, organizations, onBack, onSaveMemo, onSubmitOffer, onRespondOffer }: {
   applicant: Applicant;
   applicants: Applicant[];
   organizations: Organization[];
   onBack: () => void;
   onSaveMemo: (applicantId: string, text: string) => void;
-  onSubmitOffer: (applicantId: string, draft: Omit<RecruitmentOffer, "id" | "applicantId" | "status" | "requestedBy" | "approvedBy" | "approvedAt" | "respondedAt">) => void;
+  onSubmitOffer: (applicantId: string, draft: RecruitmentOfferDraft) => void;
+  onRespondOffer: (applicantId: string, offerId: string, action: "ACCEPT" | "DECLINE", input: { employeeId?: string; position?: string; jobTitle?: string; responseNote: string }) => void;
 }) {
   const [memo, setMemo] = useState("");
   const [offerDraft, setOfferDraft] = useState({
@@ -2114,8 +2137,9 @@ function InterviewCandidateView({ applicant, applicants, organizations, onBack, 
     probationMonths: "3",
     notes: "",
   });
+  const [responseDraft, setResponseDraft] = useState({ employeeId: "", position: "", jobTitle: applicant.role, responseNote: "" });
   const previous = previousApplicationsFor(applicant, applicants);
-  const activeOffer = applicant.offer && ["SUBMITTED", "APPROVED"].includes(applicant.offer.status) ? applicant.offer : null;
+  const activeOffer = applicant.offer && !["REJECTED", "DECLINED"].includes(applicant.offer.status) ? applicant.offer : null;
   function submitOffer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     onSubmitOffer(applicant.id, {
@@ -2132,8 +2156,8 @@ function InterviewCandidateView({ applicant, applicants, organizations, onBack, 
       <section className="panel interview-memo-panel"><div className="detail-card-heading"><div><p className="eyebrow">INTERVIEW NOTES</p><h2>면접 메모</h2></div></div><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="면접 답변, 평가 포인트, 후속 확인사항을 기록하세요." /><button type="button" className="primary-button" disabled={!memo.trim()} onClick={() => { onSaveMemo(applicant.id, memo); setMemo(""); }}>면접 메모 저장</button><div>{(applicant.interviewMemos ?? []).map((note) => <article key={note.id}><p>{note.text}</p><span>{note.author} · {new Date(note.createdAt).toLocaleString("ko-KR")}</span></article>)}</div><ApplicantInterviewRecorder applicantId={applicant.id} /></section>
     </div>
     <section className="panel recruitment-offer-panel">
-      <div className="detail-card-heading"><div><p className="eyebrow">EMPLOYMENT OFFER</p><h2>채용 제안 기안</h2></div>{activeOffer && <StatusPill value={activeOffer.status === "SUBMITTED" ? "결재 중" : "승인 완료"} />}</div>
-      {activeOffer ? <div className="offer-summary"><div><span>제안 직무</span><strong>{activeOffer.proposedTitle}</strong></div><div><span>소속</span><strong>{activeOffer.department}</strong></div><div><span>입사예정일</span><strong>{activeOffer.startDate}</strong></div><div><span>연봉</span><strong>{activeOffer.annualSalary.toLocaleString("ko-KR")}원</strong></div><p>{activeOffer.status === "SUBMITTED" ? "전자결재 승인 대기 중입니다. 승인 전에는 지원자 상태를 확정하지 않습니다." : "채용 제안이 승인되었습니다. 지원자 회신과 입사 준비를 진행하세요."}</p></div> : <form className="offer-form" onSubmit={submitOffer}>
+      <div className="detail-card-heading"><div><p className="eyebrow">EMPLOYMENT OFFER</p><h2>채용 제안 기안</h2></div>{activeOffer && <StatusPill value={activeOffer.status === "SUBMITTED" ? "결재 중" : activeOffer.status === "ACCEPTED" ? "입사 확정" : "승인 완료"} />}</div>
+      {activeOffer ? <div className="offer-summary"><div><span>제안 직무</span><strong>{activeOffer.proposedTitle}</strong></div><div><span>소속</span><strong>{activeOffer.department}</strong></div><div><span>입사예정일</span><strong>{activeOffer.startDate}</strong></div><div><span>연봉</span><strong>{activeOffer.annualSalary.toLocaleString("ko-KR")}원</strong></div><p>{activeOffer.status === "SUBMITTED" ? "전자결재 승인 대기 중입니다. 승인 전에는 지원자 상태를 확정하지 않습니다." : activeOffer.status === "ACCEPTED" ? `입사 확정 · 사번 ${activeOffer.employeeId} · 온보딩 업무가 생성되었습니다.` : "채용 제안이 승인되었습니다. 지원자 회신을 반영하면 입사예정자와 온보딩 업무가 함께 생성됩니다."}</p>{activeOffer.status === "APPROVED" && <div className="offer-response-form"><label>신규 사번<input value={responseDraft.employeeId} onChange={(event) => setResponseDraft({ ...responseDraft, employeeId: event.target.value })} placeholder="예: gd.hong" /></label><label>입사 직급<input value={responseDraft.position} onChange={(event) => setResponseDraft({ ...responseDraft, position: event.target.value })} placeholder="예: 사원" /></label><label>직책<input value={responseDraft.jobTitle} onChange={(event) => setResponseDraft({ ...responseDraft, jobTitle: event.target.value })} /></label><label className="wide">회신 메모<textarea value={responseDraft.responseNote} onChange={(event) => setResponseDraft({ ...responseDraft, responseNote: event.target.value })} placeholder="수락일, 협의사항 또는 거절 사유를 기록하세요." /></label><div className="offer-response-actions"><button type="button" className="outline-button" onClick={() => onRespondOffer(applicant.id, activeOffer.id, "DECLINE", { responseNote: responseDraft.responseNote })}>제안 거절 기록</button><button type="button" className="primary-button" disabled={!responseDraft.employeeId.trim() || !responseDraft.position.trim() || !responseDraft.jobTitle.trim()} onClick={() => onRespondOffer(applicant.id, activeOffer.id, "ACCEPT", responseDraft)}>제안 수락·입사 전환</button></div></div>}</div> : <form className="offer-form" onSubmit={submitOffer}>
         <label>제안 직무<input required value={offerDraft.proposedTitle} onChange={(event) => setOfferDraft({ ...offerDraft, proposedTitle: event.target.value })} /></label>
         <label>소속 조직<select required value={offerDraft.department} onChange={(event) => setOfferDraft({ ...offerDraft, department: event.target.value })}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label>
         <label>고용형태<select value={offerDraft.employmentType} onChange={(event) => setOfferDraft({ ...offerDraft, employmentType: event.target.value })}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label>
@@ -2351,6 +2375,72 @@ function PersonnelActionModal({ employee, ranks, organizations, onClose, onSubmi
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal personnel-modal" onSubmit={onSubmit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>PERSONNEL ACTION</p><h2>인사 발령 등록</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div><div className="form-grid"><label><span>시행일 *</span><input required name="effectiveDate" type="date" defaultValue="2026-09-01" /></label><label><span>발령 구분 *</span><select required name="actionType" value={actionType} onChange={(event) => setActionType(event.target.value as PersonnelActionType)}><option>인사이동(전보)</option><option>승진</option><option>강등</option></select></label><div className="action-type-help wide"><strong>{actionType}</strong><span>{actionHelp}</span></div>{actionType === "인사이동(전보)" ? <label className="wide"><span>이동할 부서 *</span><select required name="targetDepartment" defaultValue=""><option value="" disabled>부서 선택</option>{departments.filter((department) => department !== employee.department).map((department) => <option key={department}>{department}</option>)}</select><input type="hidden" name="targetPosition" value={employee.position} /></label> : <label className="wide"><span>변경 직급 *</span><select required name="targetPosition" defaultValue=""><option value="" disabled>직급 선택</option>{availableRanks.map((rank) => <option key={rank}>{rank}</option>)}</select><input type="hidden" name="targetDepartment" value={employee.department} /></label>}</div><label className={`form-note ${actionType === "강등" ? "personnel-note-required" : ""}`}><span>{actionType === "강등" ? "강등 사유 *" : "발령 사유 및 내용"}</span><textarea required={actionType === "강등"} name="note" placeholder={actionType === "강등" ? "강등의 정당한 사유와 근거를 구체적으로 입력하세요." : "발령 배경이나 전달사항을 입력하세요."}></textarea>{actionType === "강등" && <small>강등은 정당한 사유와 객관적인 근거가 확인되어야 등록할 수 있습니다.</small>}</label><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" className="primary-button">인사 발령 등록</button></div></form></div>;
 }
 
+type OnboardingTask = { id: string; employee_id: string; task_group: string; title: string; due_date: string; status: string };
+
+function LifecycleManagementView() {
+  const [tasks, setTasks] = useState<OnboardingTask[]>([]);
+  const [people, setPeople] = useState<Record<string, { name: string; department: string; joinDate: string; status: string }>>({});
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  async function load() {
+    setLoading(true);
+    try {
+      const [operationsResponse, employeeResponse] = await Promise.all([fetch("/api/hr/operations"), fetch("/api/hr/employee-records")]);
+      const operations = await operationsResponse.json() as { lifecycleTasks?: OnboardingTask[]; error?: string };
+      const employeesPayload = await employeeResponse.json() as { records?: Array<{ employeeId: string; name: string; department: string; joinDate: string; status: string }>; error?: string };
+      if (!operationsResponse.ok) throw new Error(operations.error || "온보딩 업무를 불러오지 못했습니다.");
+      if (!employeeResponse.ok) throw new Error(employeesPayload.error || "입사예정자 정보를 불러오지 못했습니다.");
+      setTasks((operations.lifecycleTasks ?? []).filter((task) => String((task as OnboardingTask & { lifecycle_type?: string }).lifecycle_type ?? "ONBOARDING") === "ONBOARDING"));
+      setPeople(Object.fromEntries((employeesPayload.records ?? []).map((employee) => [employee.employeeId, employee])));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "온보딩 현황을 불러오지 못했습니다.");
+    } finally { setLoading(false); }
+  }
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load(); }, []);
+  async function toggle(task: OnboardingTask) {
+    const response = await fetch("/api/hr/operations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "lifecycleTask", id: task.id, status: task.status === "DONE" ? "OPEN" : "DONE" }),
+    });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) return setMessage(payload.error || "온보딩 업무를 변경하지 못했습니다.");
+    setMessage("온보딩 업무를 저장했습니다. 모든 업무가 완료되고 입사일이 도래하면 재직으로 전환됩니다.");
+    await load();
+  }
+  const groups = Object.entries(tasks.reduce<Record<string, OnboardingTask[]>>((result, task) => {
+    (result[task.employee_id] ??= []).push(task); return result;
+  }, {}));
+  return <div className="page-wrap module-page lifecycle-page"><section className="module-hero"><div><p className="eyebrow">EMPLOYEE LIFECYCLE</p><h1>입·퇴사 관리</h1><p>채용 제안 수락부터 입사 전환까지 필수 준비 업무를 빠짐없이 관리합니다.</p></div></section>{message && <div className="finance-control-message" role="status">{message}</div>}<section className="metric-grid module-metrics"><div className="compact-metric"><p>입사예정자</p><h2>{groups.length}명</h2><small>채용 제안 수락 기준</small></div><div className="compact-metric"><p>필수 업무</p><h2>{tasks.length}건</h2><small>계약·계정·장비·인수인계</small></div><div className="compact-metric"><p>완료</p><h2>{tasks.filter((task) => task.status === "DONE").length}건</h2><small>저장된 실제 상태</small></div><div className="compact-metric"><p>전환 대기</p><h2>{groups.filter(([, items]) => items.some((task) => task.status !== "DONE")).length}명</h2><small>필수 업무 미완료</small></div></section><section className="lifecycle-groups">{loading ? <div className="panel finance-empty">온보딩 현황을 확인하고 있습니다…</div> : groups.map(([employeeId, items]) => { const person = people[employeeId]; const done = items.filter((task) => task.status === "DONE").length; return <article className="panel lifecycle-person" key={employeeId}><header><div><p>ONBOARDING</p><h2>{person?.name ?? employeeId}</h2><span>{person?.department ?? "소속 미지정"} · 입사일 {person?.joinDate ?? items[0]?.due_date}</span></div><strong>{done}/{items.length}</strong></header><div>{items.map((task) => <label className={task.status === "DONE" ? "checked" : ""} key={task.id}><input type="checkbox" checked={task.status === "DONE"} onChange={() => void toggle(task)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기한 {task.due_date}</small></p></label>)}</div></article>; })}{!loading && !groups.length && <div className="panel finance-empty">채용 제안을 수락 처리하면 입사예정자와 온보딩 필수 업무가 여기에 생성됩니다.</div>}</section></div>;
+}
+
+function RetirementSettlementPanel({ requestId }: { requestId: string }) {
+  const [draft, setDraft] = useState({ finalSalary: "0", retirementPay: "0", unusedLeavePay: "0", deductions: "0", payrollConfirmed: false, insuranceConfirmed: false, accessRevoked: false, assetsReturned: false, handoverConfirmed: false });
+  const [status, setStatus] = useState("DRAFT");
+  const [message, setMessage] = useState("");
+  useEffect(() => {
+    fetch("/api/hr/operations").then(async (response) => {
+      const payload = await response.json() as { retirementSettlements?: Array<Record<string, unknown>>; error?: string };
+      if (!response.ok) throw new Error(payload.error || "퇴직 정산을 불러오지 못했습니다.");
+      const item = (payload.retirementSettlements ?? []).find((row) => row.request_id === requestId);
+      if (!item) return;
+      setDraft({ finalSalary: String(item.final_salary ?? 0), retirementPay: String(item.retirement_pay ?? 0), unusedLeavePay: String(item.unused_leave_pay ?? 0), deductions: String(item.deductions ?? 0), payrollConfirmed: Boolean(item.payroll_confirmed), insuranceConfirmed: Boolean(item.insurance_confirmed), accessRevoked: Boolean(item.access_revoked), assetsReturned: Boolean(item.assets_returned), handoverConfirmed: Boolean(item.handover_confirmed) });
+      setStatus(String(item.status ?? "DRAFT"));
+    }).catch((error: Error) => setMessage(error.message));
+  }, [requestId]);
+  async function save() {
+    const response = await fetch("/api/hr/operations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "retirementSettlement", id: requestId, ...draft, finalSalary: Number(draft.finalSalary), retirementPay: Number(draft.retirementPay), unusedLeavePay: Number(draft.unusedLeavePay), deductions: Number(draft.deductions) }) });
+    const payload = await response.json() as { item?: Record<string, unknown>; error?: string };
+    if (!response.ok) return setMessage(payload.error || "퇴직 정산을 저장하지 못했습니다.");
+    const nextStatus = String(payload.item?.status ?? "DRAFT");
+    setStatus(nextStatus);
+    setMessage(nextStatus === "READY" ? "정산과 필수 통제가 완료되어 퇴직 완료 처리가 가능합니다." : "정산 초안을 저장했습니다. 필수 확인 항목을 모두 완료해 주세요.");
+  }
+  const amount = Number(draft.finalSalary) + Number(draft.retirementPay) + Number(draft.unusedLeavePay) - Number(draft.deductions);
+  const checks: Array<[keyof typeof draft, string]> = [["payrollConfirmed", "최종 급여 확인"], ["insuranceConfirmed", "4대보험 상실 신고 확인"], ["accessRevoked", "업무 계정·접근권한 회수"], ["assetsReturned", "회사 자산 반납"], ["handoverConfirmed", "업무 인수인계 완료"]];
+  return <section className="retirement-settlement"><div className="detail-card-heading"><div><p className="eyebrow">FINAL SETTLEMENT</p><h3>퇴직 정산·회수 통제</h3></div><StatusPill value={status === "READY" ? "완료 가능" : status === "COMPLETED" ? "퇴직 완료" : "정산 중"} /></div><div className="retirement-settlement-amounts"><label>최종 급여<input type="number" min="0" value={draft.finalSalary} onChange={(event) => setDraft({ ...draft, finalSalary: event.target.value })} /></label><label>퇴직금<input type="number" min="0" value={draft.retirementPay} onChange={(event) => setDraft({ ...draft, retirementPay: event.target.value })} /></label><label>미사용 연차수당<input type="number" min="0" value={draft.unusedLeavePay} onChange={(event) => setDraft({ ...draft, unusedLeavePay: event.target.value })} /></label><label>공제액<input type="number" min="0" value={draft.deductions} onChange={(event) => setDraft({ ...draft, deductions: event.target.value })} /></label></div><strong className="settlement-net">예상 최종 정산액 {Math.round(amount).toLocaleString("ko-KR")}원</strong><div className="retirement-control-list">{checks.map(([key, label]) => <label key={key} className={draft[key] ? "checked" : ""}><input type="checkbox" checked={Boolean(draft[key])} onChange={(event) => setDraft({ ...draft, [key]: event.target.checked })} /><span>✓</span><strong>{label}</strong></label>)}</div>{message && <p className="retirement-settlement-message">{message}</p>}<button type="button" className="outline-button" disabled={status === "COMPLETED"} onClick={() => void save()}>정산·통제 저장</button></section>;
+}
+
 function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; onClose: () => void; onSubmit: (record: RetirementRecord) => void }) {
   const [date, setDate] = useState(employee.retirement?.date ?? "2026-09-30");
   const [reason, setReason] = useState(employee.retirement?.reason ?? "");
@@ -2373,6 +2463,7 @@ function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; 
     <section className="retirement-checklist-group">
       <div className="checklist-group-heading"><div><p>{owner}</p><h3>{title}</h3></div><span>{tasks.filter((task) => completedTaskIds.includes(task.id)).length}/{tasks.length}</span></div>
       <div className="retirement-task-list">{tasks.map((task) => <label key={task.id} className={completedTaskIds.includes(task.id) ? "checked" : ""}><input disabled={pendingApproval} type="checkbox" checked={completedTaskIds.includes(task.id)} onChange={() => toggleTask(task.id)} /><span className="task-check">✓</span><strong>{task.label}</strong></label>)}</div>
+      {owner === "EMPLOYEE" && checklistMode && employee.retirement?.requestId && <RetirementSettlementPanel requestId={employee.retirement.requestId} />}
     </section>
   );
 

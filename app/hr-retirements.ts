@@ -11,7 +11,10 @@ export async function applyDueRetirements(db: D1Database, now = Date.now()) {
   if (!table) return 0;
   const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const due = await db.prepare(`SELECT id, employee_id, retirement_date, reason FROM hr_retirement_requests
-    WHERE status = 'READY' AND retirement_date <= ? ORDER BY retirement_date, created_at`)
+    WHERE status = 'READY' AND retirement_date <= ?
+      AND EXISTS (SELECT 1 FROM hr_retirement_settlements settlement
+        WHERE settlement.request_id = hr_retirement_requests.id AND settlement.status = 'READY')
+    ORDER BY retirement_date, created_at`)
     .bind(koreaDate).all<DueRetirement>();
   let applied = 0;
   for (const retirement of due.results) {
@@ -28,6 +31,10 @@ export async function applyDueRetirements(db: D1Database, now = Date.now()) {
           AND EXISTS (SELECT 1 FROM hr_retirement_requests WHERE id = ? AND status = 'COMPLETED' AND updated_at = ?)
           AND NOT EXISTS (SELECT 1 FROM erp_audit_logs WHERE action = 'RETIREMENT_EFFECTIVE' AND entity_id = ?)`)
         .bind(retirement.retirement_date, retirement.reason, now, retirement.employee_id, retirement.id, now, retirement.id),
+      db.prepare(`UPDATE hr_retirement_settlements SET status = 'COMPLETED', completed_by = 'SYSTEM',
+        completed_at = ?, updated_at = ? WHERE request_id = ? AND status = 'READY'
+          AND EXISTS (SELECT 1 FROM hr_retirement_requests WHERE id = ? AND status = 'COMPLETED' AND updated_at = ?)`)
+        .bind(now, now, retirement.id, retirement.id, now),
       db.prepare(`INSERT INTO erp_audit_logs
         (id, actor_user_id, actor_email, actor_employee_id, module, action, entity_type, entity_id,
           before_json, after_json, reason, created_at)

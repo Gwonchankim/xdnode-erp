@@ -23,6 +23,9 @@ type CloseTaskRow = {
   reopened_reason: string; created_at: number; updated_at: number;
 };
 type DocumentRow = { id: string; category: string; version: number; file_name: string; uploaded_by: string; created_at: number };
+type FrozenLedgerSnapshot = { asOf: string; ledgerHash: string; lineCount: number; openingSetId: string;
+  openingChecksum: string; totals: Record<string, number>; difference?: Record<string, number> };
+type StoredCloseSnapshot = { controls?: CloseControl[]; ledgerSnapshot?: FrozenLedgerSnapshot };
 
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
 const validPeriod = (period: string) => /^2026-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
@@ -377,11 +380,35 @@ async function closeState(period: string) {
   if (!run) throw new Error("월마감 실행 원장을 찾을 수 없습니다.");
   const liveControls = await computeControls(period);
   let controls = liveControls;
+  let storedSnapshot: StoredCloseSnapshot | null = null;
   if (run.status !== "OPEN" && run.snapshot_json && run.snapshot_json !== "{}") {
     try {
-      const snapshot = JSON.parse(run.snapshot_json) as { controls?: CloseControl[] };
-      if (Array.isArray(snapshot.controls)) controls = snapshot.controls;
+      storedSnapshot = JSON.parse(run.snapshot_json) as StoredCloseSnapshot;
+      if (Array.isArray(storedSnapshot.controls)) controls = storedSnapshot.controls;
     } catch { /* 손상된 과거 스냅샷은 실시간 통제로 대체해 화면을 유지합니다. */ }
+  }
+  const frozen = storedSnapshot?.ledgerSnapshot;
+  let ledgerDrift = { checked: false, drifted: false, reason: "마감 제출 후 동결 원장과 현재 원장을 비교합니다.",
+    checkedAsOf: "", frozenHash: "", currentHash: "", frozenLineCount: 0, currentLineCount: 0,
+    lineCountDelta: 0, totalsChanged: false, openingChanged: false };
+  if (run.status !== "OPEN" && frozen?.ledgerHash && frozen.asOf) {
+    try {
+      const currentLedger = await buildFinanceLedgerSnapshot(db, frozen.asOf);
+      const totalKeys = new Set([...Object.keys(frozen.totals ?? {}), ...Object.keys(currentLedger.totals)]);
+      const totalsChanged = [...totalKeys].some((key) => Number(frozen.totals?.[key] ?? 0)
+        !== Number(currentLedger.totals[key as keyof typeof currentLedger.totals] ?? 0));
+      const openingChanged = frozen.openingSetId !== currentLedger.openingSetId
+        || frozen.openingChecksum !== currentLedger.openingChecksum;
+      ledgerDrift = { checked: true, drifted: frozen.ledgerHash !== currentLedger.ledgerHash,
+        reason: frozen.ledgerHash === currentLedger.ledgerHash
+          ? "제출 시 동결한 원장 계보와 현재 원장이 일치합니다."
+          : "마감 이후 전기행 또는 개시잔액 계보가 바뀌었습니다. 자동 수정 없이 재개방 승인이 필요합니다.",
+        checkedAsOf: frozen.asOf, frozenHash: frozen.ledgerHash, currentHash: currentLedger.ledgerHash,
+        frozenLineCount: Number(frozen.lineCount ?? 0), currentLineCount: currentLedger.lineCount,
+        lineCountDelta: currentLedger.lineCount - Number(frozen.lineCount ?? 0), totalsChanged, openingChanged };
+    } catch {
+      ledgerDrift = { ...ledgerDrift, reason: "동결 원장과 현재 원장의 무결성 비교를 완료하지 못했습니다. 원장 접근 상태를 확인해 주세요." };
+    }
   }
   await synchronizeAutomatedTasks(period, run.status, controls);
   const [tasksResult, documentsResult] = await Promise.all([
@@ -408,7 +435,7 @@ async function closeState(period: string) {
     ...manualTasks.filter((task) => !["COMPLETED", "APPROVED"].includes(task.status)).map((task) => `${task.title} 미완료`),
     ...(evidenceCount ? [] : ["마감 증빙 파일 미첨부"]),
   ];
-  return { run: refreshedRun ?? run, controls, tasks, documents: documentsResult.results,
+  return { run: refreshedRun ?? run, controls, tasks, documents: documentsResult.results, ledgerDrift,
     summary: { passCount, failCount, reviewCount: controls.filter((control) => control.status === "REVIEW").length,
       manualCompleted, manualTotal: manualTasks.length, evidenceCount, canSubmit: reasons.length === 0, reasons } };
 }
@@ -424,7 +451,8 @@ export async function GET(request: Request) {
   return Response.json({ asOf: financeCurrentData.asOf, currentPeriod, run: runView(state.run), controls: state.controls,
     tasks: state.tasks.map(taskView), documents: state.documents.map((document) => ({ id: document.id, category: document.category,
       version: document.version, fileName: document.file_name, uploadedBy: document.uploaded_by, createdAt: document.created_at,
-      downloadUrl: `/api/documents?downloadId=${encodeURIComponent(document.id)}` })), summary: state.summary });
+      downloadUrl: `/api/documents?downloadId=${encodeURIComponent(document.id)}` })), summary: state.summary,
+    ledgerDrift: state.ledgerDrift });
 }
 
 export async function POST(request: Request) {

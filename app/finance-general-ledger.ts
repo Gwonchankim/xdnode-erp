@@ -24,6 +24,55 @@ export type OperationalFinancialStatements = {
     unclassifiedAccounts: Array<{ code: string; name: string }>; equationBalanced: boolean };
 };
 
+export type StatementComparison = {
+  label: string; from: string; to: string; source: "ERP_POSTED" | "HISTORICAL_CLOSE";
+  revenue: number; expenses: number; netIncome: number; monthCount?: number;
+};
+
+const DAY = 86_400_000;
+const utcDate = (value: string) => new Date(`${value}T00:00:00Z`);
+const dateValue = (value: Date) => value.toISOString().slice(0, 10);
+
+export function previousEqualLengthPeriod(from: string, to: string, minimum = "2026-01-01") {
+  const fromTime = utcDate(from).valueOf(); const toTime = utcDate(to).valueOf();
+  if (!Number.isFinite(fromTime) || !Number.isFinite(toTime) || fromTime > toTime) return null;
+  const days = Math.floor((toTime - fromTime) / DAY) + 1;
+  const previousTo = new Date(fromTime - DAY); const previousFrom = new Date(previousTo.valueOf() - (days - 1) * DAY);
+  if (dateValue(previousFrom) < minimum) return null;
+  return { from: dateValue(previousFrom), to: dateValue(previousTo), days };
+}
+
+export function completedMonthsInRange(from: string, to: string, year = 2026) {
+  const result: number[] = [];
+  for (let month = 1; month <= 12; month += 1) {
+    const first = `${year}-${String(month).padStart(2, "0")}-01`;
+    const last = dateValue(new Date(Date.UTC(year, month, 0)));
+    if (from <= first && to >= last) result.push(month);
+  }
+  return result;
+}
+
+export function historicalCloseComparison(
+  monthly: ReadonlyArray<{ month: number; revenue: number; netIncome: number }>,
+  from: string,
+  to: string,
+): StatementComparison | null {
+  const months = completedMonthsInRange(from, to, 2026);
+  if (!months.length) return null;
+  const selected = monthly.filter((row) => months.includes(row.month));
+  if (!selected.length) return null;
+  const revenue = selected.reduce((total, row) => total + row.revenue, 0);
+  const netIncome = selected.reduce((total, row) => total + row.netIncome, 0);
+  return { label: "2025 동일 완료월", from: `2025-${String(months[0]).padStart(2, "0")}-01`,
+    to: dateValue(new Date(Date.UTC(2025, months.at(-1) as number, 0))), source: "HISTORICAL_CLOSE",
+    revenue, expenses: revenue - netIncome, netIncome, monthCount: selected.length };
+}
+
+export function comparisonDelta(current: number, prior: number | null) {
+  if (prior === null || prior === 0) return null;
+  return ((current - prior) / Math.abs(prior)) * 100;
+}
+
 export const generalLedgerAccountKey = (code: string, name: string) => code.trim() || `NAME:${name.trim()}`;
 
 export function buildLedgerAccountSummaries(

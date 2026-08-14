@@ -1514,3 +1514,13 @@ test("operational statements and month close freeze only approved posted ledger 
   assert.match(close,/openingChecksum/);assert.match(close,/ledgerHash/);assert.match(close,/ledgerSnapshot/);
   assert.match(plan,/세금계산서 통계.*직접 합산하지 않는다/);assert.match(plan,/월마감 제출 직전에 원장을 다시 계산/);
 });
+
+test("statement comparisons disclose source scope and submitted closes detect ledger drift",async()=>{
+  const[api,server,workspace,close,closeWorkspace,plan]=await Promise.all([read("app/api/finance/general-ledger/route.ts"),read("app/finance-general-ledger.ts"),read("app/general-ledger-workspace.tsx"),read("app/api/finance/close/route.ts"),read("app/finance-close-workspace.tsx"),read("docs/finance-comparison-drift-plan.md")]);
+  assert.match(server,/previousEqualLengthPeriod/);assert.match(server,/completedMonthsInRange/);assert.match(server,/historicalCloseComparison/);
+  assert.match(api,/previousPeriod/);assert.match(api,/priorYearRule/);assert.match(api,/부분월은 일할 계산하지 않습니다/);
+  assert.match(workspace,/직전 동일 일수/);assert.match(workspace,/2025 동일 완료월/);assert.match(workspace,/2025 비교값은 매출-순이익 역산/);
+  assert.match(close,/frozen\.ledgerHash !== currentLedger\.ledgerHash/);assert.match(close,/openingChanged/);assert.match(close,/lineCountDelta/);
+  assert.match(closeWorkspace,/마감 이후 원장 변동 감지/);assert.match(closeWorkspace,/재개방 결재 요청/);assert.match(close,/재개방 승인이 필요합니다/);
+  assert.match(plan,/자동 수정하거나 마감을 자동 재개방하지 않는다/);assert.match(plan,/회계 정확성 자체의 보증이 아니라 원장 계보 무결성/);
+});

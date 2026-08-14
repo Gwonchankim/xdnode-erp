@@ -13,6 +13,8 @@ type CloseData = {
   controls: Control[]; tasks: CloseTask[]; documents: CloseDocument[];
   summary: { passCount: number; failCount: number; reviewCount: number; manualCompleted: number; manualTotal: number;
     evidenceCount: number; canSubmit: boolean; reasons: string[] };
+  ledgerDrift: { checked:boolean;drifted:boolean;reason:string;checkedAsOf:string;frozenHash:string;currentHash:string;
+    frozenLineCount:number;currentLineCount:number;lineCountDelta:number;totalsChanged:boolean;openingChanged:boolean };
 };
 
 const runStatusLabel: Record<string, string> = { OPEN: "작성 중", READY: "제출 준비", SUBMITTED: "결재 진행", CLOSED: "마감 잠금" };
@@ -110,6 +112,12 @@ export default function FinanceCloseWorkspace() {
       <article><small>수동 검토</small><strong>{data?.summary.manualCompleted ?? 0}/{data?.summary.manualTotal ?? 0}</strong><span>완료 항목</span></article>
       <article><small>마감 증빙</small><strong>{data?.summary.evidenceCount ?? 0}건</strong><span>버전 관리·감사기록</span></article>
     </section>
+
+    {data?.run.status !== "OPEN" && <section className={`finance-close-drift ${!data.ledgerDrift.checked?"unavailable":data.ledgerDrift.drifted?"drifted":"matched"}`}>
+      <span>{!data.ledgerDrift.checked?"?":data.ledgerDrift.drifted?"!":"✓"}</span>
+      <div><strong>{!data.ledgerDrift.checked?"원장 무결성 비교 필요":data.ledgerDrift.drifted?"마감 이후 원장 변동 감지":"동결 원장과 현재 원장 일치"}</strong><small>{data.ledgerDrift.reason}</small></div>
+      {data.ledgerDrift.checked&&<p><strong>{data.ledgerDrift.frozenLineCount.toLocaleString("ko-KR")} → {data.ledgerDrift.currentLineCount.toLocaleString("ko-KR")}행</strong><small>{data.ledgerDrift.checkedAsOf} 기준 · 동결 {data.ledgerDrift.frozenHash.slice(0,12)}… / 현재 {data.ledgerDrift.currentHash.slice(0,12)}…{data.ledgerDrift.totalsChanged?" · 합계 변동":""}{data.ledgerDrift.openingChanged?" · 개시잔액 계보 변동":""}</small></p>}
+    </section>}
 
     {(data?.summary.reasons.length ?? 0) > 0 && data?.run.status === "OPEN" && <section className="finance-close-blockers">
       <header><strong>마감 전 해결할 항목</strong><span>{data.summary.reasons.length}건</span></header>

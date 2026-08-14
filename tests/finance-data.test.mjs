@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { calculateStraightLineDepreciation } from "../app/fixed-asset-calculation.mjs";
-import { buildLedgerAccountSummaries, buildOperationalFinancialStatements } from "../app/finance-general-ledger.ts";
+import { buildLedgerAccountSummaries, buildOperationalFinancialStatements, comparisonDelta,
+  completedMonthsInRange, historicalCloseComparison, previousEqualLengthPeriod } from "../app/finance-general-ledger.ts";
 
 async function loadFinanceData() {
   const source = await readFile(new URL("../app/finance-historical-data.ts", import.meta.url), "utf8");
@@ -127,6 +128,24 @@ test("operational statements use posted movements and require an approved classi
   { assets: 1_300, equity: 1_000, currentEarnings: 300, difference: 0 });
   assert.equal(buildOperationalFinancialStatements(rows, categories, false).status, "DRAFT");
   assert.equal(buildOperationalFinancialStatements(rows, { ...categories, "101": "OTHER" }, true).quality.unclassifiedCount, 1);
+});
+
+test("statement comparisons keep equal-day and completed-month scopes explicit", async () => {
+  const historical = await loadFinanceData();
+  assert.equal(previousEqualLengthPeriod("2026-01-01", "2026-08-15"), null);
+  assert.deepEqual(previousEqualLengthPeriod("2026-08-01", "2026-08-15"),
+    { from: "2026-07-17", to: "2026-07-31", days: 15 });
+  assert.deepEqual(completedMonthsInRange("2026-01-01", "2026-08-15"), [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(completedMonthsInRange("2026-08-01", "2026-08-15"), []);
+  const comparison = historicalCloseComparison(historical.monthly2025, "2026-01-01", "2026-08-15");
+  const completed = historical.monthly2025.slice(0, 7);
+  assert.equal(comparison.from, "2025-01-01"); assert.equal(comparison.to, "2025-07-31");
+  assert.equal(comparison.monthCount, 7);
+  assert.equal(comparison.revenue, completed.reduce((total, row) => total + row.revenue, 0));
+  assert.equal(comparison.netIncome, completed.reduce((total, row) => total + row.netIncome, 0));
+  assert.equal(comparison.expenses, comparison.revenue - comparison.netIncome);
+  assert.equal(historicalCloseComparison(historical.monthly2025, "2026-08-01", "2026-08-15"), null);
+  assert.equal(comparisonDelta(120, 100), 20); assert.equal(comparisonDelta(10, 0), null);
 });
 
 test("August management-report commerce inputs reconcile without treating supply difference as profit", async () => {

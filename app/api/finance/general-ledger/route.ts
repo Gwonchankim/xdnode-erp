@@ -4,6 +4,7 @@ import { financeCurrentData } from "../../../finance-current-data";
 import { financeHistoricalData } from "../../../finance-historical-data";
 import { ensureFinancePostingSchema } from "../../../finance-posting";
 import { buildLedgerAccountSummaries, buildOperationalFinancialStatements, generalLedgerAccountKey,
+  historicalCloseComparison, previousEqualLengthPeriod,
   type LedgerAccountSummary, type UnifiedLedgerRow } from "../../../finance-general-ledger";
 import { approvedOpeningRows, ensureFinanceOpeningBalanceSchema, openingAccountCategory } from "../../../finance-opening-balance";
 
@@ -90,10 +91,28 @@ export async function GET(request: Request) {
     .all<{ code: string; category: string }>().catch(() => ({ results: [] }));
   const masterCategories = new Map(masterAccounts.results.map((row) => [row.code, row.category]));
   const openingCategories = new Map(opening?.rows.map((row) => [row.code, row.category]) ?? []);
-  const categories: Record<string, string> = {};
-  for (const item of accounts) categories[item.key] = masterCategories.get(item.accountCode)
-    ?? openingCategories.get(item.accountCode) ?? openingAccountCategory(item.accountCode, item.accountName);
+  const categoryMap = (items: LedgerAccountSummary[]) => {
+    const result: Record<string, string> = {};
+    for (const item of items) result[item.key] = masterCategories.get(item.accountCode)
+      ?? openingCategories.get(item.accountCode) ?? openingAccountCategory(item.accountCode, item.accountName);
+    return result;
+  };
+  const categories = categoryMap(accounts);
   const statements = buildOperationalFinancialStatements(accounts, categories, Boolean(opening));
+  const previousRange = previousEqualLengthPeriod(from, to);
+  const previousPeriod = previousRange ? (() => {
+    const previousRows = ytdRows.filter((row) => row.voucherDate <= previousRange.to);
+    const previousAccounts = buildLedgerAccountSummaries(openingSource, previousRows, previousRange.from);
+    const previousStatements = buildOperationalFinancialStatements(previousAccounts, categoryMap(previousAccounts), Boolean(opening));
+    return { label: "직전 동일 일수", from: previousRange.from, to: previousRange.to, source: "ERP_POSTED" as const,
+      revenue: previousStatements.incomeStatement.revenue, expenses: previousStatements.incomeStatement.expenses,
+      netIncome: previousStatements.incomeStatement.netIncome };
+  })() : null;
+  const currentComparison = { label: "조회기간", from, to, source: "ERP_POSTED" as const,
+    revenue: statements.incomeStatement.revenue, expenses: statements.incomeStatement.expenses,
+    netIncome: statements.incomeStatement.netIncome };
+  const priorYear = historicalCloseComparison(financeHistoricalData.monthly2025, from, to);
+  const historical2025 = financeHistoricalData.years["2025"];
   const openingDebit = sum(accounts, "openingDebit"); const openingCredit = sum(accounts, "openingCredit");
   const periodDebit = sum(accounts, "periodDebit"); const periodCredit = sum(accounts, "periodCredit");
   const endingDebit = sum(accounts, "endingDebit"); const endingCredit = sum(accounts, "endingCredit");
@@ -111,7 +130,13 @@ export async function GET(request: Request) {
     } });
   }
   const limit = Math.min(500, Math.max(50, Number(url.searchParams.get("limit") || 200)));
-  return Response.json({ asOf: currentAsOf, from, to, accounts, statements, rows: filteredRows.slice(0, limit),
+  return Response.json({ asOf: currentAsOf, from, to, accounts, statements,
+    comparisons: { current: currentComparison, previousPeriod, priorYear,
+      priorYearRule: "조회기간에 완전히 포함된 월만 2025년 동일 월 결산자료와 비교하며 부분월은 일할 계산하지 않습니다.",
+      closingReference: { label: "2025 결산 기준", asOf: "2025-12-31", assets: historical2025.assets,
+        cash: historical2025.cash, accountsReceivable: historical2025.ar, accountsPayable: historical2025.ap,
+        debt: historical2025.debt, scopeNote: "총자산·현금·매출채권·매입채무·차입금의 결산 참고값이며 총부채·자본 비교가 아닙니다." } },
+    rows: filteredRows.slice(0, limit),
     pagination: { returned: Math.min(filteredRows.length, limit), total: filteredRows.length, limit },
     totals: { openingDebit, openingCredit, openingDifference: openingDebit - openingCredit, periodDebit, periodCredit,
       periodDifference: periodDebit - periodCredit, endingDebit, endingCredit, endingDifference: endingDebit - endingCredit },

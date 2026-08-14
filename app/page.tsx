@@ -21,6 +21,7 @@ import DailyTreasuryWorkspace from "./daily-treasury-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
+import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
 
 type ModuleKey = "finance" | "sales" | "hr";
@@ -47,6 +48,40 @@ type OperationTask = {
   destination: string;
   sourceType?: string;
 };
+
+type TreasuryOverviewSnapshot = {
+  balances: {
+    closingBankAssets: number;
+    movement: number;
+  };
+  actualCash: {
+    inflow: number;
+    outflow: number;
+    net: number;
+  };
+  next7Days: {
+    explicitForecast: { inflow: number; outflow: number; net: number };
+    receivables: { dueAmount: number; dueCount: number; overdueAmount: number; missingDueCount: number };
+    payables: { dueAmount: number; dueCount: number; missingDueCount: number };
+    debt: { dueAmount: number; dueCount: number };
+  };
+  warnings: Array<{ code: string; message: string; destination: string }>;
+};
+
+type TreasuryOverviewReport = {
+  version: number;
+  status: "DRAFT" | "REVIEWED" | "FINAL";
+  sourceAsOf: string;
+  analysisText: string;
+  analysisSource: "AI" | "RULE_BASED_FALLBACK";
+  aiStatus: string;
+};
+
+type TreasuryOverviewResponse = {
+  preview: TreasuryOverviewSnapshot;
+  selected: TreasuryOverviewReport | null;
+};
+const noTreasuryWarnings: TreasuryOverviewSnapshot["warnings"] = [];
 
 const modules: Array<{
   key: ModuleKey;
@@ -96,6 +131,23 @@ type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
 type FinanceWorkspaceView = "overview" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
+const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
+  "overview", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
+  "project-costing", "expense-control", "debt", "reconciliation", "forecast", "budget", "close", "master",
+  "commercial", "receivables", "statements", "liquidity", "quality",
+]);
+const treasuryStatusLabels: Record<TreasuryOverviewReport["status"], string> = {
+  DRAFT: "작성 중",
+  REVIEWED: "검토 완료",
+  FINAL: "최종 확정",
+};
+
+function financeDestinationView(destination: string): FinanceWorkspaceView {
+  const [module, candidate] = destination.split(":");
+  return module === "finance" && financeWorkspaceViews.has(candidate as FinanceWorkspaceView)
+    ? candidate as FinanceWorkspaceView
+    : "control";
+}
 const financePeriodLabels: Record<FinancePeriod, string> = {
   day: "일",
   week: "주",
@@ -148,20 +200,6 @@ const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ la
     ],
   },
 };
-
-const financeAlerts = [
-  { level: "critical", label: "분류 필요", title: "계정 없는 출금 68.45억원", detail: "최근 31일 · 40건의 출금 계정을 확인하세요." },
-  { level: "warning", label: "확인 필요", title: "계정 없는 입금 71.28억원", detail: "최근 31일 · 매출 또는 자금이동 여부를 구분하세요." },
-  { level: "warning", label: "장부 점검", title: `차변·대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이`, detail: "2026년 분개장 마감 전 원인을 확인하세요." },
-  { level: "info", label: "원문 확인", title: "2025년 중복 후보 32행", detail: "실제 반복 거래일 수 있어 자동 삭제하지 않고 원문 검토 대상으로 유지합니다." },
-];
-
-const financeDailyBrief = [
-  "은행성 자산은 8월 7일 대비 5.88억원 감소해 16.33억원입니다.",
-  "최근 31일 입금 149.67억원, 출금 133.86억원으로 순유입은 15.82억원입니다.",
-  "외화 예금이 은행성 자산의 96.6%를 차지해 환율 변동 영향이 큽니다.",
-  "미분류 입출금 139.73억원과 기타 영업비용 61.68억원을 우선 검토해야 합니다.",
-];
 
 const deals = [
   { company: "네오클라우드", rep: "김민준", stage: "계약검토", amount: "₩420M", due: "8/14", health: "good" },
@@ -594,6 +632,12 @@ function accountBankName(code: string) {
   return ({ "004": "KB국민", "011": "NH농협", "020": "우리", "088": "신한" } as Record<string, string>)[code] ?? "은행";
 }
 
+async function financeResponseJson<T>(response: Response): Promise<T> {
+  const payload = await response.json() as T & { error?: string };
+  if (!response.ok) throw new Error(payload.error || "재무 운영 데이터를 불러오지 못했습니다.");
+  return payload;
+}
+
 function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, requestedYear, yearRequestKey, onOpenAlerts }: {
   search: string;
   requestedWorkspace: FinanceWorkspaceView;
@@ -615,6 +659,14 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantAnswer, setAssistantAnswer] = useState("2024~2026년 재무 데이터 범위와 출처를 구분해 답변합니다. 궁금한 항목을 선택하거나 질문을 입력해 주세요.");
   const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
+  const [financeOverviewRefreshKey, setFinanceOverviewRefreshKey] = useState(0);
+  const [financeOverview, setFinanceOverview] = useState<{
+    loading: boolean;
+    operationsError: string;
+    treasuryError: string;
+    tasks: OperationTask[];
+    treasury: TreasuryOverviewResponse | null;
+  }>({ loading: true, operationsError: "", treasuryError: "", tasks: [], treasury: null });
 
   useEffect(() => {
     if (workspaceRequestKey > 0) {
@@ -628,6 +680,30 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       setWorkspace("overview");
     }
   }, [requestedYear, yearRequestKey]);
+
+  useEffect(() => {
+    if (workspace !== "overview" || overviewYear !== "2026") return;
+    let cancelled = false;
+    void Promise.allSettled([
+      fetch("/api/operations").then((response) => financeResponseJson<{ tasks: OperationTask[] }>(response)),
+      fetch(`/api/finance/daily-treasury?date=${encodeURIComponent(financeCurrentData.asOf)}`)
+        .then((response) => financeResponseJson<TreasuryOverviewResponse>(response)),
+    ]).then(([operationsResult, treasuryResult]) => {
+      if (cancelled) return;
+      setFinanceOverview((current) => ({
+        loading: false,
+        operationsError: operationsResult.status === "rejected"
+          ? operationsResult.reason instanceof Error ? operationsResult.reason.message : "재무 업무를 불러오지 못했습니다."
+          : "",
+        treasuryError: treasuryResult.status === "rejected"
+          ? treasuryResult.reason instanceof Error ? treasuryResult.reason.message : "자금일보를 불러오지 못했습니다."
+          : "",
+        tasks: operationsResult.status === "fulfilled" ? operationsResult.value.tasks : current.tasks,
+        treasury: treasuryResult.status === "fulfilled" ? treasuryResult.value : current.treasury,
+      }));
+    });
+    return () => { cancelled = true; };
+  }, [financeOverviewRefreshKey, overviewYear, workspace]);
 
   const selectedHistorical = statementYear === "2024" ? financeHistoricalData.years["2024"] : financeHistoricalData.years["2025"];
   const trialBalanceSource = statementYear === "2024" ? financeHistoricalData.trialBalance2024 : financeHistoricalData.trialBalance2025;
@@ -674,6 +750,54 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
     + (bankDrawdown > .2 ? 10 : 0)
   );
   const accountRiskLevel = accountRiskScore >= 60 ? "높음" : accountRiskScore >= 30 ? "주의" : "안정";
+  const bankActivity = financeCurrentInsights.bankActivity31Days;
+  const activeFinanceTasks = financeOverview.tasks.filter((task) => task.module === "finance" && task.status !== "DONE");
+  const displayedFinanceTasks = activeFinanceTasks.slice(0, 4);
+  const treasurySnapshot = financeOverview.treasury?.preview ?? null;
+  const treasuryReport = financeOverview.treasury?.selected ?? null;
+  const treasuryWarnings = treasurySnapshot?.warnings ?? noTreasuryWarnings;
+  const priorityTask = activeFinanceTasks.find((task) => task.priority === "CRITICAL")
+    ?? activeFinanceTasks.find((task) => task.priority === "HIGH")
+    ?? activeFinanceTasks[0]
+    ?? null;
+  const dailyBriefItems = useMemo(() => {
+    const savedAnalysis = treasuryReport?.analysisText.split(/\r?\n+/).map((item) => item.trim()).filter(Boolean).slice(0, 6) ?? [];
+    if (savedAnalysis.length) return savedAnalysis;
+    if (treasurySnapshot) {
+      const next7Incoming = treasurySnapshot.next7Days.explicitForecast.inflow + treasurySnapshot.next7Days.receivables.dueAmount;
+      const next7Outgoing = treasurySnapshot.next7Days.explicitForecast.outflow + treasurySnapshot.next7Days.payables.dueAmount + treasurySnapshot.next7Days.debt.dueAmount;
+      return [
+        `은행성 자산은 ${formatWon(treasurySnapshot.balances.closingBankAssets)}이며 직전 관측일 대비 ${treasurySnapshot.balances.movement >= 0 ? "증가" : "감소"} ${formatWon(Math.abs(treasurySnapshot.balances.movement))}입니다.`,
+        `${bankActivity.startDate}~${bankActivity.endDate} 은행 입금 ${formatWon(bankActivity.inflowKrw)}, 출금 ${formatWon(bankActivity.outflowKrw)}, 순유입 ${formatWon(bankActivity.netInflowKrw)}입니다.`,
+        `향후 7일 연결 원천의 예정 유입은 ${formatWon(next7Incoming)}, 예정 유출은 ${formatWon(next7Outgoing)}입니다.`,
+        treasuryWarnings.length ? `통제 경고: ${treasuryWarnings.map((warning) => warning.message).join(" · ")}` : "연결된 원천에서 추가 통제 경고가 없습니다.",
+      ];
+    }
+    if (financeOverview.treasuryError) return ["자금일보 원장을 불러오지 못했습니다. 과거 분석 문장을 최신 결과처럼 표시하지 않습니다."];
+    return ["최신 자금일보와 동결 스냅샷을 불러오는 중입니다."];
+  }, [bankActivity, financeOverview.treasuryError, treasuryReport, treasurySnapshot, treasuryWarnings]);
+  const dailyBriefRisk = activeFinanceTasks.some((task) => task.priority === "CRITICAL")
+    ? "긴급"
+    : activeFinanceTasks.some((task) => task.priority === "HIGH") || treasuryWarnings.length > 0 || accountRiskLevel !== "안정"
+      ? "주의"
+      : "안정";
+  const dailyBriefMeta = financeOverview.treasuryError
+    ? treasuryReport ? `새로고침 실패 · 이전 v${treasuryReport.version}` : "연결 오류"
+    : financeOverview.loading
+      ? treasuryReport ? `새로고침 중 · v${treasuryReport.version}` : "불러오는 중"
+      : treasuryReport
+        ? `v${treasuryReport.version} · ${treasuryStatusLabels[treasuryReport.status]} · ${treasuryReport.analysisSource === "AI" ? "AI" : `규칙 기반(${treasuryReport.aiStatus})`}`
+        : "작성 필요";
+  const dailyBriefDetail = financeOverview.treasuryError
+    ? treasuryReport
+      ? "최신 조회에 실패해 직전에 불러온 저장본을 표시합니다."
+      : "자금일보 상태를 확인할 수 없어 수치를 임의로 보완하지 않았습니다."
+    : financeOverview.loading
+      ? "최신 저장 버전과 동결 스냅샷을 확인하고 있습니다."
+      : treasuryReport
+        ? `${treasuryReport.sourceAsOf} 원천으로 저장된 ${treasuryStatusLabels[treasuryReport.status]} 보고서입니다.`
+        : "최신 원천 스냅샷은 확인되었지만 저장된 자금일보가 없습니다.";
+  const dailyBriefPriority = priorityTask?.title ?? treasuryWarnings[0]?.message ?? "오늘 확인할 긴급 재무 업무가 없습니다.";
 
   const historicalChartData = overviewYear === "2025"
     ? financeHistoricalData.monthly2025.map((item) => ({
@@ -805,8 +929,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
           <section className="kpi-grid">
             {overviewYear === "2026" ? (
               <>
-                <Metric label="은행성 자산" value={formatCompactWon(bankAssets)} delta="8월 14일 현재" trend="neutral" hint="원화·외화 원화환산 합계" />
-                <Metric label="최근 31일 순유입" value="+₩15.82억" delta="입금 149.67억 · 출금 133.86억" trend="up" hint="내부 대체거래 제외" />
+                <Metric label="은행성 자산" value={formatCompactWon(bankAssets)} delta={`${financeCurrentData.asOf.slice(5).replace("-", "월 ")}일 현재`} trend="neutral" hint="원화·외화 원화환산 합계" />
+                <Metric label="최근 31일 순유입" value={formatCompactWon(bankActivity.netInflowKrw)} delta={`입금 ${formatCompactWon(bankActivity.inflowKrw)} · 출금 ${formatCompactWon(bankActivity.outflowKrw)}`} trend={bankActivity.netInflowKrw >= 0 ? "up" : "down"} hint={bankActivity.scopeNote} />
                 <Metric label="외화 자산 비중" value={`${(fxConcentration * 100).toFixed(1)}%`} delta="환율 변동 집중도" trend="down" hint={`외화예금 ${formatCompactWon(financeCurrentData.accountSummary.fxBalanceSumKrw)}`} />
                 <Metric label="대출 대비 유동성" value={`${(liquidityCoverage * 100).toFixed(1)}%`} delta={`대출 잔액 ${formatCompactWon(bankLoans)}`} trend="down" hint="은행성 자산 ÷ 대출 잔액" />
               </>
@@ -816,15 +940,30 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
           <section className="finance-alert-section" aria-label="재무 알림">
             <div className="finance-section-heading">
               <div><p>FINANCIAL ALERTS</p><h2>지금 확인할 재무 알림</h2></div>
-              <span>확인 필요 4건</span>
+              <div className="finance-alert-heading-actions">
+                <button type="button" disabled={financeOverview.loading} onClick={() => {
+                  setFinanceOverview((current) => ({ ...current, loading: true, operationsError: "", treasuryError: "" }));
+                  setFinanceOverviewRefreshKey((current) => current + 1);
+                }}>{financeOverview.loading ? "확인 중" : "새로고침"}</button>
+                <span>확인 필요 {activeFinanceTasks.length}건</span>
+              </div>
             </div>
             <div className="finance-alert-grid">
-              {financeAlerts.map((alert, index) => (
-                <article className={`finance-alert-card ${alert.level}`} key={alert.title}>
-                  <span>{alert.label}</span><strong>{alert.title}</strong><p>{alert.detail}</p>
-                  <button type="button" onClick={() => setWorkspace(index === 3 ? "statements" : "quality")}>내역 확인 →</button>
+              {displayedFinanceTasks.map((task) => (
+                <article className={`finance-alert-card ${task.priority === "CRITICAL" ? "critical" : task.priority === "HIGH" ? "warning" : "info"}`} key={task.id}>
+                  <span>{task.category} · {task.priority}</span><strong>{task.title}</strong><p>{task.description}</p>
+                  <button type="button" onClick={() => setWorkspace(financeDestinationView(task.destination))}>관련 업무 열기 →</button>
                 </article>
               ))}
+              {financeOverview.loading && displayedFinanceTasks.length === 0 && (
+                <article className="finance-alert-card info finance-alert-state"><span>연결 중</span><strong>실제 재무 업무를 확인하고 있습니다.</strong><p>완료 여부와 우선순위를 서버 업무원장에서 불러옵니다.</p></article>
+              )}
+              {!financeOverview.loading && financeOverview.operationsError && (
+                <article className="finance-alert-card critical finance-alert-state"><span>{displayedFinanceTasks.length ? "새로고침 실패" : "연결 오류"}</span><strong>재무 업무를 불러오지 못했습니다.</strong><p>{financeOverview.operationsError} {displayedFinanceTasks.length ? "직전에 불러온 업무를 유지합니다." : "고정된 과거 알림을 대신 표시하지 않습니다."}</p></article>
+              )}
+              {!financeOverview.loading && !financeOverview.operationsError && displayedFinanceTasks.length === 0 && (
+                <article className="finance-alert-card info finance-alert-state"><span>처리 완료</span><strong>현재 미완료 재무 업무가 없습니다.</strong><p>새로운 규칙 기반 업무가 생성되면 이 영역에 우선순위대로 표시됩니다.</p></article>
+              )}
             </div>
           </section>
 
@@ -849,10 +988,10 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             </article>
 
             <article className="panel ai-daily-brief">
-              <div className="ai-brief-head"><span>AI</span><div><p>DAILY CASH BRIEF</p><h2>오늘의 자금일보</h2></div><em>07:30 분석</em></div>
-              <div className="ai-brief-hero"><small>자금 상태</small><strong>주의</strong><p>유동성은 유지되고 있지만 미분류 거래와 외화 집중도를 확인해야 합니다.</p></div>
-              <ol className="ai-brief-list">{financeDailyBrief.map((item, index) => <li key={item}><span>{index + 1}</span><p>{item}</p></li>)}</ol>
-              <div className="ai-priority"><span>오늘의 우선순위</span><strong>미분류 출금 40건 계정 지정</strong></div>
+              <div className="ai-brief-head"><span>AI</span><div><p>DAILY CASH BRIEF</p><h2>오늘의 자금일보</h2></div><em>원천 {financeCurrentData.asOf}</em></div>
+              <div className="ai-brief-hero"><small>{dailyBriefMeta}</small><strong>{dailyBriefRisk}</strong><p>{dailyBriefDetail}</p></div>
+              <ol className="ai-brief-list">{dailyBriefItems.map((item, index) => <li key={`${index}-${item}`}><span>{index + 1}</span><p>{item}</p></li>)}</ol>
+              <div className="ai-priority"><div><span>오늘의 우선순위</span><strong>{dailyBriefPriority}</strong></div><button type="button" onClick={() => setWorkspace(priorityTask ? financeDestinationView(priorityTask.destination) : treasuryWarnings[0] ? financeDestinationView(`finance:${treasuryWarnings[0].destination}`) : "daily-report")}>관련 화면 →</button></div>
             </article>
           </section>
 

@@ -38,6 +38,8 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /외상·미수 관리/);
   assert.match(html, /차입금·상환·약정/);
   assert.match(html, /재무 데이터 어시스턴트/);
+  assert.match(html, /실제 재무 업무를 확인하고 있습니다/);
+  assert.match(html, /최신 자금일보와 동결 스냅샷을 불러오는 중입니다/);
   assert.doesNotMatch(html, /Your site is taking shape|Building your site|codex-preview/);
 });
 

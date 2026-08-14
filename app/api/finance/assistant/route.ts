@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { authorizeErpRequest } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
+import { financeCurrentInsights } from "../../../finance-current-insights";
 
 type AiBindings = {
   DB: D1Database;
@@ -17,6 +18,7 @@ type CloudflareEnvelope = {
 
 const currentBankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
 const currentPeak = Math.max(...financeCurrentData.balanceTrend.map((item) => item.balance));
+const bankActivity = financeCurrentInsights.bankActivity31Days;
 const financeContext = `
 자료 범위: 2024년·2025년은 사용자가 승인한 이카운트 결산 자료이며, 2026년 은행·분개장 자료는 2026-08-14 기준 Clobe 최신 스냅샷이다. 전자세금계산서는 2026-08-13까지이며 서로 다른 기준기간을 반드시 구분한다.
 2024년 결산: 자산총계 9,163,347,943원, 보통예금 4,440,692,099원, 외상매출금 2,938,482,814원, 외상매입금 4,833,825,237원, 장기차입금 100,000,000원, 상품매출 18,003,003,195원, 상품매출원가 15,443,129,733원, 당기순이익 2,506,308,507원. 합계잔액시산표 차변·대변 각 101,164,394,499원이며 재무상태표와 대사 완료.
@@ -30,9 +32,9 @@ const financeContext = `
 2026년 연말 예상 매출은 8월 13일까지 225일의 일평균 공급가액을 365일로 연환산한 약 63,374,744,254원이다. 계절성·수주잔고·반품 가능성을 반영하지 않은 단순 예측임을 반드시 밝힌다.
 계좌 운영 위험 신호: 은행성 자산/대출잔액 ${(currentBankAssets / financeCurrentData.accountSummary.loanBalanceSum * 100).toFixed(1)}%, 외화자산 집중도 ${(financeCurrentData.accountSummary.fxBalanceSumKrw / currentBankAssets * 100).toFixed(1)}%, 원화 입출금계좌 잔액 ${financeCurrentData.accountSummary.checkingBalanceSum.toLocaleString("ko-KR")}원, 최근 수집기간 고점 대비 잔액 감소 약 ${((currentPeak - currentBankAssets) / currentPeak * 100).toFixed(1)}%. 이는 내부 조기경보 휴리스틱이며 신용평가나 지급불능 판정이 아니다.
 은행성 자산 ${currentBankAssets.toLocaleString("ko-KR")}원, 원화 예금 ${financeCurrentData.accountSummary.checkingBalanceSum.toLocaleString("ko-KR")}원, 외화 예금 원화환산 ${financeCurrentData.accountSummary.fxBalanceSumKrw.toLocaleString("ko-KR")}원, 대출 잔액 ${financeCurrentData.accountSummary.loanBalanceSum.toLocaleString("ko-KR")}원.
-최근 31일(2026-07-14~08-13) 은행 입금 14,967,327,589.5원, 출금 13,385,703,061.2원, 순유입 1,581,624,528.3원.
-최근 31일 주요 입금: 매출성 입금 7,835,865,016원, 계정 없는 입금 7,127,811,273.5원, 정부지원금 3,600,000원.
-최근 31일 주요 출금: 계정 없는 출금 6,845,402,364.2원, 기타 영업비용 6,167,766,052원, 세금과공과 308,196,930원, 미연결 신용카드 대금 17,034,423원.
+최근 31일(${bankActivity.startDate}~${bankActivity.endDate}) 은행 입금 ${bankActivity.inflowKrw.toLocaleString("ko-KR")}원, 출금 ${bankActivity.outflowKrw.toLocaleString("ko-KR")}원, 순유입 ${bankActivity.netInflowKrw.toLocaleString("ko-KR")}원. ${bankActivity.scopeNote}.
+최근 31일 주요 입금: 매출성 입금 ${bankActivity.inflowCategories.salesRelatedKrw.toLocaleString("ko-KR")}원, 계정 없는 입금 ${bankActivity.inflowCategories.unclassifiedKrw.toLocaleString("ko-KR")}원, 정부지원금 ${bankActivity.inflowCategories.governmentSupportKrw.toLocaleString("ko-KR")}원.
+최근 31일 주요 출금: 계정 없는 출금 ${bankActivity.outflowCategories.unclassifiedKrw.toLocaleString("ko-KR")}원, 기타 영업비용 ${bankActivity.outflowCategories.otherOperatingKrw.toLocaleString("ko-KR")}원, 세금과공과 ${bankActivity.outflowCategories.taxesAndDuesKrw.toLocaleString("ko-KR")}원, 미연결 신용카드 대금 ${bankActivity.outflowCategories.unlinkedCardSettlementKrw.toLocaleString("ko-KR")}원.
 분개장 ${financeCurrentData.journalSummary.lineCount.toLocaleString("ko-KR")}라인, 차변 ${financeCurrentData.journalSummary.debitAmountKrw.toLocaleString("ko-KR")}원, 대변 ${financeCurrentData.journalSummary.creditAmountKrw.toLocaleString("ko-KR")}원, 차대변 차이는 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원이다.
 계정 10300 보통예금 순증감 ${financeCurrentData.journalSummary.checkingAccount.netChangeKrw >= 0 ? "+" : ""}${financeCurrentData.journalSummary.checkingAccount.netChangeKrw.toLocaleString("ko-KR")}원.
 연동 채널 매출은 쿠팡 마켓플레이스 2026년 6월 21,510,000원, 정산액 19,940,696원, 수수료 1,514,304원이다.

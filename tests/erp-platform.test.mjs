@@ -48,6 +48,26 @@ test("daily treasury reports freeze source data, survive AI outages and require 
   assert.match(plan, /AI 설정 누락·무료한도 초과·통신 실패/);
 });
 
+test("finance overview uses live operation tasks and saved treasury reports instead of frozen UI copy", async () => {
+  const [page, assistant, insights, plan] = await Promise.all([
+    read("app/page.tsx"), read("app/api/finance/assistant/route.ts"),
+    read("app/finance-current-insights.ts"), read("docs/finance-live-overview-plan.md"),
+  ]);
+  assert.match(page, /fetch\("\/api\/operations"\)/);
+  assert.match(page, /\/api\/finance\/daily-treasury\?date=/);
+  assert.match(page, /activeFinanceTasks\.length/);
+  assert.match(page, /financeDestinationView\(task\.destination\)/);
+  assert.match(page, /treasuryReport\?\.analysisText/);
+  assert.match(page, /과거 분석 문장을 최신 결과처럼 표시하지 않습니다/);
+  assert.doesNotMatch(page, /const financeAlerts\s*=/);
+  assert.doesNotMatch(page, /const financeDailyBrief\s*=/);
+  assert.match(page, /financeCurrentInsights\.bankActivity31Days/);
+  assert.match(assistant, /financeCurrentInsights\.bankActivity31Days/);
+  assert.match(insights, /계좌간 대체 포함 가능/);
+  assert.match(plan, /완료 업무는 카드에서 제거/);
+  assert.match(plan, /API가 실패한 경우 이를 명시/);
+});
+
 test("finance master changes are approval-gated and new finance inputs validate active master records", async () => {
   const [api, workspace, engine, operations, budget, sales, purchasing, page, plan, taskRoute] = await Promise.all([
     read("app/api/finance/master-data/route.ts"), read("app/finance-master-workspace.tsx"),

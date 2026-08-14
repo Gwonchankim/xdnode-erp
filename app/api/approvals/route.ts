@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { approvalTypeLabels, buildApprovalOutcomeStatements, createApprovalRequest, isApprovalType, type ApprovalModule, type ApprovalPriority } from "../../approval-engine";
 import { authorizeErpRequest, ensureErpPlatformSchema, safeJson, writeErpAudit, type ErpModule } from "../../erp-platform";
+import { MasterImpactError, reassessMasterImpact, type MasterImpactAction, type MasterImpactEntityType } from "../../master-impact";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -174,6 +175,19 @@ export async function PUT(request: Request) {
     if (step.approver_employee_id !== principal.employeeId && !principal.roles.includes("SUPER_ADMIN")) return Response.json({ error: "현재 단계의 결재자가 아닙니다." }, { status: 403 });
     const next = await db.prepare(`SELECT * FROM erp_approval_steps WHERE request_id = ? AND step_order = ?`).bind(id, before.current_step + 1).first<StepRow>();
     const finalApprove = action === "APPROVE" && !next;
+    if (finalApprove && before.target_entity_type === "FINANCE_MASTER_CHANGE") {
+      const change = await db.prepare("SELECT target_type, target_id, change_type FROM finance_master_change_requests WHERE id = ? AND status = 'SUBMITTED'")
+        .bind(before.target_entity_id).first<{ target_type: string; target_id: string; change_type: string }>();
+      if (change && change.change_type !== "CREATE") {
+        try {
+          const impact = await reassessMasterImpact(db, `FINANCE_${change.target_type}` as MasterImpactEntityType, change.target_id, change.change_type as MasterImpactAction);
+          if (impact.blockingCount > 0) return Response.json({ error: `최종 승인 직전 재검증에서 차단 항목 ${impact.blockingCount}건이 확인되었습니다. 원장을 정리한 뒤 새 변경 요청을 제출해 주세요.` }, { status: 409 });
+        } catch (error) {
+          if (error instanceof MasterImpactError) return Response.json({ error: error.message }, { status: error.status });
+          throw error;
+        }
+      }
+    }
     const nextStatus = action === "APPROVE" ? (finalApprove ? "APPROVED" : "IN_REVIEW") : action === "REJECT" ? "REJECTED" : "CHANGES_REQUESTED";
     const nextStep = action === "APPROVE" && next ? next.step_order : before.current_step;
     const decidedAt = ["APPROVED", "REJECTED"].includes(nextStatus) ? now : null;

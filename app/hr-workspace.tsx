@@ -9,6 +9,7 @@ import PerformanceManagementView from "./performance-management-view";
 import TrainingManagementView from "./training-management-view";
 import HrAnalyticsView from "./hr-analytics-view";
 import AudioTranscriptionControl from "./audio-transcription-control";
+import MasterImpactDialog from "./master-impact-dialog";
 
 export default function HRWorkspace({ requestedView = "dashboard", navigationRequestKey = 0 }: { requestedView?: string; navigationRequestKey?: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -950,7 +951,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     showToast(`${trimmed} 조직을 추가했습니다.`);
   }
 
-  async function updateOrganization(organizationId: string, name: string, description: string) {
+  async function updateOrganization(organizationId: string, name: string, description: string, impactAssessmentId: string) {
     const trimmedName = name.trim();
     const current = organizations.find((organization) => organization.id === organizationId);
     if (!current || !trimmedName || organizations.some((organization) => organization.id !== organizationId && organization.name === trimmedName)) {
@@ -966,7 +967,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       const response = await fetch("/api/hr/organizations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ organizationId, previousName: current.name, name: trimmedName, description: savedDescription }),
+        body: JSON.stringify({ organizationId, previousName: current.name, name: trimmedName, description: savedDescription, impactAssessmentId }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "조직 정보를 저장하지 못했습니다.");
@@ -1503,7 +1504,7 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
   </div>;
 }
 
-function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onUpdateOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onUpdateOrganization: (organizationId: string, name: string, description: string) => Promise<boolean>; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
+function OrganizationManagement({ organizations, employees, ranks, jobTitles, onLeaderChange, onAddOrganization, onUpdateOrganization, onAddRank, onRemoveRank, onAddJobTitle, onRemoveJobTitle }: { organizations: Organization[]; employees: Employee[]; ranks: string[]; jobTitles: string[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onAddOrganization: (name: string, description: string) => void; onUpdateOrganization: (organizationId: string, name: string, description: string, impactAssessmentId: string) => Promise<boolean>; onAddRank: (value: string) => void; onRemoveRank: (value: string) => void; onAddJobTitle: (value: string) => void; onRemoveJobTitle: (value: string) => void }) {
   const [newOrganization, setNewOrganization] = useState({ name: "", description: "" });
   const [newRank, setNewRank] = useState("");
   const [newJobTitle, setNewJobTitle] = useState("");
@@ -1532,9 +1533,10 @@ function OrganizationManagement({ organizations, employees, ranks, jobTitles, on
   </div>;
 }
 
-function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: { organization: Organization; members: Employee[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onUpdate: (organizationId: string, name: string, description: string) => Promise<boolean> }) {
+function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: { organization: Organization; members: Employee[]; onLeaderChange: (organizationId: string, employeeId: string) => void; onUpdate: (organizationId: string, name: string, description: string, impactAssessmentId: string) => Promise<boolean> }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ name: organization.name, description: organization.description });
+  const [impactOpen, setImpactOpen] = useState(false);
   const sortedMembers = [...members].sort((first, second) => Number(second.id === organization.leaderEmployeeId) - Number(first.id === organization.leaderEmployeeId));
   const memberColumns = members.length <= 1 ? 1 : members.length <= 4 ? 2 : 3;
 
@@ -1545,11 +1547,12 @@ function OrganizationCard({ organization, members, onLeaderChange, onUpdate }: {
 
   async function saveEdit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (await onUpdate(organization.id, draft.name, draft.description)) setEditing(false);
+    setImpactOpen(true);
   }
 
   return <article className={`organization-card ${editing ? "editing" : ""}`}>
-    {editing ? <form className="organization-edit-form" onSubmit={saveEdit}><div className="organization-edit-heading"><strong>조직 정보 수정</strong><span>조직명 변경 시 소속 인사기록에도 함께 반영됩니다.</span></div><label><span>조직명</span><input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>조직 설명</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label><div className="organization-edit-actions"><button type="button" onClick={cancelEdit}>취소</button><button type="submit">수정 저장</button></div></form> : <><div className="organization-card-heading"><span>{organization.name.slice(0, 1)}</span><div><h3>{organization.name}</h3><p>{organization.description}</p></div><em>{members.length}명</em><button type="button" className="organization-edit-button" onClick={() => setEditing(true)}>조직 수정</button></div><label><span>조직장</span><select value={organization.leaderEmployeeId ?? ""} onChange={(event) => onLeaderChange(organization.id, event.target.value)}><option value="">미지정</option>{members.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.position}</option>)}</select></label><div className="organization-members"><div className="organization-members-heading"><strong>소속 조직원</strong><span>{members.length}명</span></div>{members.length > 0 ? <div className={`organization-member-list columns-${memberColumns}`}>{sortedMembers.map((employee) => <div className={`organization-member ${employee.id === organization.leaderEmployeeId ? "leader" : ""}`} key={employee.id}><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.position} · {employee.id === organization.leaderEmployeeId ? "조직장" : employee.jobTitle ?? "팀원"}</small></div></div>)}</div> : <p className="organization-empty-members">소속 조직원이 없습니다.</p>}</div></>}
+    {editing ? <form className="organization-edit-form" onSubmit={saveEdit}><div className="organization-edit-heading"><strong>조직 정보 수정</strong><span>조직명 변경 시 소속 인사기록에도 함께 반영됩니다.</span></div><label><span>조직명</span><input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label><label><span>조직 설명</span><textarea value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></label><div className="organization-edit-actions"><button type="button" onClick={cancelEdit}>취소</button><button type="submit">영향 확인 후 저장</button></div></form> : <><div className="organization-card-heading"><span>{organization.name.slice(0, 1)}</span><div><h3>{organization.name}</h3><p>{organization.description}</p></div><em>{members.length}명</em><button type="button" className="organization-edit-button" onClick={() => setEditing(true)}>조직 수정</button></div><label><span>조직장</span><select value={organization.leaderEmployeeId ?? ""} onChange={(event) => onLeaderChange(organization.id, event.target.value)}><option value="">미지정</option>{members.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.position}</option>)}</select></label><div className="organization-members"><div className="organization-members-heading"><strong>소속 조직원</strong><span>{members.length}명</span></div>{members.length > 0 ? <div className={`organization-member-list columns-${memberColumns}`}>{sortedMembers.map((employee) => <div className={`organization-member ${employee.id === organization.leaderEmployeeId ? "leader" : ""}`} key={employee.id}><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.position} · {employee.id === organization.leaderEmployeeId ? "조직장" : employee.jobTitle ?? "팀원"}</small></div></div>)}</div> : <p className="organization-empty-members">소속 조직원이 없습니다.</p>}</div></>}
+    {impactOpen && <MasterImpactDialog entityType="HR_ORGANIZATION" entityId={organization.id} action="UPDATE" onClose={() => setImpactOpen(false)} onProceed={async (assessmentId) => { const saved = await onUpdate(organization.id, draft.name, draft.description, assessmentId); if (saved) setEditing(false); return saved; }} />}
   </article>;
 }
 

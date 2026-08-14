@@ -15,6 +15,23 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
   for (const source of files) assert.match(source, /writeErpAudit/);
 });
 
+test("master data changes freeze, validate and consume a server-side impact assessment", async () => {
+  const [server, api, dialog, finance, sales, hr, approvals, schema, migration, plan] = await Promise.all([
+    read("app/master-impact.ts"), read("app/api/master-impact/route.ts"), read("app/master-impact-dialog.tsx"),
+    read("app/api/finance/master-data/route.ts"), read("app/api/sales/accounts/route.ts"), read("app/api/hr/organizations/route.ts"),
+    read("app/api/approvals/route.ts"), read("db/schema.ts"), read("drizzle/0061_master_data_impact.sql"), read("docs/master-data-impact-plan.md"),
+  ]);
+  for (const source of [server, schema, migration]) assert.match(source, /erp_master_impact_assessments/);
+  assert.match(api, /authorizeErpRequest/); assert.match(server, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(server, /expiresAt = createdAt \+ 15 \* 60_000/); assert.match(server, /row\.used_at/);
+  assert.match(server, /current\.checksum !== row\.checksum/); assert.match(server, /current\.blockingCount > 0/);
+  for (const source of [finance, sales, hr]) assert.match(source, /validateMasterImpactAssessment/);
+  for (const source of [finance, sales, hr]) assert.match(source, /impactAssessmentId/);
+  assert.match(approvals, /reassessMasterImpact/); assert.match(approvals, /최종 승인 직전 재검증/);
+  assert.match(dialog, /차단 항목 해결 필요/); assert.match(dialog, /변경 직전 서버에서 다시 검증/);
+  assert.match(plan, /자동 병합·자동 계정 치환하지 않는다/); assert.match(plan, /localStorage.*사용하지 않는다/);
+});
+
 test("finance assistant answers become traceable decision drafts without bypassing review and approval", async () => {
   const [api, page, workspace, schema, migration, plan] = await Promise.all([
     read("app/api/finance/management-report/route.ts"), read("app/page.tsx"),

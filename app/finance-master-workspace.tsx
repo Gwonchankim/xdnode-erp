@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import MasterImpactDialog from "./master-impact-dialog";
 
 type Row = Record<string, string | number | null>;
 type MasterData = {
@@ -24,6 +25,7 @@ export default function FinanceMasterWorkspace() {
   const [accountDraft, setAccountDraft] = useState({ code: "", name: "", category: "EXPENSE", normalBalance: "DEBIT", reason: "" });
   const [partnerDraft, setPartnerDraft] = useState({ canonicalName: "", businessNumber: "", partnerType: "BOTH", paymentTermsDays: "30", reason: "" });
   const [taxDraft, setTaxDraft] = useState({ code: "", name: "", direction: "BOTH", ratePct: "10", reason: "" });
+  const [impactRequest, setImpactRequest] = useState<null | { entityType: string; entityId: string; action: string; proceed: (assessmentId: string) => Promise<boolean> }>(null);
 
   async function load() {
     setLoading(true);
@@ -69,16 +71,21 @@ export default function FinanceMasterWorkspace() {
   }
   async function toggleStatus(targetType: "ACCOUNT" | "PARTNER" | "BANK" | "TAX", row: Row) {
     const active = row.status === "ACTIVE";
-    const reason = window.prompt(`${active ? "비활성" : "재활성"} 사유를 5자 이상 입력해 주세요.`, active ? "더 이상 신규 거래에 사용하지 않음" : "업무 재사용 승인 요청");
-    if (!reason) return;
-    await submitChange({ targetType, targetId: row.id, changeType: active ? "DEACTIVATE" : "ACTIVATE", reason, data: {} }, `${active ? "비활성" : "재활성"} 변경을 결재로 제출했습니다.`);
+    const changeType = active ? "DEACTIVATE" : "ACTIVATE";
+    setImpactRequest({ entityType: `FINANCE_${targetType}`, entityId: String(row.id), action: changeType, proceed: async (impactAssessmentId) => {
+      const reason = window.prompt(`${active ? "비활성" : "재활성"} 사유를 5자 이상 입력해 주세요.`, active ? "더 이상 신규 거래에 사용하지 않음" : "업무 재사용 승인 요청");
+      if (!reason) return false;
+      return submitChange({ targetType, targetId: row.id, changeType, reason, data: {}, impactAssessmentId }, `${active ? "비활성" : "재활성"} 변경을 결재로 제출했습니다.`);
+    } });
   }
   async function mapBank(row: Row) {
-    const glAccountCode = window.prompt("연결할 활성 계정코드를 입력해 주세요.", String(row.gl_account_code ?? "1039"));
-    if (glAccountCode === null) return;
-    const reason = window.prompt("연결 변경 사유를 5자 이상 입력해 주세요.", "은행계좌와 총계정원장 연결");
-    if (!reason) return;
-    await submitChange({ targetType: "BANK", targetId: row.id, changeType: "UPDATE", reason, data: { glAccountCode } }, "은행계좌-계정 연결을 결재로 제출했습니다.");
+    setImpactRequest({ entityType: "FINANCE_BANK", entityId: String(row.id), action: "UPDATE", proceed: async (impactAssessmentId) => {
+      const glAccountCode = window.prompt("연결할 활성 계정코드를 입력해 주세요.", String(row.gl_account_code ?? "1039"));
+      if (glAccountCode === null) return false;
+      const reason = window.prompt("연결 변경 사유를 5자 이상 입력해 주세요.", "은행계좌와 총계정원장 연결");
+      if (!reason) return false;
+      return submitChange({ targetType: "BANK", targetId: row.id, changeType: "UPDATE", reason, data: { glAccountCode }, impactAssessmentId }, "은행계좌-계정 연결을 결재로 제출했습니다.");
+    } });
   }
 
   const normalized = query.trim().toLowerCase();
@@ -168,5 +175,6 @@ export default function FinanceMasterWorkspace() {
         </>}
       </section>
     </>}
+    {impactRequest && <MasterImpactDialog entityType={impactRequest.entityType} entityId={impactRequest.entityId} action={impactRequest.action} onClose={() => setImpactRequest(null)} onProceed={impactRequest.proceed} />}
   </div>;
 }

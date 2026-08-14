@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import MasterImpactDialog from "./master-impact-dialog";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; ownerName: string; status: string; memo: string };
 type Contact = { id: string; name: string; title: string; email: string; phone: string; isPrimary: boolean; status: string };
@@ -30,6 +31,7 @@ export default function SalesAccount360View({ accountId, onClose, onChanged }: {
   const [edit, setEdit] = useState({ name: "", businessNumber: "", industry: "", memo: "", status: "ACTIVE" });
   const [transfer, setTransfer] = useState({ toOwnerEmployeeId: "", reason: "" });
   const [merge, setMerge] = useState({ targetAccountId: "", reason: "" });
+  const [impactRequest, setImpactRequest] = useState<null | { action: string; proceed: (assessmentId: string) => Promise<boolean> }>(null);
 
   async function load() {
     const response = await fetch(`/api/sales/accounts?accountId=${encodeURIComponent(accountId)}`);
@@ -57,7 +59,10 @@ export default function SalesAccount360View({ accountId, onClose, onChanged }: {
 
   async function saveAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await mutate({ action: "UPDATE_ACCOUNT", ...edit, reason: "고객 360도에서 거래처 기준정보 수정" }, "거래처 기준정보를 저장했습니다.");
+    const impactAction = edit.status === "INACTIVE" && data?.account.status !== "INACTIVE" ? "DEACTIVATE" : "UPDATE";
+    setImpactRequest({ action: impactAction, proceed: async (impactAssessmentId) => {
+      return mutate({ action: "UPDATE_ACCOUNT", ...edit, reason: "고객 360도에서 거래처 기준정보 수정", impactAssessmentId }, "거래처 기준정보를 저장했습니다.");
+    } });
   }
   async function reassign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -68,7 +73,9 @@ export default function SalesAccount360View({ accountId, onClose, onChanged }: {
     event.preventDefault();
     const target = data?.mergeTargets.find((item) => item.id === merge.targetAccountId);
     if (!target || !window.confirm(`${data?.account.name}의 영업기회·담당자를 ${target.name}(으)로 병합합니다. 계속할까요?`)) return;
-    await mutate({ action: "MERGE_ACCOUNT", ...merge }, "거래처를 병합했습니다.");
+    setImpactRequest({ action: "MERGE", proceed: async (impactAssessmentId) => {
+      return mutate({ action: "MERGE_ACCOUNT", ...merge, impactAssessmentId }, "거래처를 병합했습니다.");
+    } });
   }
   async function updateContact(contact: Contact, patch: { status?: string; isPrimary?: boolean }) {
     setWorking(true); setMessage("");
@@ -108,5 +115,6 @@ export default function SalesAccount360View({ accountId, onClose, onChanged }: {
       <article><header><h3>고객 접점 타임라인</h3><span>{data.activities.length}건</span></header>{data.activities.slice(0, 30).map((item) => <div key={item.id}><time>{item.occurredAt.replace("T", " ")}</time><p><strong>{activityLabel[item.activityType] || item.activityType} · {item.opportunityTitle}{item.contactName ? ` · ${item.contactName}` : ""}</strong><small>{item.summary}</small></p></div>)}{!data.activities.length && <p className="empty">기록된 고객 접점이 없습니다.</p>}</article>
       <article><header><h3>담당자 이관 이력</h3><span>감사 원장</span></header>{data.ownerHistory.map((item) => <div key={item.id}><time>{new Date(item.changedAt).toLocaleString("ko-KR")}</time><p><strong>{item.fromOwnerName || "미지정"} → {item.toOwnerName}</strong><small>{item.reason}</small></p></div>)}{!data.ownerHistory.length && <p className="empty">담당자 이관 이력이 없습니다.</p>}</article>
     </div>
+    {impactRequest && <MasterImpactDialog entityType="SALES_ACCOUNT" entityId={accountId} action={impactRequest.action} onClose={() => setImpactRequest(null)} onProceed={impactRequest.proceed} />}
   </section>;
 }

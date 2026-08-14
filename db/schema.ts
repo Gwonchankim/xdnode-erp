@@ -1120,6 +1120,31 @@ export const financeMasterChangeRequests = sqliteTable("finance_master_change_re
   index("idx_finance_master_change_target").on(table.targetType, table.targetId),
 ]);
 
+export const erpMasterImpactAssessments = sqliteTable("erp_master_impact_assessments", {
+  id: text("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  proposedAction: text("proposed_action").notNull(),
+  entityVersion: text("entity_version").notNull(),
+  entityLabel: text("entity_label").notNull(),
+  riskLevel: text("risk_level").notNull(),
+  blockingCount: integer("blocking_count").notNull().default(0),
+  warningCount: integer("warning_count").notNull().default(0),
+  impactedRecordCount: integer("impacted_record_count").notNull().default(0),
+  impactJson: text("impact_json").notNull(),
+  checksum: text("checksum").notNull(),
+  requestedBy: text("requested_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  expiresAt: integer("expires_at").notNull(),
+  usedAt: integer("used_at"),
+  usedBy: text("used_by").notNull().default(""),
+  targetType: text("target_type").notNull().default(""),
+  targetId: text("target_id").notNull().default(""),
+}, (table) => [
+  index("idx_erp_master_impact_entity_created").on(table.entityType, table.entityId, table.createdAt),
+  index("idx_erp_master_impact_expiry_used").on(table.expiresAt, table.usedAt),
+]);
+
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),
   requestKind: text("request_kind").notNull().default("EXPENSE"),

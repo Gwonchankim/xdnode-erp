@@ -37,6 +37,24 @@ test("new workflow ledgers migrate cleanly and enforce one payment per request",
   assert.throws(() => insertJournal.run("journal-2", "expense-1", "2026-08-14", "중복", "소모품비", "보통예금", 10000, "gc.kim", now, now), /UNIQUE constraint failed/);
 });
 
+test("master impact assessments preserve frozen evidence and one-time consumption state", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO erp_master_impact_assessments
+    (id,entity_type,entity_id,proposed_action,entity_version,entity_label,risk_level,blocking_count,warning_count,
+      impacted_record_count,impact_json,checksum,requested_by,created_at,expires_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run("impact-1","FINANCE_ACCOUNT","account-1","DEACTIVATE","100","10100 · 현금","MEDIUM",0,2,3,"[]","checksum-1","gc.kim",now,now+900000);
+  const consumed = db.prepare(`UPDATE erp_master_impact_assessments SET used_at=?,used_by=?,target_type=?,target_id=?
+    WHERE id=? AND used_at IS NULL AND expires_at>=?`).run(now,"gc.kim","FINANCE_MASTER_CHANGE","change-1","impact-1",now);
+  assert.equal(consumed.changes, 1);
+  const reused = db.prepare(`UPDATE erp_master_impact_assessments SET used_at=? WHERE id=? AND used_at IS NULL`).run(now+1,"impact-1");
+  assert.equal(reused.changes, 0);
+  const row = db.prepare("SELECT checksum,used_by,target_type,target_id FROM erp_master_impact_assessments WHERE id='impact-1'").get();
+  assert.deepEqual({...row},{checksum:"checksum-1",used_by:"gc.kim",target_type:"FINANCE_MASTER_CHANGE",target_id:"change-1"});
+  const queryPlan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM erp_master_impact_assessments WHERE entity_type=? AND entity_id=? ORDER BY created_at DESC").all("FINANCE_ACCOUNT","account-1");
+  assert.match(queryPlan.map((item) => item.detail).join(" "), /idx_erp_master_impact_entity_created/); db.close();
+});
+
 test("finance risk policy extends the single cash-policy record with safe defaults", async () => {
   const db = await migratedDatabase();
   const columns = db.prepare("PRAGMA table_info(finance_cash_forecast_settings)").all().map((column) => column.name);

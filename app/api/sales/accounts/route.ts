@@ -1,5 +1,7 @@
 import { env } from "cloudflare:workers";
+import { MasterImpactError, prepareMasterImpactConsumption, validateMasterImpactAssessment } from "../../../master-impact";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { ensureSalesServiceSchema } from "../../../sales-service";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -152,6 +154,11 @@ export async function PUT(request: Request) {
     const memo = String(body.memo ?? "").trim().slice(0, 3000);
     const status = String(body.status ?? before.status);
     if (name.length < 2 || !["ACTIVE", "INACTIVE"].includes(status)) return Response.json({ error: "거래처명과 상태를 확인해 주세요." }, { status: 400 });
+    const impactAssessmentId = String(body.impactAssessmentId ?? "").trim();
+    const impactAction = status === "INACTIVE" && before.status !== "INACTIVE" ? "DEACTIVATE" : "UPDATE";
+    if (!impactAssessmentId) return Response.json({ error: "최신 연결 원장 영향도 확인이 필요합니다." }, { status: 409 });
+    try { await validateMasterImpactAssessment(db, impactAssessmentId, "SALES_ACCOUNT", accountId, impactAction); }
+    catch (error) { if (error instanceof MasterImpactError) return Response.json({ error: error.message }, { status: error.status }); throw error; }
     if (status === "INACTIVE" && before.status !== "INACTIVE") {
       const [openOpportunity, outstandingAmount] = await Promise.all([
         db.prepare("SELECT id FROM sales_opportunities WHERE account_id = ? AND status = 'OPEN' AND deleted_at IS NULL LIMIT 1").bind(accountId).first(),
@@ -173,6 +180,7 @@ export async function PUT(request: Request) {
           .bind(name, businessNumber, industry, status, memo, now, accountId),
         db.prepare("UPDATE finance_master_partner_aliases SET source_name = ?, updated_at = ? WHERE mapping_key = ?")
           .bind(name, now, `SALES:${accountId}`),
+        prepareMasterImpactConsumption(db, impactAssessmentId, authorization.principal, "SALES_ACCOUNT", accountId),
       ]);
     } catch (error) {
       if (String(error).includes("UNIQUE")) return Response.json({ error: "같은 사업자번호 또는 거래처명의 거래처가 이미 있습니다." }, { status: 409 });
@@ -206,9 +214,14 @@ export async function PUT(request: Request) {
   }
 
   if (action === "MERGE_ACCOUNT") {
+    await ensureSalesServiceSchema(db);
     const targetAccountId = String(body.targetAccountId ?? "").trim();
     const reason = String(body.reason ?? "").trim().slice(0, 1000);
     if (!targetAccountId || targetAccountId === accountId || reason.length < 10) return Response.json({ error: "병합 대상과 10자 이상의 병합 사유를 확인해 주세요." }, { status: 400 });
+    const impactAssessmentId = String(body.impactAssessmentId ?? "").trim();
+    if (!impactAssessmentId) return Response.json({ error: "최신 연결 원장 영향도 확인이 필요합니다." }, { status: 409 });
+    try { await validateMasterImpactAssessment(db, impactAssessmentId, "SALES_ACCOUNT", accountId, "MERGE"); }
+    catch (error) { if (error instanceof MasterImpactError) return Response.json({ error: error.message }, { status: error.status }); throw error; }
     const target = await db.prepare("SELECT * FROM sales_accounts WHERE id = ? AND status = 'ACTIVE' AND deleted_at IS NULL").bind(targetAccountId).first<AccountRow>();
     if (!target) return Response.json({ error: "활성 거래처만 병합 대상으로 선택할 수 있습니다." }, { status: 400 });
     const [sourceContacts, targetContacts] = await Promise.all([
@@ -234,12 +247,14 @@ export async function PUT(request: Request) {
       }),
       ...(chosenPrimary ? [db.prepare("UPDATE sales_account_contacts SET is_primary = 1, updated_at = ? WHERE id = ?").bind(now, chosenPrimary)] : []),
       db.prepare("UPDATE sales_opportunities SET account_id = ?, updated_at = ? WHERE account_id = ? AND deleted_at IS NULL").bind(targetAccountId, now, accountId),
+      db.prepare("UPDATE sales_service_cases SET account_id = ?, updated_at = ? WHERE account_id = ?").bind(targetAccountId, now, accountId),
       db.prepare("UPDATE sales_account_identity_keys SET is_primary = 0, account_id = ? WHERE account_id = ?").bind(targetAccountId, accountId),
       db.prepare("UPDATE sales_accounts SET updated_at = ? WHERE id = ?").bind(now, targetAccountId),
       db.prepare("UPDATE sales_accounts SET status = 'MERGED', deleted_at = ?, updated_at = ? WHERE id = ?").bind(now, now, accountId),
       db.prepare(`INSERT INTO sales_account_merges (id, source_account_id, target_account_id, reason, merged_by, merged_at)
         VALUES (?, ?, ?, ?, ?, ?)`)
         .bind(crypto.randomUUID(), accountId, targetAccountId, reason, authorization.principal.employeeId, now),
+      prepareMasterImpactConsumption(db, impactAssessmentId, authorization.principal, "SALES_ACCOUNT_MERGE", targetAccountId),
     ];
     await db.batch(statements);
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "ACCOUNT_MERGED", entityType: "salesAccount", entityId: accountId,

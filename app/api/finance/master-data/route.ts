@@ -3,6 +3,7 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { financeHistoricalData } from "../../../finance-historical-data";
+import { consumeMasterImpactAssessment, MasterImpactError, type MasterImpactEntityType, validateMasterImpactAssessment } from "../../../master-impact";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -190,6 +191,12 @@ export async function POST(request: Request) {
   const targetId = changeType === "CREATE" ? crypto.randomUUID() : String(body.targetId ?? "").trim();
   const before = await findTarget(targetType, targetId);
   if (changeType !== "CREATE" && !before) return Response.json({ error: "변경할 마스터를 찾지 못했습니다." }, { status: 404 });
+  const impactAssessmentId = String(body.impactAssessmentId ?? "").trim();
+  if (changeType !== "CREATE") {
+    if (!impactAssessmentId) return Response.json({ error: "최신 연결 원장 영향도 확인이 필요합니다." }, { status: 409 });
+    try { await validateMasterImpactAssessment(db, impactAssessmentId, `FINANCE_${targetType}` as MasterImpactEntityType, targetId, changeType); }
+    catch (error) { if (error instanceof MasterImpactError) return Response.json({ error: error.message }, { status: error.status }); throw error; }
+  }
 
   const after: Record<string, unknown> = { ...payload, id: targetId };
   if (targetType === "ACCOUNT") {
@@ -237,10 +244,11 @@ export async function POST(request: Request) {
     const approval = await createApprovalRequest(db, authorization.principal, {
       module: "finance", requestType: "MASTER_DATA", title: `${targetType} 마스터 ${changeType} 승인`,
       description: reason, targetEntityType: "FINANCE_MASTER_CHANGE", targetEntityId: changeId,
-      metadata: { targetType, targetId, changeType },
+      metadata: { targetType, targetId, changeType, impactAssessmentId },
     });
     await db.prepare("UPDATE finance_master_change_requests SET approval_id = ?, updated_at = ? WHERE id = ?").bind(approval.id, now, changeId).run();
-    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MASTER_CHANGE_SUBMITTED", entityType: "financeMasterChange", entityId: changeId, before, after: { ...after, reason, approvalId: approval.id } });
+    if (impactAssessmentId) await consumeMasterImpactAssessment(db, impactAssessmentId, authorization.principal, "FINANCE_MASTER_CHANGE", changeId);
+    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MASTER_CHANGE_SUBMITTED", entityType: "financeMasterChange", entityId: changeId, before, after: { ...after, reason, approvalId: approval.id, impactAssessmentId } });
     return Response.json({ changeId, approvalId: approval.id, status: "SUBMITTED" }, { status: 201 });
   } catch (error) {
     await db.prepare("DELETE FROM finance_master_change_requests WHERE id = ? AND approval_id = ''").bind(changeId).run();

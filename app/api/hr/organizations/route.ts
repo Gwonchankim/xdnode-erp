@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { companyOrganizations } from "../../../hr-company-data";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { MasterImpactError, prepareMasterImpactConsumption, validateMasterImpactAssessment } from "../../../master-impact";
 
 type OrganizationRow = {
   organization_id: string;
@@ -50,6 +51,7 @@ export async function PUT(request: Request) {
     ? body.description.trim()
     : "조직 설명 미입력";
   const clientPreviousName = typeof body.previousName === "string" ? body.previousName.trim() : "";
+  const impactAssessmentId = typeof body.impactAssessmentId === "string" ? body.impactAssessmentId.trim() : "";
 
   if (!organizationId || !name) {
     return Response.json({ error: "조직 ID와 조직명이 필요합니다." }, { status: 400 });
@@ -66,6 +68,9 @@ export async function PUT(request: Request) {
     FROM hr_organization_records WHERE organization_id = ?`).bind(organizationId).first<OrganizationRow>();
   const baseOrganization = companyOrganizations.find((organization) => organization.id === organizationId);
   const previousName = existing?.name ?? baseOrganization?.name ?? clientPreviousName;
+  if (!impactAssessmentId) return Response.json({ error: "최신 연결 원장 영향도 확인이 필요합니다." }, { status: 409 });
+  try { await validateMasterImpactAssessment(db, impactAssessmentId, "HR_ORGANIZATION", organizationId, "UPDATE"); }
+  catch (error) { if (error instanceof MasterImpactError) return Response.json({ error: error.message }, { status: error.status }); throw error; }
   const updatedAt = Date.now();
 
   const statements = [
@@ -80,6 +85,7 @@ export async function PUT(request: Request) {
     statements.push(db.prepare(`UPDATE hr_employee_records SET department = ?, updated_at = ?
       WHERE department = ?`).bind(name, updatedAt, previousName));
   }
+  statements.push(prepareMasterImpactConsumption(db, impactAssessmentId, authorization.principal, "HR_ORGANIZATION", organizationId));
   await db.batch(statements);
 
   const after = toOrganization({

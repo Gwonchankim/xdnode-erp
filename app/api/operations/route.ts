@@ -200,6 +200,35 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const payableRisk = await db.prepare(`SELECT
+      COUNT(*) AS open_count,
+      COALESCE(SUM(CASE WHEN invoice.due_date <> '' AND invoice.due_date < ? THEN 1 ELSE 0 END), 0) AS overdue_count,
+      COALESCE(SUM(CASE WHEN invoice.due_date = '' AND COALESCE(plan.planned_payment_date, '') = '' THEN 1 ELSE 0 END), 0) AS missing_date_count,
+      COALESCE(SUM(CASE WHEN plan.invoice_id IS NULL THEN 1 ELSE 0 END), 0) AS unscheduled_count,
+      COALESCE(SUM(CASE WHEN plan.plan_status = 'SCHEDULED' AND plan.planned_payment_date <= ? THEN 1 ELSE 0 END), 0) AS payment_due_count,
+      COALESCE(SUM(CASE WHEN plan.plan_status = 'HOLD' THEN 1 ELSE 0 END), 0) AS hold_count,
+      COALESCE(SUM(invoice.total_amount), 0) AS open_amount
+      FROM finance_purchase_invoices invoice
+      LEFT JOIN finance_payable_plans plan ON plan.invoice_id = invoice.id
+      WHERE invoice.status IN ('MATCHED','PAYMENT_READY')`).bind(today, today).first<{
+        open_count: number; overdue_count: number; missing_date_count: number; unscheduled_count: number;
+        payment_due_count: number; hold_count: number; open_amount: number;
+      }>();
+    const actionCount = (payableRisk?.overdue_count ?? 0) + (payableRisk?.missing_date_count ?? 0)
+      + (payableRisk?.unscheduled_count ?? 0) + (payableRisk?.payment_due_count ?? 0) + (payableRisk?.hold_count ?? 0);
+    if ((payableRisk?.open_count ?? 0) > 0 && actionCount > 0) await upsertRuleTask({
+      id: "payable-schedule-risk", module: "finance", category: "매입채무 지급",
+      title: `매입채무 지급 위험 신호 ${actionCount}개 확인`,
+      description: `기한 경과 ${payableRisk?.overdue_count ?? 0}건 · 일정 미설정 ${payableRisk?.unscheduled_count ?? 0}건 · 날짜 누락 ${payableRisk?.missing_date_count ?? 0}건 · 지급일 도래 ${payableRisk?.payment_due_count ?? 0}건 · 보류 ${payableRisk?.hold_count ?? 0}건입니다.`,
+      dueDate: today, priority: (payableRisk?.overdue_count ?? 0) > 0 || (payableRisk?.payment_due_count ?? 0) > 0 ? "HIGH" : "NORMAL",
+      destination: "finance:purchasing", sourceId: `${financeCurrentData.asOf}:${payableRisk?.open_amount ?? 0}:${actionCount}`,
+    });
+    else await closeRuleTask("payable-schedule-risk");
+  } catch {
+    // 지급계획 원장이 배포된 뒤부터 매입채무 일정 규칙을 평가합니다.
+  }
+
+  try {
     const bankReconciliation = await db.prepare(`SELECT COUNT(*) AS imported_count,
       SUM(CASE WHEN transaction_row.currency = 'KRW' AND transaction_row.amount > COALESCE((
         SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row

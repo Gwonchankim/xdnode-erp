@@ -128,11 +128,20 @@ test("purchase ledgers preserve ordered quantities, accepted receipts and invoic
     WHERE receipt_line.receipt_id = ?`).get("receipt-1");
   assert.equal(accepted.amount, 80000);
   const insertInvoice = db.prepare(`INSERT INTO finance_purchase_invoices
-    (id, order_id, invoice_number, invoice_date, supply_amount, tax_amount, total_amount,
+    (id, order_id, vendor_id, invoice_number, invoice_date, supply_amount, tax_amount, total_amount,
       matched_receipt_amount, status, created_by, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  insertInvoice.run("invoice-1", "order-1", "INV-001", "2026-08-14", 80000, 8000, 88000, 80000, "MATCHED", "gc.kim", now, now);
-  assert.throws(() => insertInvoice.run("invoice-2", "order-1", "INV-001", "2026-08-14", 1, 0, 1, 1, "MATCHED", "gc.kim", now, now), /UNIQUE constraint failed/);
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  insertInvoice.run("invoice-1", "order-1", "vendor-1", "INV-001", "2026-08-14", 80000, 8000, 88000, 80000, "MATCHED", "gc.kim", now, now);
+  assert.throws(() => insertInvoice.run("invoice-2", "order-1", "vendor-1", "INV-001", "2026-08-14", 1, 0, 1, 1, "MATCHED", "gc.kim", now, now), /UNIQUE constraint failed/);
+  insertInvoice.run("invoice-other-vendor", "order-2", "vendor-2", "INV-001", "2026-08-14", 1, 0, 1, 1, "MATCHED", "gc.kim", now, now);
+  db.prepare(`INSERT INTO finance_payable_plans
+    (invoice_id, plan_status, planned_payment_date, priority, owner_employee_id, updated_by, created_at, updated_at)
+    VALUES ('invoice-1', 'SCHEDULED', '2026-08-20', 'HIGH', 'gc.kim', 'gc.kim', ?, ?)`).run(now, now);
+  assert.throws(() => db.prepare(`INSERT INTO finance_payable_plans
+    (invoice_id, plan_status, updated_by, created_at, updated_at) VALUES ('invoice-1', 'HOLD', 'gc.kim', ?, ?)`).run(now, now), /UNIQUE constraint failed/);
+  const payable = db.prepare("SELECT * FROM finance_payable_plans WHERE invoice_id = 'invoice-1'").get();
+  assert.equal(payable.planned_payment_date, "2026-08-20");
+  assert.equal(payable.priority, "HIGH");
 });
 
 test("cash reconciliation ledgers preserve source rows, partial allocations and reversible match groups", async () => {

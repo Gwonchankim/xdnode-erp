@@ -8,7 +8,7 @@ type Scenario = "BASE" | "CONSERVATIVE" | "OPTIMISTIC";
 type ForecastItem = {
   sourceType: string; sourceId: string; expectedDate: string; direction: "INFLOW" | "OUTFLOW";
   category: string; counterparty: string; amount: number; probability: number; status: string;
-  dateQuality: "EXACT" | "FALLBACK_REQUEST_DATE" | "MISSING"; memo: string;
+  dateQuality: "EXACT" | "PAYMENT_PLAN" | "FALLBACK_REQUEST_DATE" | "MISSING"; memo: string;
 };
 type SettingsRow = {
   id: string; minimum_cash_balance: number; include_fx: number; default_scenario: Scenario;
@@ -67,22 +67,28 @@ async function loadForecastItems(collectionProbability: number) {
         counterparty: string; amount: number; probability: number; status: string; source_type: string;
         source_id: string; memo: string;
       }>(),
-    db.prepare(`SELECT id, title, vendor, amount, requested_date, due_date, status, source_type, source_id, memo
-      FROM finance_expense_requests WHERE status IN ('DRAFT','SUBMITTED','APPROVED') ORDER BY due_date, requested_date`).all<{
+    db.prepare(`SELECT expense.id, expense.title, expense.vendor, expense.amount, expense.requested_date,
+      expense.due_date, expense.status, expense.source_type, expense.source_id, expense.memo,
+      payable.plan_status, payable.planned_payment_date
+      FROM finance_expense_requests expense
+      LEFT JOIN finance_payable_plans payable ON expense.source_type = 'PURCHASE_INVOICE' AND payable.invoice_id = expense.source_id
+      WHERE expense.status IN ('DRAFT','SUBMITTED','APPROVED') ORDER BY expense.due_date, expense.requested_date`).all<{
         id: string; title: string; vendor: string; amount: number; requested_date: string; due_date: string;
-        status: string; source_type: string; source_id: string; memo: string;
+        status: string; source_type: string; source_id: string; memo: string; plan_status: string | null; planned_payment_date: string | null;
       }>(),
     db.prepare(`SELECT invoice.id, invoice.invoice_number, invoice.invoice_date, invoice.due_date,
-      invoice.total_amount, invoice.status, vendor.name AS vendor_name FROM finance_purchase_invoices invoice
+      invoice.total_amount, invoice.status, vendor.name AS vendor_name,
+      payable.plan_status, payable.planned_payment_date FROM finance_purchase_invoices invoice
       JOIN finance_purchase_orders purchase_order ON purchase_order.id = invoice.order_id
       JOIN finance_purchase_vendors vendor ON vendor.id = purchase_order.vendor_id
+      LEFT JOIN finance_payable_plans payable ON payable.invoice_id = invoice.id
       WHERE invoice.status IN ('MATCHED','PAYMENT_READY')
         AND NOT EXISTS (SELECT 1 FROM finance_expense_requests expense
           WHERE expense.source_type = 'PURCHASE_INVOICE' AND expense.source_id = invoice.id
             AND expense.status NOT IN ('CANCELLED','PAID'))
       ORDER BY invoice.due_date, invoice.invoice_date`).all<{
         id: string; invoice_number: string; invoice_date: string; due_date: string; total_amount: number;
-        status: string; vendor_name: string;
+        status: string; vendor_name: string; plan_status: string | null; planned_payment_date: string | null;
       }>(),
     db.prepare(`SELECT * FROM (SELECT invoice.id, invoice.document_number, invoice.due_date,
       invoice.amount - COALESCE((SELECT SUM(allocation.amount) FROM sales_payment_allocations allocation
@@ -103,18 +109,23 @@ async function loadForecastItems(collectionProbability: number) {
     amount: item.amount, probability: item.status === "CONFIRMED" ? 100 : item.probability, status: item.status,
     dateQuality: validDate(item.expected_date) ? "EXACT" : "MISSING", memo: item.memo });
   for (const item of expenses.results) {
-    const expectedDate = validDate(item.due_date) ? item.due_date : validDate(item.requested_date) ? item.requested_date : "";
+    const planned = item.plan_status === "SCHEDULED" && validDate(item.planned_payment_date ?? "") ? item.planned_payment_date ?? "" : "";
+    const expectedDate = planned || (validDate(item.due_date) ? item.due_date : validDate(item.requested_date) ? item.requested_date : "");
     items.push({ sourceType: "FINANCE_EXPENSE", sourceId: item.id, expectedDate, direction: "OUTFLOW",
       category: item.source_type === "PAYROLL_RUN" ? "급여" : item.source_type === "PURCHASE_INVOICE" ? "매입채무" : "지출·지급",
       counterparty: item.vendor || item.title, amount: item.amount,
-      probability: item.status === "APPROVED" ? 100 : item.status === "SUBMITTED" ? 80 : 50, status: item.status,
-      dateQuality: validDate(item.due_date) ? "EXACT" : expectedDate ? "FALLBACK_REQUEST_DATE" : "MISSING",
+      probability: item.status === "APPROVED" ? 100 : item.status === "SUBMITTED" ? 80 : 50, status: item.plan_status === "HOLD" ? "HOLD" : item.status,
+      dateQuality: planned ? "PAYMENT_PLAN" : validDate(item.due_date) ? "EXACT" : expectedDate ? "FALLBACK_REQUEST_DATE" : "MISSING",
       memo: item.memo });
   }
-  for (const item of purchaseInvoices.results) items.push({ sourceType: "PURCHASE_INVOICE", sourceId: item.id,
-    expectedDate: validDate(item.due_date) ? item.due_date : "", direction: "OUTFLOW", category: "매입채무",
+  for (const item of purchaseInvoices.results) {
+    const planned = item.plan_status === "SCHEDULED" && validDate(item.planned_payment_date ?? "") ? item.planned_payment_date ?? "" : "";
+    const expectedDate = planned || (validDate(item.due_date) ? item.due_date : "");
+    items.push({ sourceType: "PURCHASE_INVOICE", sourceId: item.id,
+    expectedDate, direction: "OUTFLOW", category: "매입채무",
     counterparty: item.vendor_name, amount: item.total_amount, probability: item.status === "PAYMENT_READY" ? 100 : 90,
-    status: item.status, dateQuality: validDate(item.due_date) ? "EXACT" : "MISSING", memo: item.invoice_number });
+    status: item.plan_status === "HOLD" ? "HOLD" : item.status, dateQuality: planned ? "PAYMENT_PLAN" : validDate(item.due_date) ? "EXACT" : "MISSING", memo: item.invoice_number });
+  }
   for (const item of salesInvoices.results) items.push({ sourceType: "SALES_INVOICE", sourceId: item.id,
     expectedDate: validDate(item.due_date) ? item.due_date : "", direction: "INFLOW", category: "미수금 회수",
     counterparty: item.account_name || item.opportunity_title, amount: item.outstanding_amount,

@@ -1624,19 +1624,70 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .purchase-invoice-row > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .purchase-invoice-row button.danger { color: #b91c1c; border: 1px solid #fecdd3; background: #fff; }
 .purchasing-note { margin: 0; padding: 0 18px 18px; color: #71717a; background: #fafafa; font-size: 9px; line-height: 1.5; }
+.payable-control-panel { overflow: hidden; }
+.payable-control-panel > header { min-height: 76px; padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid #ececee; }
+.payable-control-panel > header p { margin: 0 0 5px; color: #71717a; font-size: 9px; font-weight: 900; letter-spacing: .12em; }
+.payable-control-panel > header h3 { margin: 0; font-size: 19px; }
+.payable-control-panel > header span { color: #52525b; font-size: 10px; font-weight: 850; }
+.payable-control-metrics { padding: 16px 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; background: #fafafa; }
+.payable-control-metrics article { padding: 13px; border: 1px solid #e4e4e7; border-radius: 16px; background: #fff; }
+.payable-control-metrics small, .payable-control-metrics span, .payable-control-metrics strong { display: block; }
+.payable-control-metrics small, .payable-control-metrics span { color: #71717a; font-size: 9px; }
+.payable-control-metrics strong { margin: 8px 0 4px; font-size: 20px; }
+.payable-aging-grid { padding: 0 18px 18px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; background: #fafafa; }
+.payable-aging-grid > div { padding: 12px; border-radius: 14px; background: #f4f4f5; }
+.payable-aging-grid span, .payable-aging-grid strong { display: block; }
+.payable-aging-grid span { color: #71717a; font-size: 8px; font-weight: 850; }
+.payable-aging-grid strong { margin: 7px 0 9px; font-size: 12px; }
+.payable-aging-grid i { height: 3px; display: block; border-radius: 999px; background: #ff5a1f; }
+.payable-control-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); border-top: 1px solid #ececee; }
+.payable-schedule-list { max-height: 540px; padding: 14px 18px 18px; overflow-y: auto; border-right: 1px solid #ececee; }
+.payable-list-head { min-height: 42px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.payable-list-head strong { font-size: 12px; }
+.payable-list-head span { color: #71717a; font-size: 8px; }
+.payable-schedule-list > button { width: 100%; min-height: 66px; padding: 9px 4px; display: grid; grid-template-columns: 58px minmax(0, 1fr) auto 84px; gap: 10px; align-items: center; border: 0; border-top: 1px solid #ececee; color: #18181b; background: transparent; text-align: left; cursor: pointer; }
+.payable-schedule-list > button.active { margin: 3px -7px; padding: 9px 11px; border: 0; border-radius: 15px; color: #fff; background: #18181b; }
+.payable-schedule-list p { min-width: 0; margin: 0; }
+.payable-schedule-list strong, .payable-schedule-list small { display: block; }
+.payable-schedule-list p strong { overflow: hidden; text-overflow: ellipsis; font-size: 10px; white-space: nowrap; }
+.payable-schedule-list small { margin-top: 4px; color: #71717a; font-size: 8px; }
+.payable-schedule-list button.active small { color: #d4d4d8; }
+.payable-schedule-list b, .payable-schedule-list em { font-size: 9px; white-space: nowrap; }
+.payable-schedule-list em { font-style: normal; }
+.payable-priority { padding: 5px 7px; border-radius: 9px; color: #52525b; background: #f4f4f5; font-size: 8px; font-weight: 900; text-align: center; }
+.payable-priority.high, .payable-priority.critical { color: #b91c1c; background: #fff1f2; }
+.payable-plan-editor { padding: 20px; background: #fff; }
+.payable-plan-editor form > p { margin: 0; color: #71717a; font-size: 8px; font-weight: 900; letter-spacing: .12em; }
+.payable-plan-editor form > h3 { margin: 7px 0 15px; font-size: 19px; }
+.payable-plan-editor dl { margin: 0 0 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.payable-plan-editor dl div { padding: 9px; border-radius: 12px; background: #f4f4f5; }
+.payable-plan-editor dt, .payable-plan-editor dd { margin: 0; }
+.payable-plan-editor dt { color: #71717a; font-size: 8px; }
+.payable-plan-editor dd { margin-top: 4px; font-size: 10px; font-weight: 850; }
+.payable-plan-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.payable-plan-editor label { margin-top: 10px; display: grid; gap: 5px; color: #52525b; font-size: 9px; font-weight: 850; }
+.payable-plan-editor input, .payable-plan-editor select, .payable-plan-editor textarea { width: 100%; padding: 10px 11px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font: inherit; }
+.payable-plan-editor form > button { width: 100%; min-height: 40px; margin-top: 12px; border: 0; border-radius: 13px; color: #fff; background: #18181b; font-size: 10px; font-weight: 900; cursor: pointer; }
+.payable-plan-editor form > small { margin-top: 10px; display: block; color: #71717a; font-size: 8px; line-height: 1.55; }
 
 @media (max-width: 1280px) {
   .purchasing-entry-grid { grid-template-columns: 1fr; }
   .purchasing-processing-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payable-control-grid { grid-template-columns: 1fr; }
+  .payable-schedule-list { border-right: 0; border-bottom: 1px solid #ececee; }
 }
 @media (max-width: 900px) {
   .purchasing-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .purchasing-processing-grid { grid-template-columns: 1fr; }
   .purchase-order-basics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .payable-control-metrics, .payable-aging-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 620px) {
   .purchasing-heading { align-items: flex-start; flex-direction: column; }
   .purchasing-metrics, .purchasing-form, .purchase-order-basics { grid-template-columns: 1fr; }
+  .payable-control-metrics, .payable-aging-grid, .payable-plan-fields { grid-template-columns: 1fr; }
+  .payable-schedule-list > button { grid-template-columns: 58px minmax(0, 1fr); }
+  .payable-schedule-list > button b, .payable-schedule-list > button em { grid-column: 2; }
 }
 .finance-main .module-hero.finance .hero-actions { flex: none; }
 

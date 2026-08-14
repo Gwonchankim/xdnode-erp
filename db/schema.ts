@@ -887,6 +887,7 @@ export const financePurchaseReceiptLines = sqliteTable("finance_purchase_receipt
 export const financePurchaseInvoices = sqliteTable("finance_purchase_invoices", {
   id: text("id").primaryKey(),
   orderId: text("order_id").notNull(),
+  vendorId: text("vendor_id").notNull().default(""),
   invoiceNumber: text("invoice_number").notNull(),
   invoiceDate: text("invoice_date").notNull(),
   dueDate: text("due_date").notNull().default(""),
@@ -901,9 +902,25 @@ export const financePurchaseInvoices = sqliteTable("finance_purchase_invoices", 
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
-  uniqueIndex("idx_finance_purchase_invoice_number").on(table.invoiceNumber),
+  uniqueIndex("idx_finance_purchase_invoice_vendor_number").on(table.vendorId, table.invoiceNumber),
   index("idx_finance_purchase_invoice_order_status").on(table.orderId, table.status),
   index("idx_finance_purchase_invoice_due_status").on(table.dueDate, table.status),
+]);
+
+export const financePayablePlans = sqliteTable("finance_payable_plans", {
+  invoiceId: text("invoice_id").primaryKey(),
+  planStatus: text("plan_status").notNull().default("SCHEDULED"),
+  plannedPaymentDate: text("planned_payment_date").notNull().default(""),
+  priority: text("priority").notNull().default("NORMAL"),
+  ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  holdReason: text("hold_reason").notNull().default(""),
+  memo: text("memo").notNull().default(""),
+  updatedBy: text("updated_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_payable_plan_status_date").on(table.planStatus, table.plannedPaymentDate),
+  index("idx_finance_payable_plan_owner_priority").on(table.ownerEmployeeId, table.priority),
 ]);
 
 export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {

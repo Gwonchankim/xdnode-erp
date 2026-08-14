@@ -183,6 +183,13 @@
       "when": 1786750200000,
       "tag": "0025_receivable_collections",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1786753800000,
+      "tag": "0026_payable_scheduling",
+      "breakpoints": true
     }
   ]
 }

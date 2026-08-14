@@ -6,7 +6,7 @@ type Scenario = "BASE" | "CONSERVATIVE" | "OPTIMISTIC";
 type ForecastItem = {
   sourceType: string; sourceId: string; expectedDate: string; direction: "INFLOW" | "OUTFLOW";
   category: string; counterparty: string; amount: number; probability: number; status: string;
-  dateQuality: "EXACT" | "FALLBACK_REQUEST_DATE" | "MISSING"; memo: string;
+  dateQuality: "EXACT" | "PAYMENT_PLAN" | "FALLBACK_REQUEST_DATE" | "MISSING"; memo: string;
 };
 type ForecastBucket = {
   week: number; weekStart: string; weekEnd: string; inflow: number; outflow: number; net: number;
@@ -158,7 +158,7 @@ export default function CashForecastWorkspace() {
           {selectedItems.map((item) => {
             const probability = appliedProbability(item, scenario);
             const adjustedAmount = Math.round(item.amount * probability / 100);
-            return <div className="cash-forecast-source-row" key={`${item.sourceType}:${item.sourceId}`}><p><strong>{item.counterparty || item.category}</strong><small>{sourceLabel[item.sourceType] ?? item.sourceType} · {item.category}{item.dateQuality === "FALLBACK_REQUEST_DATE" ? " · 요청일 대체" : ""}</small></p><time>{item.expectedDate}</time><span>{probability}%</span><b className={item.direction === "INFLOW" ? "in" : "out"}>{item.direction === "INFLOW" ? "+" : "−"}{won(adjustedAmount)}</b></div>;
+            return <div className="cash-forecast-source-row" key={`${item.sourceType}:${item.sourceId}`}><p><strong>{item.counterparty || item.category}</strong><small>{sourceLabel[item.sourceType] ?? item.sourceType} · {item.category}{item.dateQuality === "PAYMENT_PLAN" ? " · 내부 지급계획" : item.dateQuality === "FALLBACK_REQUEST_DATE" ? " · 요청일 대체" : ""}</small></p><time>{item.expectedDate}</time><span>{probability}%</span><b className={item.direction === "INFLOW" ? "in" : "out"}>{item.direction === "INFLOW" ? "+" : "−"}{won(adjustedAmount)}</b></div>;
           })}
           {!selectedItems.length && <div className="cash-forecast-week-source-empty">이 주차에 반영된 예정 원장이 없습니다.</div>}
         </div>

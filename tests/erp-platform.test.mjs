@@ -67,6 +67,28 @@ test("invoice receivables derive balances from accepted payments and preserve op
   assert.match(plan, /공식 신용등급/);
 });
 
+test("payables use vendor-scoped invoice uniqueness, accountable schedules and forecast dates", async () => {
+  const [api, workspace, forecast, forecastView, schema, migration, operations, plan] = await Promise.all([
+    read("app/api/finance/purchasing/route.ts"), read("app/purchasing-workspace.tsx"),
+    read("app/api/finance/forecast/route.ts"), read("app/cash-forecast-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0026_payable_scheduling.sql"),
+    read("app/api/operations/route.ts"), read("docs/finance-payables-plan.md"),
+  ]);
+  assert.match(schema, /financePayablePlans/);
+  assert.match(schema, /idx_finance_purchase_invoice_vendor_number/);
+  assert.match(migration, /finance_payable_plans/);
+  assert.match(migration, /DROP INDEX IF EXISTS `idx_finance_purchase_invoice_number`/);
+  assert.match(api, /vendor_id = \? AND invoice_number = \?/);
+  assert.match(api, /planStatus === "SCHEDULED" && !plannedPaymentDate/);
+  assert.match(api, /planStatus === "HOLD" && !holdReason/);
+  assert.match(workspace, /매입채무 에이징·지급 일정/);
+  assert.match(workspace, /원천 지급기한과 내부 지급일을 분리/);
+  assert.match(forecast, /dateQuality: planned \? "PAYMENT_PLAN"/);
+  assert.match(forecastView, /내부 지급계획/);
+  assert.match(operations, /payable-schedule-risk/);
+  assert.match(plan, /부분지급·분할지급/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

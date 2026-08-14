@@ -1,12 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { companyEmployees } from "./hr-company-data";
 
 type Vendor = { id: string; name: string; businessNumber: string; contactName: string; email: string; paymentTermsDays: number; status: string };
 type OrderLine = { id: string; orderId: string; lineNumber: number; itemName: string; description: string; quantity: number; unitPrice: number; lineAmount: number; acceptedQuantity: number };
 type PurchaseOrder = { id: string; orderNumber: string; vendorId: string; vendorName: string; title: string; subtotal: number; taxAmount: number; totalAmount: number; expectedDate: string; status: string; lines: OrderLine[] };
 type Receipt = { id: string; orderId: string; orderNumber: string; vendorName: string; receiptNumber: string; receiptDate: string; status: string; acceptedAmount: number };
-type PurchaseInvoice = { id: string; orderId: string; orderNumber: string; vendorName: string; invoiceNumber: string; invoiceDate: string; dueDate: string; supplyAmount: number; taxAmount: number; totalAmount: number; matchedReceiptAmount: number; status: string; exceptionReason: string; paymentRequestId: string };
+type PurchaseInvoice = { id: string; orderId: string; vendorId: string; orderNumber: string; vendorName: string; invoiceNumber: string; invoiceDate: string; dueDate: string; supplyAmount: number; taxAmount: number; totalAmount: number; matchedReceiptAmount: number; status: string; exceptionReason: string; paymentRequestId: string; paymentRequestStatus: string; paymentDate: string; planStatus: "UNSCHEDULED" | "SCHEDULED" | "HOLD"; plannedPaymentDate: string; priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL"; ownerEmployeeId: string; holdReason: string; planMemo: string };
 type PurchasingData = { vendors: Vendor[]; orders: PurchaseOrder[]; receipts: Receipt[]; invoices: PurchaseInvoice[] };
 
 const statusLabels: Record<string, string> = {
@@ -16,6 +17,10 @@ const statusLabels: Record<string, string> = {
 };
 const won = (value: number) => `₩${Math.round(value).toLocaleString("ko-KR")}`;
 const blankLine = () => ({ itemName: "", description: "", quantity: "1", unitPrice: "" });
+const editablePayable = (invoice: PurchaseInvoice): PurchaseInvoice => ({ ...invoice,
+  planStatus: invoice.planStatus === "UNSCHEDULED" ? "SCHEDULED" : invoice.planStatus,
+  plannedPaymentDate: invoice.plannedPaymentDate || invoice.dueDate,
+});
 
 export default function PurchasingWorkspace() {
   const [data, setData] = useState<PurchasingData | null>(null);
@@ -25,6 +30,7 @@ export default function PurchasingWorkspace() {
   const [orderDraft, setOrderDraft] = useState({ vendorId: "", orderNumber: "", title: "", expectedDate: "", taxAmount: "", lines: [blankLine()] });
   const [receiptDraft, setReceiptDraft] = useState({ orderId: "", receiptNumber: "", receiptDate: "", orderLineId: "", receivedQuantity: "", acceptedQuantity: "", notes: "" });
   const [invoiceDraft, setInvoiceDraft] = useState({ orderId: "", invoiceNumber: "", invoiceDate: "", dueDate: "", supplyAmount: "", taxAmount: "" });
+  const [payableDraft, setPayableDraft] = useState<PurchaseInvoice | null>(null);
 
   async function load() {
     try {
@@ -33,6 +39,11 @@ export default function PurchasingWorkspace() {
       if (!response.ok) throw new Error(payload.error || "구매 원장을 불러오지 못했습니다.");
       setData(payload);
       setOrderDraft((current) => ({ ...current, vendorId: current.vendorId || payload.vendors[0]?.id || "" }));
+      setPayableDraft((current) => {
+        const next = payload.invoices.find((invoice) => invoice.id === current?.id)
+          ?? payload.invoices.find((invoice) => ["MATCHED", "PAYMENT_READY"].includes(invoice.status));
+        return next ? editablePayable(next) : null;
+      });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "구매 원장을 불러오지 못했습니다.");
     } finally {
@@ -50,6 +61,18 @@ export default function PurchasingWorkspace() {
   const exceptionCount = (data?.invoices ?? []).filter((invoice) => invoice.status === "EXCEPTION").length;
   const pendingOrders = (data?.orders ?? []).filter((order) => ["DRAFT", "SUBMITTED"].includes(order.status)).length;
   const receivedValue = (data?.receipts ?? []).reduce((sum, receipt) => sum + receipt.acceptedAmount, 0);
+  const payableInvoices = (data?.invoices ?? []).filter((invoice) => ["MATCHED", "PAYMENT_READY"].includes(invoice.status));
+  const today = new Date().toISOString().slice(0, 10);
+  const overduePayables = payableInvoices.filter((invoice) => invoice.dueDate && invoice.dueDate < today);
+  const scheduledPayables = payableInvoices.filter((invoice) => invoice.planStatus === "SCHEDULED" && invoice.plannedPaymentDate);
+  const unscheduledPayables = payableInvoices.filter((invoice) => invoice.planStatus === "UNSCHEDULED");
+  const payableAging = [
+    { label: "기한 내", amount: payableInvoices.filter((invoice) => invoice.dueDate && invoice.dueDate >= today).reduce((sum, invoice) => sum + invoice.totalAmount, 0) },
+    { label: "1~30일", amount: payableInvoices.filter((invoice) => invoice.dueDate && invoice.dueDate < today && (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${invoice.dueDate}T00:00:00Z`)) / 86400000 <= 30).reduce((sum, invoice) => sum + invoice.totalAmount, 0) },
+    { label: "31~60일", amount: payableInvoices.filter((invoice) => invoice.dueDate && (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${invoice.dueDate}T00:00:00Z`)) / 86400000 > 30 && (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${invoice.dueDate}T00:00:00Z`)) / 86400000 <= 60).reduce((sum, invoice) => sum + invoice.totalAmount, 0) },
+    { label: "60일 초과", amount: payableInvoices.filter((invoice) => invoice.dueDate && (Date.parse(`${today}T00:00:00Z`) - Date.parse(`${invoice.dueDate}T00:00:00Z`)) / 86400000 > 60).reduce((sum, invoice) => sum + invoice.totalAmount, 0) },
+    { label: "기한 없음", amount: payableInvoices.filter((invoice) => !invoice.dueDate).reduce((sum, invoice) => sum + invoice.totalAmount, 0) },
+  ];
 
   async function post(resource: string, payload: Record<string, unknown>) {
     setMessage("");
@@ -100,6 +123,21 @@ export default function PurchasingWorkspace() {
     const result = await response.json() as { error?: string; approvalSubmitted?: boolean };
     if (!response.ok) return setMessage(result.error || "처리하지 못했습니다.");
     setMessage(actionName === "SUBMIT" ? "발주 전자결재를 제출했습니다." : actionName === "CREATE_PAYMENT" ? "재무 운영센터에 지급 요청 초안을 생성했습니다. 증빙 첨부 후 결재를 제출해 주세요." : "인보이스를 취소했습니다.");
+    await load();
+  }
+
+  async function savePayablePlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!payableDraft) return;
+    setMessage("");
+    const response = await fetch("/api/finance/purchasing", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+      resource: "payablePlan", id: payableDraft.id, action: "SAVE", planStatus: payableDraft.planStatus === "UNSCHEDULED" ? "SCHEDULED" : payableDraft.planStatus,
+      plannedPaymentDate: payableDraft.plannedPaymentDate, priority: payableDraft.priority,
+      ownerEmployeeId: payableDraft.ownerEmployeeId, holdReason: payableDraft.holdReason, memo: payableDraft.planMemo,
+    }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) return setMessage(result.error || "지급계획을 저장하지 못했습니다.");
+    setMessage("공급사 인보이스의 내부 지급계획을 저장했습니다.");
     await load();
   }
 
@@ -179,6 +217,16 @@ export default function PurchasingWorkspace() {
         </form>
         <p className="purchasing-note">발주 공급가액과 합격 검수수량×발주단가 범위 안에서만 대사 일치로 처리합니다. 세액은 별도 표시하며 자동 추정하지 않습니다.</p>
       </article>
+    </section>
+
+    <section className="panel payable-control-panel">
+      <header><div><p>PAYMENT CONTROL</p><h3>매입채무 에이징·지급 일정</h3></div><span>{payableInvoices.length}건 · {won(openPayables)}</span></header>
+      <div className="payable-control-metrics"><article><small>기한 경과</small><strong>{overduePayables.length}건</strong><span>{won(overduePayables.reduce((sum, invoice) => sum + invoice.totalAmount, 0))}</span></article><article><small>지급일 미설정</small><strong>{unscheduledPayables.length}건</strong><span>내부 일정 등록 필요</span></article><article><small>지급 예정</small><strong>{scheduledPayables.length}건</strong><span>{won(scheduledPayables.reduce((sum, invoice) => sum + invoice.totalAmount, 0))}</span></article><article><small>지급 보류</small><strong>{payableInvoices.filter((invoice) => invoice.planStatus === "HOLD").length}건</strong><span>사유 필수</span></article></div>
+      <div className="payable-aging-grid">{payableAging.map((bucket) => <div key={bucket.label}><span>{bucket.label}</span><strong>{won(bucket.amount)}</strong><i style={{ width: `${openPayables ? Math.min(100, bucket.amount / openPayables * 100) : 0}%` }} /></div>)}</div>
+      <div className="payable-control-grid">
+        <div className="payable-schedule-list"><div className="payable-list-head"><strong>지급 대상 큐</strong><span>원천 지급기한과 내부 지급일을 분리</span></div>{payableInvoices.map((invoice) => <button type="button" className={payableDraft?.id === invoice.id ? "active" : ""} key={invoice.id} onClick={() => setPayableDraft(editablePayable(invoice))}><span className={`payable-priority ${invoice.priority.toLowerCase()}`}>{invoice.priority}</span><p><strong>{invoice.vendorName}</strong><small>{invoice.invoiceNumber} · 원천기한 {invoice.dueDate || "미입력"}</small></p><b>{won(invoice.totalAmount)}</b><em>{invoice.planStatus === "HOLD" ? "보류" : invoice.plannedPaymentDate || "일정 미설정"}</em></button>)}</div>
+        <div className="payable-plan-editor">{payableDraft ? <form onSubmit={savePayablePlan}><p>SOURCE INVOICE · READ ONLY</p><h3>{payableDraft.vendorName}</h3><dl><div><dt>인보이스</dt><dd>{payableDraft.invoiceNumber}</dd></div><div><dt>총액</dt><dd>{won(payableDraft.totalAmount)}</dd></div><div><dt>원천 지급기한</dt><dd>{payableDraft.dueDate || "미입력"}</dd></div><div><dt>지급요청</dt><dd>{payableDraft.paymentRequestStatus || "미생성"}</dd></div></dl><div className="payable-plan-fields"><label>계획 상태<select value={payableDraft.planStatus} onChange={(event) => setPayableDraft({ ...payableDraft, planStatus: event.target.value as PurchaseInvoice["planStatus"] })}><option value="SCHEDULED">지급 예정</option><option value="HOLD">지급 보류</option></select></label><label>내부 지급예정일<input type="date" value={payableDraft.plannedPaymentDate} onChange={(event) => setPayableDraft({ ...payableDraft, plannedPaymentDate: event.target.value })} /></label><label>우선순위<select value={payableDraft.priority} onChange={(event) => setPayableDraft({ ...payableDraft, priority: event.target.value as PurchaseInvoice["priority"] })}><option value="LOW">낮음</option><option value="NORMAL">보통</option><option value="HIGH">높음</option><option value="CRITICAL">긴급</option></select></label><label>담당자<select value={payableDraft.ownerEmployeeId} onChange={(event) => setPayableDraft({ ...payableDraft, ownerEmployeeId: event.target.value })}><option value="">미지정</option>{companyEmployees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.department}</option>)}</select></label></div>{payableDraft.planStatus === "HOLD" && <label>지급 보류 사유<textarea rows={3} value={payableDraft.holdReason} onChange={(event) => setPayableDraft({ ...payableDraft, holdReason: event.target.value })} /></label>}<label>지급 메모<textarea rows={3} value={payableDraft.planMemo} onChange={(event) => setPayableDraft({ ...payableDraft, planMemo: event.target.value })} /></label><button type="submit">지급계획 저장</button><small>저장한 내부 지급일은 공급사 인보이스의 원천 지급기한을 변경하지 않으며 13주 자금예측 보완 정보로 사용합니다.</small></form> : <div className="finance-empty">대사 완료된 매입 인보이스가 없습니다.</div>}</div>
+      </div>
     </section>
 
     <section className="panel purchasing-ledger invoice-ledger">

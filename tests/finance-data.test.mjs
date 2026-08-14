@@ -75,9 +75,9 @@ test("2026 Clobe snapshot date, balance trend, and journal summary stay reconcil
   assert.equal(data.asOf, "2026-08-14");
   assert.equal(data.balanceTrend[0].date, data.asOf);
   assert.equal(data.balanceTrend[0].balance, data.accountSummary.checkingBalanceSum + data.accountSummary.fxBalanceSumKrw);
-  assert.equal(data.journalSummary.lineCount, 17467);
+  assert.equal(data.journalSummary.lineCount, 17466);
   assert.equal(Math.abs(data.journalSummary.debitAmountKrw - data.journalSummary.creditAmountKrw), data.journalSummary.differenceKrw);
-  assert.equal(data.journalSummary.differenceKrw, 31190);
+  assert.equal(data.journalSummary.differenceKrw, 4010);
   assert.equal(data.journalSummary.checkingAccount.code, "10300");
   assert.equal(
     data.journalSummary.checkingAccount.debitAmountKrw - data.journalSummary.checkingAccount.creditAmountKrw,

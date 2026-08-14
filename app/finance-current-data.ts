@@ -12096,10 +12096,10 @@ export const financeCurrentData = {
     "fundBalanceSumKrw": 0
   },
   "journalSummary": {
-    "lineCount": 17467,
+    "lineCount": 17466,
     "debitAmountKrw": 266393314600,
-    "creditAmountKrw": 266393283410,
-    "differenceKrw": 31190,
+    "creditAmountKrw": 266393310590,
+    "differenceKrw": 4010,
     "checkingAccount": {
       "code": "10300",
       "debitCount": 1840,

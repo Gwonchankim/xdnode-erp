@@ -1501,6 +1501,33 @@ export const hrPerformanceAppeals = sqliteTable("hr_performance_appeals", {
   createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("idx_hr_performance_appeal_participant_status").on(table.participantId, table.status)]);
 
+export const hrTrainingCourses = sqliteTable("hr_training_courses", {
+  id: text("id").primaryKey(), title: text("title").notNull(), courseType: text("course_type").notNull().default("MANDATORY"),
+  year: integer("year").notNull(), description: text("description").notNull().default(""),
+  provider: text("provider").notNull().default(""), deliveryMode: text("delivery_mode").notNull().default("ONLINE"),
+  startDate: text("start_date").notNull(), dueDate: text("due_date").notNull(), durationMinutes: integer("duration_minutes").notNull().default(0),
+  audienceType: text("audience_type").notNull().default("ALL"), organizationId: text("organization_id").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),
+  openedAt: integer("opened_at"), closedAt: integer("closed_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_training_course_year_title").on(table.year, table.title),
+  index("idx_hr_training_course_status_due").on(table.status, table.dueDate),
+]);
+
+export const hrTrainingAssignments = sqliteTable("hr_training_assignments", {
+  id: text("id").primaryKey(), courseId: text("course_id").notNull(), employeeId: text("employee_id").notNull(),
+  employeeName: text("employee_name").notNull(), department: text("department").notNull().default(""),
+  status: text("status").notNull().default("ASSIGNED"), progress: integer("progress").notNull().default(0), score: real("score"),
+  completedMinutes: integer("completed_minutes").notNull().default(0), evidenceName: text("evidence_name").notNull().default(""),
+  evidenceRef: text("evidence_ref").notNull().default(""), employeeNote: text("employee_note").notNull().default(""),
+  waiverReason: text("waiver_reason").notNull().default(""), verifiedBy: text("verified_by").notNull().default(""),
+  verifiedAt: integer("verified_at"), completedAt: integer("completed_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_training_assignment_course_employee").on(table.courseId, table.employeeId),
+  index("idx_hr_training_assignment_employee_status").on(table.employeeId, table.status),
+  index("idx_hr_training_assignment_course_status").on(table.courseId, table.status),
+]);
+
 export const hrOfferRequests = sqliteTable("hr_offer_requests", {
   id: text("id").primaryKey(),
   applicantId: text("applicant_id").notNull(),

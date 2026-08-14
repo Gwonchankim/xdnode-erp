@@ -275,6 +275,26 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const courses = await db.prepare(`SELECT id, title, course_type, due_date, status FROM hr_training_courses
+      WHERE status IN ('OPEN', 'CLOSED') ORDER BY due_date`).all<{ id: string; title: string; course_type: string; due_date: string; status: string }>();
+    for (const course of courses.results) {
+      const incomplete = await db.prepare(`SELECT COUNT(*) AS count FROM hr_training_assignments
+        WHERE course_id = ? AND status NOT IN ('COMPLETED', 'WAIVED')`).bind(course.id).first<{ count: number }>();
+      const count = incomplete?.count ?? 0;
+      const daysUntilDue = Math.ceil((new Date(`${course.due_date}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / 86400000);
+      if (course.status === "OPEN" && count > 0 && daysUntilDue <= 7) await upsertRuleTask({
+        id: `training-course-${course.id}`, module: "hr", category: "교육·법정교육",
+        title: `${course.title} 미이수 ${count}명`,
+        description: `${course.course_type === "MANDATORY" ? "법정교육" : "교육"} 마감 ${course.due_date} · 수료 증빙과 면제 사유를 확인해 주세요.`,
+        dueDate: course.due_date, priority: daysUntilDue < 0 ? "HIGH" : "NORMAL", destination: "hr:training",
+        sourceId: `${course.status}:${count}:${course.due_date}`,
+      }); else await closeRuleTask(`training-course-${course.id}`);
+    }
+  } catch {
+    // 교육 원장이 배포된 뒤부터 마감 임박·기한 초과 미이수 업무를 생성합니다.
+  }
+
+  try {
     const purchaseExceptions = await db.prepare(`SELECT COUNT(*) AS count FROM finance_purchase_invoices
       WHERE status = 'EXCEPTION'`).first<{ count: number }>();
     const count = purchaseExceptions?.count ?? 0;

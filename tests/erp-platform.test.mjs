@@ -1071,3 +1071,27 @@ test("performance management separates goals, reviews, calibration, approval and
   assert.match(operations, /destination: "hr:performance"/);
   assert.match(plan, /급여·승진·강등에 자동 반영하지 않는다/);
 });
+
+test("training management snapshots employees and requires evidence for mandatory completion", async () => {
+  const [api, view, workspace, schema, migration, operations, plan] = await Promise.all([
+    read("app/api/hr/training/route.ts"), read("app/training-management-view.tsx"), read("app/hr-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0042_hr_training_management.sql"), read("app/api/operations/route.ts"),
+    read("docs/hr-training-management-plan.md"),
+  ]);
+  assert.match(api, /employee\.status !== "퇴직" && employee\.status !== "입사 예정"/);
+  assert.match(api, /ON CONFLICT\(course_id, employee_id\) DO NOTHING/);
+  assert.match(api, /course\.course_type === "MANDATORY" && \(!evidenceName \|\| !evidenceRef\)/);
+  assert.match(api, /action === "VERIFY_ASSIGNMENT"/);
+  assert.match(api, /assignment\.status !== "SUBMITTED"/);
+  assert.match(api, /status NOT IN \('COMPLETED', 'WAIVED'\)/);
+  assert.match(api, /reason\.length < 10/);
+  assert.match(view, /수료 증빙, 면제와 미이수 알림/);
+  assert.match(view, /급여·평가·승진에 자동 반영되지 않습니다/);
+  assert.match(workspace, /<TrainingManagementView/);
+  assert.match(schema, /hrTrainingCourses/);
+  assert.match(schema, /hrTrainingAssignments/);
+  assert.match(migration, /idx_hr_training_assignment_course_employee/);
+  assert.match(operations, /training-course-\$\{course\.id\}/);
+  assert.match(operations, /destination: "hr:training"/);
+  assert.match(plan, /법정교육은 증빙 없는 완료를 허용하지 않음/);
+});

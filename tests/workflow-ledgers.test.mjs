@@ -790,3 +790,19 @@ test("performance ledgers preserve cycle participants and one review per stage",
   assert.ok(participantIndexes.some((row) => row.name === "idx_hr_performance_participant_cycle_employee" && row.unique === 1));
   assert.ok(reviewIndexes.some((row) => row.name === "idx_hr_performance_review_participant_type" && row.unique === 1));
 });
+
+test("training ledgers preserve one employee assignment per course", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO hr_training_courses
+    (id, title, course_type, year, description, provider, delivery_mode, start_date, due_date,
+      duration_minutes, audience_type, organization_id, status, created_by, created_at, updated_at)
+    VALUES (?, ?, 'MANDATORY', 2026, '', '교육기관', 'ONLINE', '2026-08-14', '2026-08-31', 60, 'ALL', '', 'OPEN', 'admin', ?, ?)`)
+    .run("course-1", "개인정보보호 교육", now, now);
+  const insert = db.prepare(`INSERT INTO hr_training_assignments
+    (id, course_id, employee_id, employee_name, department, status, progress, completed_minutes, created_at, updated_at)
+    VALUES (?, 'course-1', 'employee-1', '홍길동', '경영지원팀', 'ASSIGNED', 0, 0, ?, ?)`);
+  insert.run("assignment-1", now, now);
+  assert.throws(() => insert.run("assignment-2", now, now), /UNIQUE constraint failed/);
+  db.close();
+});

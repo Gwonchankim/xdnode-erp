@@ -1380,6 +1380,38 @@ export const hrRetirementSettlements = sqliteTable("hr_retirement_settlements", 
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const hrWorkforcePlans = sqliteTable("hr_workforce_plans", {
+  id: text("id").primaryKey(),
+  period: text("period").notNull(),
+  version: integer("version").notNull().default(1),
+  title: text("title").notNull(),
+  assumptions: text("assumptions").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"),
+  revisionReason: text("revision_reason").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  submittedAt: integer("submitted_at"),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_workforce_plan_period_version").on(table.period, table.version),
+  index("idx_hr_workforce_plan_period_status").on(table.period, table.status),
+]);
+
+export const hrWorkforcePlanLines = sqliteTable("hr_workforce_plan_lines", {
+  id: text("id").primaryKey(),
+  planId: text("plan_id").notNull(),
+  organizationId: text("organization_id").notNull(),
+  approvedHeadcount: integer("approved_headcount").notNull().default(0),
+  plannedExits: integer("planned_exits").notNull().default(0),
+  note: text("note").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_workforce_plan_line_org").on(table.planId, table.organizationId),
+]);
+
 export const hrOfferRequests = sqliteTable("hr_offer_requests", {
   id: text("id").primaryKey(),
   applicantId: text("applicant_id").notNull(),

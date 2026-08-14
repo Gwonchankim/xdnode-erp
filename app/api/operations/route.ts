@@ -4,6 +4,7 @@ import { buildAccountRiskModel } from "../../finance-decision-model";
 import { loadFinanceRiskPolicy } from "../../finance-risk-policy-server";
 import { hasClosedFinanceAlertCase } from "../../finance-alert-actions-server";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../erp-platform";
+import { companyEmployees, companyOrganizations } from "../../hr-company-data";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -200,6 +201,53 @@ async function seedStateDrivenOperations() {
     } else if (payroll) await closeRuleTask(`payroll-open-${payroll.period}`);
   } catch {
     // 급여 기능을 처음 열기 전에는 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
+  }
+
+  try {
+    const plan = await db.prepare(`SELECT id, period, version FROM hr_workforce_plans
+      WHERE status = 'APPROVED' ORDER BY period DESC, version DESC LIMIT 1`)
+      .first<{ id: string; period: string; version: number }>();
+    if (plan) {
+      const [lineResult, organizationResult, employeeResult] = await Promise.all([
+        db.prepare(`SELECT organization_id, approved_headcount, planned_exits
+          FROM hr_workforce_plan_lines WHERE plan_id = ?`).bind(plan.id)
+          .all<{ organization_id: string; approved_headcount: number; planned_exits: number }>(),
+        db.prepare("SELECT organization_id, name FROM hr_organization_records")
+          .all<{ organization_id: string; name: string }>(),
+        db.prepare("SELECT employee_id, department, status FROM hr_employee_records")
+          .all<{ employee_id: string; department: string; status: string }>(),
+      ]);
+      const organizationNames = new Map(companyOrganizations.map((organization) => [organization.id, organization.name]));
+      organizationResult.results.forEach((organization) => organizationNames.set(organization.organization_id, organization.name));
+      const employeeOverrides = new Map(employeeResult.results.map((employee) => [employee.employee_id, employee]));
+      const baseIds = new Set(companyEmployees.map((employee) => employee.id));
+      const renamed = new Map(companyOrganizations.map((organization) => [organization.name, organizationNames.get(organization.id) ?? organization.name]));
+      const employees = [
+        ...companyEmployees.map((employee) => {
+          const saved = employeeOverrides.get(employee.id);
+          return { department: saved?.department ?? renamed.get(employee.department) ?? employee.department, status: saved?.status ?? employee.status };
+        }),
+        ...employeeResult.results.filter((employee) => !baseIds.has(employee.employee_id)).map((employee) => ({ department: employee.department, status: employee.status })),
+      ];
+      let gap = 0; let current = 0; let incoming = 0; let approved = 0;
+      for (const line of lineResult.results) {
+        const department = organizationNames.get(line.organization_id) ?? "";
+        const currentCount = employees.filter((employee) => employee.department === department && employee.status !== "퇴직" && employee.status !== "입사 예정").length;
+        const incomingCount = employees.filter((employee) => employee.department === department && employee.status === "입사 예정").length;
+        const projected = Math.max(0, currentCount + incomingCount - line.planned_exits);
+        current += currentCount; incoming += incomingCount; approved += line.approved_headcount;
+        gap += Math.max(0, line.approved_headcount - projected);
+      }
+      if (gap > 0) await upsertRuleTask({
+        id: `workforce-gap-${plan.period}`, module: "hr", category: "정원 계획",
+        title: `${plan.period} 승인 정원 충원 ${gap}명 필요`,
+        description: `현재 재직 ${current}명 · 입사 예정 ${incoming}명 · 승인 정원 ${approved}명입니다. 조직별 충원 필요와 계획 퇴사 근거를 확인해 주세요.`,
+        dueDate: today, priority: "HIGH", destination: "hr:workforce",
+        sourceId: `${plan.id}:${current}:${incoming}:${approved}:${gap}`,
+      }); else await closeRuleTask(`workforce-gap-${plan.period}`);
+    }
+  } catch {
+    // 승인된 인력계획 원장이 배포된 뒤부터 조직별 충원 필요 업무를 생성합니다.
   }
 
   try {

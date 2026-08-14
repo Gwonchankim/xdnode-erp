@@ -977,3 +977,34 @@ test("personal workbench merges assigned sources without copying source status",
   assert.match(plan, /상태의 진실은 각 원천 원장이 소유한다/);
   assert.match(plan, /다른 사용자가 읽거나 수정할 수 없게 한다/);
 });
+
+test("workforce planning versions approved headcount and derives actual staffing from HR sources", async () => {
+  const [api, view, workspace, schema, migration, approval, plan, operations] = await Promise.all([
+    read("app/api/hr/workforce-plans/route.ts"), read("app/workforce-planning-view.tsx"),
+    read("app/hr-workspace.tsx"), read("db/schema.ts"), read("drizzle/0039_workforce_planning.sql"),
+    read("app/approval-engine.ts"), read("docs/hr-workforce-planning-plan.md"), read("app/api/operations/route.ts"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "hr", "read"\)/);
+  assert.match(api, /authorizeErpRequest\(db, "hr", "write"\)/);
+  assert.match(api, /companyEmployees\.map/);
+  assert.match(api, /employee\.status !== "퇴직" && employee\.status !== "입사 예정"/);
+  assert.match(api, /employee\.status === "입사 예정"/);
+  assert.match(api, /Math\.max\(0, approvedHeadcount - projected\)/);
+  assert.match(api, /예상 가동 인원보다 정원이 적으면/);
+  assert.match(api, /requestType: "WORKFORCE_PLAN"/);
+  assert.match(api, /targetEntityType: "HR_WORKFORCE_PLAN"/);
+  assert.match(view, /지원자 수는 포함하지 않으며/);
+  assert.match(view, /승인 정원/);
+  assert.match(workspace, /<WorkforcePlanningView/);
+  assert.match(schema, /hrWorkforcePlans/);
+  assert.match(schema, /hrWorkforcePlanLines/);
+  assert.match(migration, /idx_hr_workforce_plan_period_version/);
+  assert.match(migration, /idx_hr_workforce_plan_line_org/);
+  assert.match(approval, /WORKFORCE_PLAN: "인력계획 승인"/);
+  assert.match(approval, /targetEntityType === "HR_WORKFORCE_PLAN"/);
+  assert.match(approval, /status = 'SUPERSEDED'/);
+  assert.match(operations, /workforce-gap-\$\{plan\.period\}/);
+  assert.match(operations, /destination: "hr:workforce"/);
+  assert.match(plan, /지원자 수는 채용 경쟁도이지 확보 인원이 아니므로/);
+  assert.match(plan, /DRAFT → SUBMITTED → APPROVED/);
+});

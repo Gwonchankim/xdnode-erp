@@ -25,7 +25,7 @@ type DelegationRow = { delegator_employee_id: string; delegate_employee_id: stri
 
 export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> = {
   finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인", MASTER_DATA: "재무 마스터 승인" },
-  hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인" },
+  hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인", WORKFORCE_PLAN: "인력계획 승인" },
   recruitment: { OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
   sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "할인 승인" },
 };
@@ -180,6 +180,23 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
     return [db.prepare(`UPDATE hr_payroll_runs SET status = ?, approved_by = ?, updated_at = ? WHERE period = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "REVIEW", approved ? actorEmployeeId : "", now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "HR_WORKFORCE_PLAN") {
+    if (!approved) return [db.prepare(`UPDATE hr_workforce_plans SET status = 'DRAFT', submitted_at = NULL,
+      updated_at = ? WHERE id = ? AND status = 'SUBMITTED'
+      AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(now, targetEntityId, requestId, transitionToken)];
+    return [
+      db.prepare(`UPDATE hr_workforce_plans SET status = 'SUPERSEDED', updated_at = ?
+        WHERE period = (SELECT period FROM hr_workforce_plans WHERE id = ?)
+          AND id <> ? AND status = 'APPROVED'
+          AND (SELECT status FROM hr_workforce_plans WHERE id = ?) = 'SUBMITTED'
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, targetEntityId, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE hr_workforce_plans SET status = 'APPROVED', approved_by = ?, approved_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'SUBMITTED'
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken),
+    ];
   } else if (targetEntityType === "FINANCE_BUDGET") {
     return [db.prepare(`UPDATE finance_budgets SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)

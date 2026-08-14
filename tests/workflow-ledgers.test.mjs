@@ -717,3 +717,21 @@ test("workbench preferences stay unique per employee and source item", async () 
   const indexes = db.prepare("PRAGMA index_list(erp_workbench_preferences)").all();
   assert.ok(indexes.some((row) => row.name === "idx_erp_workbench_preference_item" && row.unique === 1));
 });
+
+test("workforce plans preserve period versions and one organization line per plan", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertPlan = db.prepare(`INSERT INTO hr_workforce_plans
+    (id, period, version, title, assumptions, status, revision_reason, created_by, submitted_at,
+      approved_by, approved_at, created_at, updated_at)
+    VALUES (?, '2026-H2', 1, '하반기 계획', '매출 목표와 생산성 기준', 'DRAFT', '', 'gc.kim', NULL, '', NULL, ?, ?)`);
+  insertPlan.run("workforce-1", now, now);
+  assert.throws(() => insertPlan.run("workforce-duplicate", now, now), /UNIQUE constraint failed/);
+  const insertLine = db.prepare(`INSERT INTO hr_workforce_plan_lines
+    (id, plan_id, organization_id, approved_headcount, planned_exits, note, created_at, updated_at)
+    VALUES (?, 'workforce-1', 'org-ai-business', 12, 1, '사업계획 기준', ?, ?)`);
+  insertLine.run("workforce-line-1", now, now);
+  assert.throws(() => insertLine.run("workforce-line-duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare("UPDATE hr_workforce_plans SET status = 'SUBMITTED', submitted_at = ? WHERE id = 'workforce-1'").run(now);
+  assert.equal(db.prepare("SELECT status FROM hr_workforce_plans WHERE id = 'workforce-1'").get().status, "SUBMITTED");
+});

@@ -419,6 +419,36 @@ export const financeCashForecastItems = sqliteTable("finance_cash_forecast_items
   index("idx_finance_cash_forecast_status_date").on(table.status, table.expectedDate),
 ]);
 
+export const financeCashForecastSettings = sqliteTable("finance_cash_forecast_settings", {
+  id: text("id").primaryKey(),
+  minimumCashBalance: integer("minimum_cash_balance").notNull().default(0),
+  includeFx: integer("include_fx", { mode: "boolean" }).notNull().default(false),
+  defaultScenario: text("default_scenario").notNull().default("BASE"),
+  collectionProbability: integer("collection_probability").notNull().default(85),
+  updatedBy: text("updated_by").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const financeCashForecastSnapshots = sqliteTable("finance_cash_forecast_snapshots", {
+  id: text("id").primaryKey(),
+  asOf: text("as_of").notNull(),
+  scenario: text("scenario").notNull(),
+  openingCash: integer("opening_cash").notNull(),
+  projectedEndingCash: integer("projected_ending_cash").notNull(),
+  lowestCash: integer("lowest_cash").notNull(),
+  minimumCashBalance: integer("minimum_cash_balance").notNull().default(0),
+  lowWeekCount: integer("low_week_count").notNull().default(0),
+  missingDateCount: integer("missing_date_count").notNull().default(0),
+  bucketsJson: text("buckets_json").notNull().default("[]"),
+  sourceCountsJson: text("source_counts_json").notNull().default("{}"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_cash_forecast_snapshot_asof_scenario").on(table.asOf, table.scenario),
+  index("idx_finance_cash_forecast_snapshot_updated").on(table.updatedAt),
+]);
+
 export const financeCloseTasks = sqliteTable("finance_close_tasks", {
   id: text("id").primaryKey(),
   period: text("period").notNull(),

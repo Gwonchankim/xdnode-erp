@@ -23,7 +23,7 @@ type JournalItem = {
 };
 type OperationsData = {
   asOf: string;
-  sourceStatus: Record<string, "LIVE" | "IMPORTED" | "MANUAL" | "NOT_CONNECTED">;
+  sourceStatus: Record<string, "LIVE" | "IMPORTED" | "MANUAL" | "AUTOMATED" | "NOT_CONNECTED">;
   forecast: ForecastItem[];
   closeTasks: CloseTask[];
   budgets: BudgetItem[];
@@ -35,7 +35,7 @@ type OperationsData = {
 };
 
 const statusLabel: Record<string, string> = {
-  LIVE: "실시간 연동", IMPORTED: "가져온 자료", MANUAL: "수기 관리", NOT_CONNECTED: "미연결",
+  LIVE: "실시간 연동", IMPORTED: "가져온 자료", MANUAL: "수기 관리", AUTOMATED: "자동 계산", NOT_CONNECTED: "미연결",
   OPEN: "미착수", IN_PROGRESS: "진행 중", COMPLETED: "완료", APPROVED: "승인 완료",
   EXPECTED: "예정", CONFIRMED: "확정", CANCELLED: "취소",
   DRAFT: "작성 중", SUBMITTED: "검토 요청",
@@ -254,7 +254,7 @@ export default function FinanceOperationsCenter() {
             <b className={item.direction === "INFLOW" ? "positive" : "negative"}>{item.direction === "INFLOW" ? "+" : "-"}{won(item.amount)}</b>
             <select aria-label={`${item.counterparty || item.category} 상태`} value={item.status} onChange={(event) => void updateStatus("forecast", item.id, event.target.value)}><option value="EXPECTED">예정</option><option value="CONFIRMED">확정</option><option value="COMPLETED">완료</option><option value="CANCELLED">취소</option></select>
           </div>)}
-          {!data?.forecast.length && <div className="finance-empty">예정 입출금을 등록하면 13주 현금흐름을 계산합니다. 실제 자료를 임의 생성하지 않았습니다.</div>}
+          {!data?.forecast.length && <div className="finance-empty">자동 원장은 좌측 ‘13주 자금예측’에서 계산됩니다. 이 영역에는 아직 발생 원장이 없는 수기 계획만 등록합니다.</div>}
         </div>
       </article>
 

@@ -27,15 +27,39 @@ test("employee persistence retains lifecycle state across refreshes", async () =
   assert.match(workspace, /RETIREMENT_CHECKLIST|resource: "retirement"/);
 });
 
-test("finance controls distinguish imported bank rows from manual forecasts", async () => {
+test("finance controls distinguish imported bank rows from automated forecasts", async () => {
   const [api, view] = await Promise.all([
     read("app/api/finance/operations/route.ts"),
     read("app/finance-operations-center.tsx"),
   ]);
   assert.match(api, /bankTransactionLines: \(bankTransactionCount\?\.count \?\? 0\) > 0 \? "IMPORTED" : "NOT_CONNECTED"/);
-  assert.match(api, /forecast: forecast\.results\.length \? "MANUAL" : "NOT_CONNECTED"/);
-  assert.match(view, /실제 자료를 임의 생성하지 않았습니다/);
+  assert.match(api, /forecast: "AUTOMATED"/);
+  assert.match(view, /자동 원장은 좌측 ‘13주 자금예측’에서 계산됩니다/);
   assert.match(view, /좌측 ‘자금 대사’에서 자동 후보를 검토/);
+});
+
+test("13-week cash forecast de-duplicates ledgers, exposes data quality and persists daily scenarios", async () => {
+  const [api, workspace, operations, schema, migration, page] = await Promise.all([
+    read("app/api/finance/forecast/route.ts"), read("app/cash-forecast-workspace.tsx"),
+    read("app/api/operations/route.ts"), read("db/schema.ts"),
+    read("drizzle/0020_careless_goliath.sql"), read("app/page.tsx"),
+  ]);
+  assert.match(api, /expense\.source_type = 'PURCHASE_INVOICE' AND expense\.source_id = invoice\.id/);
+  assert.match(api, /payment\.status <> 'CANCELLED'/);
+  assert.match(api, /FALLBACK_REQUEST_DATE/);
+  assert.match(api, /fallbackDateCount: fallbackDateItems\.length/);
+  assert.match(api, /scenario === "CONSERVATIVE"/);
+  assert.match(api, /scenario === "OPTIMISTIC"/);
+  assert.match(api, /ON CONFLICT\(as_of, scenario\) DO UPDATE/);
+  assert.match(workspace, /주차 근거 원장/);
+  assert.match(workspace, /요청일 대체/);
+  assert.match(workspace, /최소운영자금/);
+  assert.match(operations, /id: "cash-forecast-risk"/);
+  assert.match(operations, /destination: "finance:forecast"/);
+  assert.match(schema, /financeCashForecastSettings/);
+  assert.match(schema, /financeCashForecastSnapshots/);
+  assert.match(migration, /idx_finance_cash_forecast_snapshot_asof_scenario/);
+  assert.match(page, /"forecast", "13주 자금예측"/);
 });
 
 test("sales incentive remains unverified until an approved active rule exists", async () => {

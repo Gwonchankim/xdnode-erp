@@ -206,7 +206,7 @@ export async function GET() {
       bankTransactionLines: (bankTransactionCount?.count ?? 0) > 0 ? "IMPORTED" : "NOT_CONNECTED",
       journalMatching: (cashMatchCount?.count ?? 0) > 0 ? "MANUAL" : "NOT_CONNECTED",
       budgets: budgets.results.length ? "MANUAL" : "NOT_CONNECTED",
-      forecast: forecast.results.length ? "MANUAL" : "NOT_CONNECTED",
+      forecast: "AUTOMATED",
     },
     reconciliationSummary: {
       bankTransactions: bankTransactionCount?.count ?? 0,

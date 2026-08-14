@@ -170,3 +170,43 @@ test("retirement and recruitment offer ledgers preserve workflow state", async (
   assert.equal(settlement.net_settlement, 0);
   assert.equal(settlement.access_revoked, 0);
 });
+
+test("cash forecast settings persist and daily scenario snapshots remain unique", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO finance_cash_forecast_settings
+    (id, minimum_cash_balance, include_fx, default_scenario, collection_probability, updated_by, created_at, updated_at)
+    VALUES ('default', ?, 1, 'CONSERVATIVE', 70, 'gc.kim', ?, ?)`)
+    .run(300000000, now, now);
+  db.prepare(`INSERT INTO finance_cash_forecast_snapshots
+    (id, as_of, scenario, opening_cash, projected_ending_cash, lowest_cash, minimum_cash_balance,
+      low_week_count, missing_date_count, buckets_json, source_counts_json, created_at, updated_at)
+    VALUES (?, '2026-08-14', 'CONSERVATIVE', ?, ?, ?, ?, 2, 3, '[]', '{}', ?, ?)`)
+    .run("2026-08-14:CONSERVATIVE", 500000000, 250000000, 200000000, 300000000, now, now);
+  assert.throws(() => db.prepare(`INSERT INTO finance_cash_forecast_snapshots
+    (id, as_of, scenario, opening_cash, projected_ending_cash, lowest_cash, minimum_cash_balance,
+      low_week_count, missing_date_count, buckets_json, source_counts_json, created_at, updated_at)
+    VALUES (?, '2026-08-14', 'CONSERVATIVE', 1, 1, 1, 1, 0, 0, '[]', '{}', ?, ?)`)
+    .run("duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_cash_forecast_snapshots
+    (id, as_of, scenario, opening_cash, projected_ending_cash, lowest_cash, minimum_cash_balance,
+      low_week_count, missing_date_count, buckets_json, source_counts_json, created_at, updated_at)
+    VALUES (?, '2026-08-14', 'CONSERVATIVE', ?, ?, ?, ?, 1, 1, '[]', '{}', ?, ?)
+    ON CONFLICT(as_of, scenario) DO UPDATE SET projected_ending_cash = excluded.projected_ending_cash,
+      lowest_cash = excluded.lowest_cash, low_week_count = excluded.low_week_count,
+      missing_date_count = excluded.missing_date_count, updated_at = excluded.updated_at`)
+    .run("replacement", 500000000, 275000000, 225000000, 300000000, now, now + 1);
+  const settings = db.prepare("SELECT * FROM finance_cash_forecast_settings WHERE id = 'default'").get();
+  const snapshot = db.prepare("SELECT * FROM finance_cash_forecast_snapshots WHERE as_of = '2026-08-14' AND scenario = 'CONSERVATIVE'").get();
+  assert.equal(settings.minimum_cash_balance, 300000000);
+  assert.equal(settings.include_fx, 1);
+  assert.equal(settings.collection_probability, 70);
+  assert.equal(snapshot.projected_ending_cash, 275000000);
+  assert.equal(snapshot.low_week_count, 1);
+  assert.equal(snapshot.missing_date_count, 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM finance_cash_forecast_snapshots").get().count, 1);
+  db.exec("PRAGMA optimize");
+  const plan = db.prepare(`EXPLAIN QUERY PLAN SELECT * FROM finance_cash_forecast_snapshots
+    WHERE as_of = ? AND scenario = ?`).all("2026-08-14", "CONSERVATIVE");
+  assert.ok(plan.some((row) => String(row.detail).includes("idx_finance_cash_forecast_snapshot_asof_scenario")));
+});

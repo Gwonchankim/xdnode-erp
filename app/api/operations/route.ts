@@ -226,6 +226,34 @@ async function seedStateDrivenOperations() {
   } catch {
     // 자금 대사 기능을 처음 열기 전에는 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
   }
+
+  try {
+    const forecastRisk = await db.prepare(`SELECT snapshot.as_of, snapshot.scenario,
+      snapshot.low_week_count, snapshot.missing_date_count, snapshot.minimum_cash_balance,
+      snapshot.lowest_cash FROM finance_cash_forecast_snapshots snapshot
+      JOIN finance_cash_forecast_settings settings ON settings.id = 'default'
+        AND settings.default_scenario = snapshot.scenario
+      ORDER BY snapshot.as_of DESC, snapshot.updated_at DESC LIMIT 1`).first<{
+        as_of: string; scenario: string; low_week_count: number; missing_date_count: number;
+        minimum_cash_balance: number; lowest_cash: number;
+      }>();
+    if (forecastRisk && (forecastRisk.low_week_count > 0 || forecastRisk.missing_date_count > 0)) {
+      const title = forecastRisk.low_week_count > 0
+        ? `13주 자금예측 위험 주차 ${forecastRisk.low_week_count}주 확인`
+        : `자금예측 예정일 누락 ${forecastRisk.missing_date_count}건 보완`;
+      await upsertRuleTask({
+        id: "cash-forecast-risk", module: "finance", category: "자금예측", title,
+        description: forecastRisk.low_week_count > 0
+          ? `기본 시나리오의 최저 예상잔액이 ${forecastRisk.lowest_cash.toLocaleString("ko-KR")}원으로 최소운영자금 ${forecastRisk.minimum_cash_balance.toLocaleString("ko-KR")}원을 하회합니다. 예정일 누락 ${forecastRisk.missing_date_count}건도 함께 확인해 주세요.`
+          : `지급·수금 원천 중 예정일이 없는 ${forecastRisk.missing_date_count}건은 13주 예측에서 제외되어 있습니다.`,
+        dueDate: today, priority: forecastRisk.low_week_count > 0 ? "CRITICAL" : "HIGH",
+        destination: "finance:forecast",
+        sourceId: `${forecastRisk.as_of}:${forecastRisk.scenario}:${forecastRisk.low_week_count}:${forecastRisk.missing_date_count}`,
+      });
+    } else await closeRuleTask("cash-forecast-risk");
+  } catch {
+    // 자금예측을 처음 열기 전에는 스냅샷 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
+  }
 }
 
 export async function GET() {

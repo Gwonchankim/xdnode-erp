@@ -795,6 +795,29 @@ test("monthly management reporting freezes source lineage, quality gates, revisi
   assert.match(plan, /미연결/);
 });
 
+test("management reports govern structured decisions and convert approved outcomes into one action", async () => {
+  const [api, workspace, schema, migration, engine, operations, plan] = await Promise.all([
+    read("app/api/finance/management-report/route.ts"), read("app/management-report-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0037_management_decision_register.sql"), read("app/approval-engine.ts"),
+    read("app/api/operations/route.ts"), read("docs/finance-management-decision-register-plan.md"),
+  ]);
+  for (const source of [api, schema, migration]) assert.match(source, /finance_management_decisions/);
+  assert.match(migration, /idx_finance_management_action_decision/);
+  assert.match(api, /ADD_DECISION/);
+  assert.match(api, /RESOLVE_DECISION/);
+  assert.match(api, /authorizeErpRequest\(db, "finance", "approve"\)/);
+  assert.match(api, /status = 'PENDING'/);
+  assert.match(api, /decision_id/);
+  assert.match(api, /decisionOutcomes/);
+  assert.match(api, /미결정 안건을 모두 승인·보류·반려한 뒤 보고서를 개정/);
+  assert.match(engine, /finance_management_decisions SET status = 'DRAFT'/);
+  assert.match(workspace, /DECISION REGISTER/);
+  assert.match(workspace, /후속조치 자동 생성/);
+  assert.match(operations, /management-report-decisions/);
+  assert.match(plan, /DRAFT → PENDING → APPROVED \| DEFERRED \| REJECTED/);
+  assert.match(plan, /최대 한 건/);
+});
+
 test("expense requests require evidence, approval and a unique payment ledger entry", async () => {
   const [schema, migration, api, view, engine] = await Promise.all([
     read("db/schema.ts"), read("drizzle/0014_talented_matthew_murdock.sql"),

@@ -220,10 +220,16 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(actorEmployeeId, now, requestId, now, targetEntityId, requestId, transitionToken)];
   } else if (targetEntityType === "FINANCE_MANAGEMENT_REPORT") {
-    if (!approved) return [db.prepare(`UPDATE finance_management_reports SET status = 'DRAFT',
-      submitted_at = NULL, quality_acknowledged = 0, updated_at = ? WHERE id = ? AND status = 'SUBMITTED'
-      AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
-      .bind(now, targetEntityId, requestId, transitionToken)];
+    if (!approved) return [
+      db.prepare(`UPDATE finance_management_reports SET status = 'DRAFT',
+        submitted_at = NULL, quality_acknowledged = 0, updated_at = ? WHERE id = ? AND status = 'SUBMITTED'
+        AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_management_decisions SET status = 'DRAFT', updated_at = ?
+        WHERE report_id = ? AND status = 'PENDING'
+        AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, requestId, transitionToken),
+    ];
     return [
       db.prepare(`UPDATE finance_management_reports SET status = 'SUPERSEDED', updated_at = ?
         WHERE period = (SELECT period FROM finance_management_reports WHERE id = ?)

@@ -31,16 +31,24 @@ type Report = {
 };
 type ReportAction = {
   id: string; reportId: string; sourceSection: string; title: string; ownerEmployeeId: string;
-  dueDate: string; status: ReportActionStatus; memo: string; createdBy: string; completedAt: number | null;
+  dueDate: string; status: ReportActionStatus; memo: string; decisionId: string; createdBy: string; completedAt: number | null;
 };
-type ApiState = { period: string; currentPeriod: string; periods: string[]; preview: Snapshot; reports: Report[]; selected: Report | null; actions: ReportAction[]; error?: string };
+type DecisionStatus = "DRAFT" | "PENDING" | "APPROVED" | "DEFERRED" | "REJECTED";
+type ReportDecision = {
+  id: string; reportId: string; sourceSection: string; decisionType: string; title: string; proposal: string;
+  financialImpact: number; ownerEmployeeId: string; decisionDueDate: string; requiresAction: boolean;
+  status: DecisionStatus; resolutionNote: string; resolvedBy: string; resolvedAt: number | null; actionId: string;
+};
+type ApiState = { period: string; currentPeriod: string; periods: string[]; preview: Snapshot; reports: Report[]; selected: Report | null; actions: ReportAction[]; decisions: ReportDecision[]; error?: string };
 
 const statusLabels: Record<string, string> = {
   DRAFT: "작성 중", SUBMITTED: "결재 중", APPROVED: "승인", SUPERSEDED: "대체됨",
   CONFIRMED: "확정", PARTIAL: "부분 연결", MISSING: "미연결", REVIEW: "검토 필요",
   OPEN: "대기", IN_PROGRESS: "진행", WAITING: "외부대기", DONE: "완료",
+  PENDING: "결정 대기", DEFERRED: "보류", REJECTED: "반려",
 };
 const sectionLabels: Record<string, string> = { COMMERCE: "매출·매입", CASH: "자금", RECEIVABLES: "미수", PAYROLL: "급여", BUDGET: "예산", CLOSE: "월마감", QUALITY: "데이터 품질", GENERAL: "공통" };
+const decisionTypeLabels: Record<string, string> = { BUDGET: "예산", CASH: "자금", SALES: "영업", HR: "인사", RISK: "위험", POLICY: "정책", OTHER: "기타" };
 
 function won(value: number | null | undefined) {
   return value === null || value === undefined ? "미연결" : `${value.toLocaleString("ko-KR")}원`;
@@ -67,6 +75,7 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
   const [qualityAcknowledged, setQualityAcknowledged] = useState(false);
   const [draft, setDraft] = useState({ highlights: "", risks: "", decisions: "" });
   const [actionDraft, setActionDraft] = useState({ sourceSection: "GENERAL", title: "", ownerEmployeeId: "gc.kim", dueDate: "2026-08-31", memo: "" });
+  const [decisionDraft, setDecisionDraft] = useState({ sourceSection: "GENERAL", decisionType: "OTHER", title: "", proposal: "", financialImpact: 0, ownerEmployeeId: "gc.kim", decisionDueDate: "2026-08-31", requiresAction: true });
 
   async function load(nextPeriod = period, nextReportId = reportId) {
     setLoading(true); setMessage("");
@@ -114,7 +123,7 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
       const data = await response.json() as { error?: string; id?: string };
       if (!response.ok) throw new Error(data.error || "경영보고 작업을 완료하지 못했습니다.");
       setMessage("변경내용을 원장에 저장했습니다.");
-      if (data.id) setReportId(data.id); else await load(period, reportId);
+      if (data.id && ["CREATE_REPORT", "CREATE_REVISION"].includes(action)) setReportId(data.id); else await load(period, reportId);
       return data;
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "경영보고 작업을 완료하지 못했습니다.");
@@ -131,6 +140,7 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
     setLoading(true); setReportId(""); setPeriod(next);
     const end = new Date(`${next}-01T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1); end.setUTCDate(0);
     setActionDraft((current) => ({ ...current, dueDate: end.toISOString().slice(0, 10) }));
+    setDecisionDraft((current) => ({ ...current, decisionDueDate: end.toISOString().slice(0, 10) }));
   }
 
   async function saveDraft(event: FormEvent<HTMLFormElement>) {
@@ -142,6 +152,19 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
     event.preventDefault(); if (!selected) return;
     const done = await run("ADD_ACTION", { reportId: selected.id, ...actionDraft });
     if (done) setActionDraft((current) => ({ ...current, title: "", memo: "" }));
+  }
+
+  async function addDecision(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selected) return;
+    const done = await run("ADD_DECISION", { reportId: selected.id, ...decisionDraft });
+    if (done) setDecisionDraft((current) => ({ ...current, title: "", proposal: "", financialImpact: 0 }));
+  }
+
+  async function resolveDecision(item: ReportDecision, outcome: "APPROVED" | "DEFERRED" | "REJECTED") {
+    if (!selected) return;
+    const resolutionNote = window.prompt(`${statusLabels[outcome]} 결정 근거를 5자 이상 입력해 주세요.`, "");
+    if (resolutionNote === null) return;
+    await run("RESOLVE_DECISION", { reportId: selected.id, decisionId: item.id, outcome, resolutionNote });
   }
 
   async function createRevision() {
@@ -228,10 +251,35 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
         {editable && <button type="submit" disabled={busy}>보고 문안 저장</button>}
       </form>
 
+      {selected && <section className="panel management-decisions">
+        <header><div><p>DECISION REGISTER</p><h2>경영 의사결정 안건</h2></div><span>{state?.decisions.filter((item) => item.status === "PENDING").length ?? 0}건 결정 대기</span></header>
+        <div className="management-decision-row head"><span>안건·유형</span><span>요청 내용</span><span>재무영향</span><span>책임자·기한</span><span>결과</span><span>처리</span></div>
+        {(state?.decisions ?? []).map((item) => <div className={`management-decision-row ${item.status.toLowerCase()}`} key={item.id}>
+          <p><strong>{item.title}</strong><small>{decisionTypeLabels[item.decisionType] ?? item.decisionType} · {sectionLabels[item.sourceSection] ?? item.sourceSection}</small></p>
+          <p><span>{item.proposal}</span>{item.resolutionNote && <small>결정 근거 · {item.resolutionNote}</small>}</p>
+          <strong>{won(item.financialImpact)}</strong>
+          <p><span>{companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId}</span><small>{item.decisionDueDate}{item.requiresAction ? " · 후속조치 필요" : ""}</small></p>
+          <em>{statusLabels[item.status] ?? item.status}{item.actionId ? " · 조치 연결" : ""}</em>
+          <div>{editable && item.status === "DRAFT" && <button type="button" disabled={busy} onClick={() => void run("DELETE_DECISION", { reportId: selected.id, decisionId: item.id })}>삭제</button>}{selected.status === "APPROVED" && item.status === "PENDING" && <><button type="button" disabled={busy} onClick={() => void resolveDecision(item, "APPROVED")}>승인</button><button type="button" disabled={busy} onClick={() => void resolveDecision(item, "DEFERRED")}>보류</button><button type="button" disabled={busy} className="danger" onClick={() => void resolveDecision(item, "REJECTED")}>반려</button></>}</div>
+        </div>)}
+        {(state?.decisions.length ?? 0) === 0 && <div className="management-report-empty">등록된 구조화 의사결정 안건이 없습니다.</div>}
+        {editable && <form className="management-decision-form" onSubmit={addDecision}>
+          <label>유형<select value={decisionDraft.decisionType} onChange={(event) => setDecisionDraft((current) => ({ ...current, decisionType: event.target.value }))}>{Object.entries(decisionTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label>원천 구간<select value={decisionDraft.sourceSection} onChange={(event) => setDecisionDraft((current) => ({ ...current, sourceSection: event.target.value }))}>{Object.entries(sectionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label className="wide">안건 제목<input required value={decisionDraft.title} onChange={(event) => setDecisionDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+          <label className="full">요청 내용<textarea required minLength={5} value={decisionDraft.proposal} onChange={(event) => setDecisionDraft((current) => ({ ...current, proposal: event.target.value }))} /></label>
+          <label>예상 재무영향<input type="number" value={decisionDraft.financialImpact} onChange={(event) => setDecisionDraft((current) => ({ ...current, financialImpact: Number(event.target.value) }))} /></label>
+          <label>결정 책임자<select value={decisionDraft.ownerEmployeeId} onChange={(event) => setDecisionDraft((current) => ({ ...current, ownerEmployeeId: event.target.value }))}>{companyEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></label>
+          <label>결정기한<input type="date" required value={decisionDraft.decisionDueDate} onChange={(event) => setDecisionDraft((current) => ({ ...current, decisionDueDate: event.target.value }))} /></label>
+          <label className="check"><input type="checkbox" checked={decisionDraft.requiresAction} onChange={(event) => setDecisionDraft((current) => ({ ...current, requiresAction: event.target.checked }))} /> 승인·보류 시 후속조치 자동 생성</label>
+          <button type="submit" disabled={busy}>안건 추가</button>
+        </form>}
+      </section>}
+
       {selected && <section className="panel management-actions">
         <header><div><p>FOLLOW-UP ACTIONS</p><h2>경영회의 후속조치</h2></div><span>{state?.actions.filter((item) => item.status !== "DONE").length ?? 0}개 진행 중</span></header>
         <div className="management-action-row head"><span>구간</span><span>조치</span><span>담당자</span><span>기한</span><span>상태</span><span>메모</span></div>
-        {(state?.actions ?? []).map((item) => <div className="management-action-row" key={item.id}><em>{sectionLabels[item.sourceSection] ?? item.sourceSection}</em><strong>{item.title}</strong><span>{companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId}</span><time>{item.dueDate}</time><select value={item.status} disabled={busy || selected.status === "SUPERSEDED"} onChange={(event) => void run("UPDATE_ACTION", { reportId: selected.id, actionId: item.id, status: event.target.value })}>{(["OPEN", "IN_PROGRESS", "WAITING", "DONE"] as const).map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select><span>{item.memo || "-"}</span></div>)}
+        {(state?.actions ?? []).map((item) => <div className="management-action-row" key={item.id}><em>{sectionLabels[item.sourceSection] ?? item.sourceSection}{item.decisionId ? " · 안건" : ""}</em><strong>{item.title}</strong><span>{companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId}</span><time>{item.dueDate}</time><select value={item.status} disabled={busy || selected.status === "SUPERSEDED"} onChange={(event) => void run("UPDATE_ACTION", { reportId: selected.id, actionId: item.id, status: event.target.value })}>{(["OPEN", "IN_PROGRESS", "WAITING", "DONE"] as const).map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select><span>{item.memo || "-"}</span></div>)}
         {(state?.actions.length ?? 0) === 0 && <div className="management-report-empty">등록된 후속조치가 없습니다.</div>}
         {editable && <form className="management-action-form" onSubmit={addAction}>
           <label>구간<select value={actionDraft.sourceSection} onChange={(event) => setActionDraft((current) => ({ ...current, sourceSection: event.target.value }))}>{Object.entries(sectionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>

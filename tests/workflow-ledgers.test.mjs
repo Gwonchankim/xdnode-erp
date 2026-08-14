@@ -434,6 +434,42 @@ test("management reports freeze approved snapshots, preserve versions and track 
   assert.ok(actionIndexes.some((row) => row.name === "idx_finance_management_report_action_status_due"));
 });
 
+test("management decisions preserve outcomes and create at most one linked follow-up action", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO finance_management_reports
+    (id, period, version, status, as_of, snapshot_json, auto_analysis_json, highlights, risks, decisions,
+      quality_acknowledged, revision_reason, created_by, submitted_at, approved_by, approved_at, created_at, updated_at)
+    VALUES ('decision-report', '2026-08', 1, 'APPROVED', '2026-08-14', '{}', '{}', '성과', '위험', '결정',
+      1, '', 'gc.kim', ?, 'gc.kim', ?, ?, ?)`)
+    .run(now, now, now, now);
+  db.prepare(`INSERT INTO finance_management_decisions
+    (id, report_id, source_section, decision_type, title, proposal, financial_impact, owner_employee_id,
+      decision_due_date, requires_action, status, resolution_note, resolved_by, resolved_at, action_id,
+      created_by, created_at, updated_at)
+    VALUES ('decision-1', 'decision-report', 'CASH', 'CASH', '운영자금 기준 승인', '최소 운영자금 기준을 승인합니다.',
+      500000000, 'gc.kim', '2026-08-31', 1, 'PENDING', '', '', NULL, '', 'gc.kim', ?, ?)`)
+    .run(now, now);
+  db.prepare(`UPDATE finance_management_decisions SET status = 'APPROVED', resolution_note = '제안한 기준으로 승인',
+    resolved_by = 'gc.kim', resolved_at = ?, action_id = 'decision-action', updated_at = ?
+    WHERE id = 'decision-1' AND status = 'PENDING'`).run(now + 1, now + 1);
+  db.prepare(`INSERT INTO finance_management_report_actions
+    (id, report_id, source_section, title, owner_employee_id, due_date, status, memo, created_by,
+      completed_at, decision_id, created_at, updated_at)
+    VALUES ('decision-action', 'decision-report', 'CASH', '결정 실행 · 운영자금 기준 승인', 'gc.kim',
+      '2026-08-31', 'OPEN', '제안한 기준으로 승인', 'gc.kim', NULL, 'decision-1', ?, ?)`)
+    .run(now + 1, now + 1);
+  assert.throws(() => db.prepare(`INSERT INTO finance_management_report_actions
+    (id, report_id, source_section, title, owner_employee_id, due_date, status, memo, created_by,
+      completed_at, decision_id, created_at, updated_at)
+    VALUES ('duplicate-action', 'decision-report', 'CASH', '중복', 'gc.kim', '2026-08-31', 'OPEN', '',
+      'gc.kim', NULL, 'decision-1', ?, ?)`).run(now + 2, now + 2), /UNIQUE constraint failed/);
+  const decision = db.prepare("SELECT status, resolution_note, action_id FROM finance_management_decisions WHERE id = 'decision-1'").get();
+  assert.deepEqual({ ...decision }, { status: "APPROVED", resolution_note: "제안한 기준으로 승인", action_id: "decision-action" });
+  const decisionIndexes = db.prepare("PRAGMA index_list(finance_management_decisions)").all();
+  assert.ok(decisionIndexes.some((row) => row.name === "idx_finance_management_decision_report_status"));
+});
+
 test("finance master data enforces unique codes, aliases and approval-tracked changes", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

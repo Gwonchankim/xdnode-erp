@@ -16,7 +16,13 @@ type ReportRow = {
 type ActionRow = {
   id: string; report_id: string; source_section: string; title: string; owner_employee_id: string;
   due_date: string; status: string; memo: string; created_by: string; completed_at: number | null;
-  created_at: number; updated_at: number;
+  decision_id: string; created_at: number; updated_at: number;
+};
+type DecisionRow = {
+  id: string; report_id: string; source_section: string; decision_type: string; title: string;
+  proposal: string; financial_impact: number; owner_employee_id: string; decision_due_date: string;
+  requires_action: number; status: string; resolution_note: string; resolved_by: string;
+  resolved_at: number | null; action_id: string; created_by: string; created_at: number; updated_at: number;
 };
 type BudgetPlanRow = { id: string; version: number; name: string };
 type BudgetLineRow = {
@@ -28,6 +34,8 @@ type JournalActualRow = { debit_code: string; debit_name: string; credit_code: s
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
 const actionStatuses = new Set(["OPEN", "IN_PROGRESS", "WAITING", "DONE"]);
 const sourceSections = new Set(["COMMERCE", "CASH", "RECEIVABLES", "PAYROLL", "BUDGET", "CLOSE", "QUALITY", "GENERAL"]);
+const decisionTypes = new Set(["BUDGET", "CASH", "SALES", "HR", "RISK", "POLICY", "OTHER"]);
+const decisionOutcomes = new Set(["APPROVED", "DEFERRED", "REJECTED"]);
 
 async function ensureSchema() {
   await db.batch([
@@ -44,11 +52,23 @@ async function ensureSchema() {
       id TEXT PRIMARY KEY NOT NULL, report_id TEXT NOT NULL, source_section TEXT NOT NULL DEFAULT 'GENERAL',
       title TEXT NOT NULL, owner_employee_id TEXT NOT NULL, due_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'OPEN', memo TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL,
-      completed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      completed_at INTEGER, decision_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS finance_management_decisions (
+      id TEXT PRIMARY KEY NOT NULL, report_id TEXT NOT NULL, source_section TEXT NOT NULL DEFAULT 'GENERAL',
+      decision_type TEXT NOT NULL DEFAULT 'OTHER', title TEXT NOT NULL, proposal TEXT NOT NULL,
+      financial_impact INTEGER NOT NULL DEFAULT 0, owner_employee_id TEXT NOT NULL DEFAULT '',
+      decision_due_date TEXT NOT NULL DEFAULT '', requires_action INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'DRAFT', resolution_note TEXT NOT NULL DEFAULT '',
+      resolved_by TEXT NOT NULL DEFAULT '', resolved_at INTEGER, action_id TEXT NOT NULL DEFAULT '',
+      created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_management_report_period_version ON finance_management_reports(period, version)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_management_report_period_status ON finance_management_reports(period, status)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_management_report_action_status_due ON finance_management_report_actions(report_id, status, due_date)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_management_action_decision ON finance_management_report_actions(decision_id) WHERE decision_id <> ''"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_management_decision_report_status ON finance_management_decisions(report_id, status, decision_due_date)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_management_decision_owner_due ON finance_management_decisions(owner_employee_id, status, decision_due_date)"),
   ]);
 }
 
@@ -77,8 +97,19 @@ function actionView(row: ActionRow) {
   return {
     id: row.id, reportId: row.report_id, sourceSection: row.source_section, title: row.title,
     ownerEmployeeId: row.owner_employee_id, dueDate: row.due_date, status: row.status,
-    memo: row.memo, createdBy: row.created_by, completedAt: row.completed_at,
+    memo: row.memo, decisionId: row.decision_id, createdBy: row.created_by, completedAt: row.completed_at,
     createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function decisionView(row: DecisionRow) {
+  return {
+    id: row.id, reportId: row.report_id, sourceSection: row.source_section, decisionType: row.decision_type,
+    title: row.title, proposal: row.proposal, financialImpact: row.financial_impact,
+    ownerEmployeeId: row.owner_employee_id, decisionDueDate: row.decision_due_date,
+    requiresAction: Boolean(row.requires_action), status: row.status, resolutionNote: row.resolution_note,
+    resolvedBy: row.resolved_by, resolvedAt: row.resolved_at, actionId: row.action_id,
+    createdBy: row.created_by, createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }
 
@@ -245,10 +276,18 @@ async function selectedState(period: string, requestedId: string) {
   const result = await db.prepare("SELECT * FROM finance_management_reports WHERE period = ? ORDER BY version DESC")
     .bind(period).all<ReportRow>();
   const selected = result.results.find((row) => row.id === requestedId) ?? result.results[0] ?? null;
-  const actions = selected ? await db.prepare(`SELECT * FROM finance_management_report_actions
-    WHERE report_id = ? ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'IN_PROGRESS' THEN 1 WHEN 'WAITING' THEN 2 ELSE 3 END, due_date, created_at`)
-    .bind(selected.id).all<ActionRow>() : null;
-  return { reports: result.results.map(reportView), selected: selected ? reportView(selected) : null, actions: actions?.results.map(actionView) ?? [] };
+  const [actions, decisions] = selected ? await Promise.all([
+    db.prepare(`SELECT * FROM finance_management_report_actions
+      WHERE report_id = ? ORDER BY CASE status WHEN 'OPEN' THEN 0 WHEN 'IN_PROGRESS' THEN 1 WHEN 'WAITING' THEN 2 ELSE 3 END, due_date, created_at`)
+      .bind(selected.id).all<ActionRow>(),
+    db.prepare(`SELECT * FROM finance_management_decisions WHERE report_id = ?
+      ORDER BY CASE status WHEN 'PENDING' THEN 0 WHEN 'DRAFT' THEN 1 WHEN 'DEFERRED' THEN 2 WHEN 'APPROVED' THEN 3 ELSE 4 END,
+        decision_due_date, created_at`).bind(selected.id).all<DecisionRow>(),
+  ]) : [null, null];
+  return {
+    reports: result.results.map(reportView), selected: selected ? reportView(selected) : null,
+    actions: actions?.results.map(actionView) ?? [], decisions: decisions?.results.map(decisionView) ?? [],
+  };
 }
 
 export async function GET(request: Request) {
@@ -323,6 +362,57 @@ export async function POST(request: Request) {
     return Response.json({ saved: true });
   }
 
+  if (action === "ADD_DECISION" || action === "UPDATE_DECISION") {
+    if (report.status !== "DRAFT") return Response.json({ error: "작성 중인 보고서의 안건만 편집할 수 있습니다." }, { status: 409 });
+    const decisionId = action === "UPDATE_DECISION" ? String(body.decisionId ?? "") : crypto.randomUUID();
+    const existing = action === "UPDATE_DECISION"
+      ? await db.prepare("SELECT * FROM finance_management_decisions WHERE id = ? AND report_id = ? AND status = 'DRAFT'")
+        .bind(decisionId, reportId).first<DecisionRow>() : null;
+    if (action === "UPDATE_DECISION" && !existing) return Response.json({ error: "편집 가능한 의사결정 안건을 찾을 수 없습니다." }, { status: 404 });
+    const sourceSection = String(body.sourceSection ?? existing?.source_section ?? "GENERAL").toUpperCase();
+    const decisionType = String(body.decisionType ?? existing?.decision_type ?? "OTHER").toUpperCase();
+    const title = String(body.title ?? existing?.title ?? "").trim().slice(0, 200);
+    const proposal = String(body.proposal ?? existing?.proposal ?? "").trim().slice(0, 2000);
+    const financialImpact = Math.round(Number(body.financialImpact ?? existing?.financial_impact ?? 0));
+    const owner = String(body.ownerEmployeeId ?? existing?.owner_employee_id ?? "").trim().slice(0, 80);
+    const dueDate = String(body.decisionDueDate ?? existing?.decision_due_date ?? "").trim();
+    const requiresAction = Boolean(body.requiresAction ?? existing?.requires_action);
+    if (!sourceSections.has(sourceSection) || !decisionTypes.has(decisionType) || !title || proposal.length < 5
+      || !owner || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(financialImpact)
+      || Math.abs(financialImpact) > 1_000_000_000_000_000) {
+      return Response.json({ error: "안건 유형·제목·5자 이상의 요청내용·결정 책임자·기한·재무영향을 확인해 주세요." }, { status: 400 });
+    }
+    if (existing) {
+      await db.prepare(`UPDATE finance_management_decisions SET source_section = ?, decision_type = ?, title = ?,
+        proposal = ?, financial_impact = ?, owner_employee_id = ?, decision_due_date = ?, requires_action = ?, updated_at = ?
+        WHERE id = ? AND report_id = ? AND status = 'DRAFT'`)
+        .bind(sourceSection, decisionType, title, proposal, financialImpact, owner, dueDate, requiresAction ? 1 : 0, now, decisionId, reportId).run();
+      await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MANAGEMENT_DECISION_UPDATED", entityType: "financeManagementDecision", entityId: decisionId, before: decisionView(existing), after: { sourceSection, decisionType, title, proposal, financialImpact, owner, dueDate, requiresAction } });
+      return Response.json({ updated: true, id: decisionId });
+    }
+    await db.prepare(`INSERT INTO finance_management_decisions
+      (id, report_id, source_section, decision_type, title, proposal, financial_impact, owner_employee_id,
+        decision_due_date, requires_action, status, resolution_note, resolved_by, resolved_at, action_id,
+        created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', '', '', NULL, '', ?, ?, ?)`)
+      .bind(decisionId, reportId, sourceSection, decisionType, title, proposal, financialImpact, owner,
+        dueDate, requiresAction ? 1 : 0, authorization.principal.employeeId, now, now).run();
+    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MANAGEMENT_DECISION_CREATED", entityType: "financeManagementDecision", entityId: decisionId, after: { reportId, sourceSection, decisionType, title, proposal, financialImpact, owner, dueDate, requiresAction } });
+    return Response.json({ created: true, id: decisionId }, { status: 201 });
+  }
+
+  if (action === "DELETE_DECISION") {
+    if (report.status !== "DRAFT") return Response.json({ error: "작성 중인 보고서의 안건만 삭제할 수 있습니다." }, { status: 409 });
+    const decisionId = String(body.decisionId ?? "");
+    const existing = await db.prepare("SELECT * FROM finance_management_decisions WHERE id = ? AND report_id = ? AND status = 'DRAFT'")
+      .bind(decisionId, reportId).first<DecisionRow>();
+    if (!existing) return Response.json({ error: "삭제할 의사결정 안건을 찾을 수 없습니다." }, { status: 404 });
+    await db.prepare("DELETE FROM finance_management_decisions WHERE id = ? AND report_id = ? AND status = 'DRAFT'")
+      .bind(decisionId, reportId).run();
+    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MANAGEMENT_DECISION_DELETED", entityType: "financeManagementDecision", entityId: decisionId, before: decisionView(existing) });
+    return Response.json({ deleted: true });
+  }
+
   if (action === "ADD_ACTION") {
     if (report.status !== "DRAFT") return Response.json({ error: "작성 중인 보고서에만 새 후속조치를 추가할 수 있습니다." }, { status: 409 });
     const title = String(body.title ?? "").trim().slice(0, 200);
@@ -371,15 +461,49 @@ export async function POST(request: Request) {
     return Response.json({ deleted: true });
   }
 
+  if (action === "RESOLVE_DECISION") {
+    const decisionAuthorization = await authorizeErpRequest(db, "finance", "approve");
+    if (decisionAuthorization.response) return decisionAuthorization.response;
+    if (report.status !== "APPROVED") return Response.json({ error: "승인된 경영보고의 미결정 안건만 확정할 수 있습니다." }, { status: 409 });
+    const decisionId = String(body.decisionId ?? "");
+    const decision = await db.prepare("SELECT * FROM finance_management_decisions WHERE id = ? AND report_id = ?")
+      .bind(decisionId, reportId).first<DecisionRow>();
+    if (!decision || decision.status !== "PENDING") return Response.json({ error: "확정 대기 중인 의사결정 안건을 찾을 수 없습니다." }, { status: 404 });
+    const outcome = String(body.outcome ?? "").toUpperCase();
+    const resolutionNote = String(body.resolutionNote ?? "").trim().slice(0, 2000);
+    if (!decisionOutcomes.has(outcome) || resolutionNote.length < 5) return Response.json({ error: "승인·보류·반려 결과와 5자 이상의 결정 근거를 입력해 주세요." }, { status: 400 });
+    const linkedActionId = decision.requires_action && outcome !== "REJECTED" ? crypto.randomUUID() : "";
+    const statements = [
+      db.prepare(`UPDATE finance_management_decisions SET status = ?, resolution_note = ?, resolved_by = ?,
+        resolved_at = ?, action_id = ?, updated_at = ? WHERE id = ? AND report_id = ? AND status = 'PENDING'`)
+        .bind(outcome, resolutionNote, decisionAuthorization.principal.employeeId, now, linkedActionId, now, decisionId, reportId),
+    ];
+    if (linkedActionId) statements.push(db.prepare(`INSERT INTO finance_management_report_actions
+      (id, report_id, source_section, title, owner_employee_id, due_date, status, memo, created_by,
+        completed_at, decision_id, created_at, updated_at)
+      SELECT ?, report_id, source_section, ?, owner_employee_id, decision_due_date, 'OPEN', ?, ?, NULL, id, ?, ?
+      FROM finance_management_decisions WHERE id = ? AND report_id = ? AND status = ? AND action_id = ?`)
+      .bind(linkedActionId, `결정 실행 · ${decision.title}`, resolutionNote, decisionAuthorization.principal.employeeId,
+        now, now, decisionId, reportId, outcome, linkedActionId));
+    const results = await db.batch(statements);
+    if (results[0].meta.changes !== 1) return Response.json({ error: "다른 사용자가 안건을 먼저 확정했습니다." }, { status: 409 });
+    await writeErpAudit(db, { principal: decisionAuthorization.principal, module: "finance", action: "MANAGEMENT_DECISION_RESOLVED", entityType: "financeManagementDecision", entityId: decisionId, before: decisionView(decision), after: { outcome, resolutionNote, linkedActionId } });
+    return Response.json({ resolved: true, outcome, actionId: linkedActionId });
+  }
+
   if (action === "SUBMIT_REPORT") {
     if (report.status !== "DRAFT") return Response.json({ error: "작성 중인 보고서만 결재를 제출할 수 있습니다." }, { status: 409 });
     if (!report.highlights.trim() || !report.risks.trim() || !report.decisions.trim()) return Response.json({ error: "성과·위험·의사결정 요청을 저장한 뒤 제출해 주세요." }, { status: 409 });
     const snapshot = safeJson<{ quality?: { requiresAcknowledgement?: boolean; warningCount?: number } }>(report.snapshot_json, {});
     const acknowledged = Boolean(body.qualityAcknowledged);
     if (snapshot.quality?.requiresAcknowledgement && !acknowledged) return Response.json({ error: "원천 품질경고를 확인한 뒤 제출해 주세요." }, { status: 409 });
-    const updated = await db.prepare(`UPDATE finance_management_reports SET status = 'SUBMITTED', quality_acknowledged = ?,
-      submitted_at = ?, updated_at = ? WHERE id = ? AND status = 'DRAFT'`).bind(acknowledged ? 1 : 0, now, now, reportId).run();
-    if (updated.meta.changes !== 1) return Response.json({ error: "다른 사용자가 보고서 상태를 먼저 변경했습니다." }, { status: 409 });
+    const submission = await db.batch([
+      db.prepare(`UPDATE finance_management_reports SET status = 'SUBMITTED', quality_acknowledged = ?,
+        submitted_at = ?, updated_at = ? WHERE id = ? AND status = 'DRAFT'`).bind(acknowledged ? 1 : 0, now, now, reportId),
+      db.prepare("UPDATE finance_management_decisions SET status = 'PENDING', updated_at = ? WHERE report_id = ? AND status = 'DRAFT'")
+        .bind(now, reportId),
+    ]);
+    if (submission[0].meta.changes !== 1) return Response.json({ error: "다른 사용자가 보고서 상태를 먼저 변경했습니다." }, { status: 409 });
     try {
       const approval = await createApprovalRequest(db, authorization.principal, {
         module: "finance", requestType: "REPORT", title: `${report.period} 월간 경영보고 v${report.version} 승인`,
@@ -390,8 +514,13 @@ export async function POST(request: Request) {
       await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "MANAGEMENT_REPORT_SUBMITTED", entityType: "financeManagementReport", entityId: reportId, before: reportView(report), after: { approvalId: approval.id, acknowledged } });
       return Response.json({ submitted: true, approvalId: approval.id }, { status: 202 });
     } catch (error) {
-      await db.prepare("UPDATE finance_management_reports SET status = 'DRAFT', submitted_at = NULL, quality_acknowledged = 0, updated_at = ? WHERE id = ? AND status = 'SUBMITTED'")
-        .bind(Date.now(), reportId).run();
+      const rollbackAt = Date.now();
+      await db.batch([
+        db.prepare("UPDATE finance_management_reports SET status = 'DRAFT', submitted_at = NULL, quality_acknowledged = 0, updated_at = ? WHERE id = ? AND status = 'SUBMITTED'")
+          .bind(rollbackAt, reportId),
+        db.prepare("UPDATE finance_management_decisions SET status = 'DRAFT', updated_at = ? WHERE report_id = ? AND status = 'PENDING'")
+          .bind(rollbackAt, reportId),
+      ]);
       return Response.json({ error: error instanceof Error ? error.message : "경영보고 결재선을 만들지 못했습니다." }, { status: 409 });
     }
   }
@@ -400,6 +529,9 @@ export async function POST(request: Request) {
     if (!["APPROVED", "SUPERSEDED"].includes(report.status)) return Response.json({ error: "승인되었거나 대체된 보고서만 개정할 수 있습니다." }, { status: 409 });
     const reason = String(body.revisionReason ?? "").trim().slice(0, 1000);
     if (reason.length < 5) return Response.json({ error: "개정 사유를 5자 이상 입력해 주세요." }, { status: 400 });
+    const unresolvedDecisions = await db.prepare("SELECT COUNT(*) AS count FROM finance_management_decisions WHERE report_id = ? AND status = 'PENDING'")
+      .bind(reportId).first<{ count: number }>();
+    if ((unresolvedDecisions?.count ?? 0) > 0) return Response.json({ error: "미결정 안건을 모두 승인·보류·반려한 뒤 보고서를 개정해 주세요." }, { status: 409 });
     const pending = await db.prepare(`SELECT id FROM finance_management_reports
       WHERE period = ? AND status IN ('DRAFT','SUBMITTED') LIMIT 1`).bind(report.period).first<{ id: string }>();
     if (pending) return Response.json({ error: "같은 보고월에 작성 또는 승인 진행 중인 개정본이 있습니다." }, { status: 409 });

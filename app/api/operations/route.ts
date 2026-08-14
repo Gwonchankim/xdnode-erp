@@ -707,8 +707,25 @@ async function seedStateDrivenOperations() {
       destination: "finance:report", sourceId: `${openActions?.count ?? 0}:${openActions?.overdue ?? 0}:${openActions?.nearest_due ?? ""}`,
     });
     else await closeRuleTask("management-report-actions");
+
+    const pendingDecisions = await db.prepare(`SELECT COUNT(*) AS count,
+      COALESCE(SUM(CASE WHEN decision.decision_due_date < ? THEN 1 ELSE 0 END), 0) AS overdue,
+      MIN(decision.decision_due_date) AS nearest_due
+      FROM finance_management_decisions decision
+      JOIN finance_management_reports report ON report.id = decision.report_id
+      WHERE decision.status = 'PENDING' AND report.status = 'APPROVED'
+        AND report.version = (SELECT MAX(peer.version) FROM finance_management_reports peer WHERE peer.period = report.period)`)
+      .bind(today).first<{ count: number; overdue: number; nearest_due: string | null }>();
+    if ((pendingDecisions?.count ?? 0) > 0) await upsertRuleTask({
+      id: "management-report-decisions", module: "finance", category: "경영 의사결정",
+      title: `경영보고 미결정 안건 ${pendingDecisions?.count ?? 0}건`,
+      description: `결정기한 경과 ${pendingDecisions?.overdue ?? 0}건을 포함합니다. 승인·보류·반려 결과와 근거를 확정해 주세요.`,
+      dueDate: pendingDecisions?.nearest_due ?? today, priority: (pendingDecisions?.overdue ?? 0) > 0 ? "HIGH" : "NORMAL",
+      destination: "finance:report", sourceId: `${pendingDecisions?.count ?? 0}:${pendingDecisions?.overdue ?? 0}:${pendingDecisions?.nearest_due ?? ""}`,
+    });
+    else await closeRuleTask("management-report-decisions");
   } catch {
-    // 경영보고 원장이 배포된 뒤부터 기한·후속조치 규칙을 평가합니다.
+    // 경영보고 원장이 배포된 뒤부터 기한·의사결정·후속조치 규칙을 평가합니다.
   }
 
   try {

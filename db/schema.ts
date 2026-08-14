@@ -677,10 +677,36 @@ export const financeManagementReportActions = sqliteTable("finance_management_re
   memo: text("memo").notNull().default(""),
   createdBy: text("created_by").notNull(),
   completedAt: integer("completed_at"),
+  decisionId: text("decision_id").notNull().default(""),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
   index("idx_finance_management_report_action_status_due").on(table.reportId, table.status, table.dueDate),
+  uniqueIndex("idx_finance_management_action_decision").on(table.decisionId).where(sql`${table.decisionId} <> ''`),
+]);
+
+export const financeManagementDecisions = sqliteTable("finance_management_decisions", {
+  id: text("id").primaryKey(),
+  reportId: text("report_id").notNull(),
+  sourceSection: text("source_section").notNull().default("GENERAL"),
+  decisionType: text("decision_type").notNull().default("OTHER"),
+  title: text("title").notNull(),
+  proposal: text("proposal").notNull(),
+  financialImpact: integer("financial_impact").notNull().default(0),
+  ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  decisionDueDate: text("decision_due_date").notNull().default(""),
+  requiresAction: integer("requires_action", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull().default("DRAFT"),
+  resolutionNote: text("resolution_note").notNull().default(""),
+  resolvedBy: text("resolved_by").notNull().default(""),
+  resolvedAt: integer("resolved_at"),
+  actionId: text("action_id").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_management_decision_report_status").on(table.reportId, table.status, table.decisionDueDate),
+  index("idx_finance_management_decision_owner_due").on(table.ownerEmployeeId, table.status, table.decisionDueDate),
 ]);
 
 export const financeDailyTreasuryReports = sqliteTable("finance_daily_treasury_reports", {

@@ -184,7 +184,7 @@ export async function GET() {
   if (authorization.response) return authorization.response;
   await seedCloseTasks();
 
-  const [forecast, closeTasks, budgets, reconciliations, expenses, payments, journals] = await Promise.all([
+  const [forecast, closeTasks, budgets, reconciliations, expenses, payments, journals, bankTransactionCount, cashMatchCount] = await Promise.all([
     db.prepare("SELECT * FROM finance_cash_forecast_items WHERE status <> 'DELETED' ORDER BY expected_date, created_at").all<ForecastRow>(),
     db.prepare("SELECT * FROM finance_close_tasks ORDER BY period DESC, created_at").all<CloseRow>(),
     db.prepare("SELECT * FROM finance_budgets ORDER BY fiscal_year DESC, month, department, account_code").all<BudgetRow>(),
@@ -195,16 +195,22 @@ export async function GET() {
       GROUP BY expense.id ORDER BY expense.created_at DESC`).all<ExpenseRow>(),
     db.prepare("SELECT * FROM finance_payment_ledger ORDER BY payment_date DESC, created_at DESC").all<PaymentRow>(),
     db.prepare("SELECT * FROM finance_journal_entries ORDER BY voucher_date DESC, created_at DESC").all<JournalRow>(),
+    db.prepare("SELECT COUNT(*) AS count FROM finance_bank_transactions").first<{ count: number }>(),
+    db.prepare("SELECT COUNT(*) AS count FROM finance_cash_matches WHERE status = 'CONFIRMED'").first<{ count: number }>(),
   ]);
 
   return Response.json({
     asOf: financeCurrentData.asOf,
     sourceStatus: {
       clobeSnapshot: "LIVE",
-      bankTransactionLines: reconciliations.results.length ? "IMPORTED" : "NOT_CONNECTED",
-      journalMatching: reconciliations.results.length ? "IMPORTED" : "NOT_CONNECTED",
+      bankTransactionLines: (bankTransactionCount?.count ?? 0) > 0 ? "IMPORTED" : "NOT_CONNECTED",
+      journalMatching: (cashMatchCount?.count ?? 0) > 0 ? "MANUAL" : "NOT_CONNECTED",
       budgets: budgets.results.length ? "MANUAL" : "NOT_CONNECTED",
       forecast: forecast.results.length ? "MANUAL" : "NOT_CONNECTED",
+    },
+    reconciliationSummary: {
+      bankTransactions: bankTransactionCount?.count ?? 0,
+      confirmedMatches: cashMatchCount?.count ?? 0,
     },
     forecast: forecast.results.map(toForecast),
     closeTasks: closeTasks.results.map(toCloseTask),
@@ -308,6 +314,15 @@ export async function PUT(request: Request) {
     if (!before) return Response.json({ error: "마감 업무를 찾을 수 없습니다." }, { status: 404 });
     const status = String(body.status ?? before.status);
     if (!["OPEN", "IN_PROGRESS", "COMPLETED", "APPROVED"].includes(status)) return Response.json({ error: "올바르지 않은 상태입니다." }, { status: 400 });
+    if (before.category === "BANK" && ["COMPLETED", "APPROVED"].includes(status)) {
+      const pending = await db.prepare(`SELECT COUNT(*) AS count FROM finance_bank_transactions transaction_row
+        WHERE transaction_row.currency = 'KRW' AND transaction_row.transaction_date LIKE ?
+          AND transaction_row.amount > COALESCE((SELECT SUM(match_row.matched_amount)
+            FROM finance_cash_matches match_row WHERE match_row.bank_transaction_id = transaction_row.id
+              AND match_row.status = 'CONFIRMED'), 0)`)
+        .bind(`${before.period}-%`).first<{ count: number }>();
+      if ((pending?.count ?? 0) > 0) return Response.json({ error: `미대사 은행 거래 ${pending?.count ?? 0}건을 먼저 처리해 주세요.` }, { status: 409 });
+    }
     if (status === "APPROVED" && before.status !== "APPROVED") {
       if (before.status !== "COMPLETED") return Response.json({ error: "완료 처리된 마감 업무만 승인 결재를 요청할 수 있습니다." }, { status: 409 });
       const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests

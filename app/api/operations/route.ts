@@ -198,6 +198,34 @@ async function seedStateDrivenOperations() {
   } catch {
     // 구매 기능을 처음 열기 전에는 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
   }
+
+  try {
+    const bankReconciliation = await db.prepare(`SELECT COUNT(*) AS imported_count,
+      SUM(CASE WHEN transaction_row.currency = 'KRW' AND transaction_row.amount > COALESCE((
+        SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
+        WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'
+      ), 0) THEN 1 ELSE 0 END) AS pending_count,
+      SUM(CASE WHEN transaction_row.currency = 'KRW' AND transaction_row.is_unclassified = 1
+        AND transaction_row.amount > COALESCE((SELECT SUM(match_row.matched_amount)
+          FROM finance_cash_matches match_row WHERE match_row.bank_transaction_id = transaction_row.id
+            AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END) AS unclassified_count,
+      MAX(transaction_row.source_snapshot_date) AS snapshot_date
+      FROM finance_bank_transactions transaction_row`).first<{
+        imported_count: number; pending_count: number; unclassified_count: number; snapshot_date: string | null;
+      }>();
+    const pending = bankReconciliation?.pending_count ?? 0;
+    if ((bankReconciliation?.imported_count ?? 0) > 0 && pending > 0) {
+      await upsertRuleTask({
+        id: "cash-reconciliation-pending", module: "finance", category: "자금 대사",
+        title: `미대사 은행 거래 ${pending}건 확인`,
+        description: `Clobe 거래 원문 중 미분류 우선검토 ${bankReconciliation?.unclassified_count ?? 0}건을 포함합니다. 자동 후보를 검토하고 원장을 확정 연결해 주세요.`,
+        dueDate: today, priority: (bankReconciliation?.unclassified_count ?? 0) > 0 ? "HIGH" : "NORMAL",
+        destination: "finance:reconciliation", sourceId: `${bankReconciliation?.snapshot_date ?? ""}:${pending}`,
+      });
+    } else await closeRuleTask("cash-reconciliation-pending");
+  } catch {
+    // 자금 대사 기능을 처음 열기 전에는 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
+  }
 }
 
 export async function GET() {

@@ -115,6 +115,32 @@ test("purchase ledgers preserve ordered quantities, accepted receipts and invoic
   assert.throws(() => insertInvoice.run("invoice-2", "order-1", "INV-001", "2026-08-14", 1, 0, 1, 1, "MATCHED", "gc.kim", now, now), /UNIQUE constraint failed/);
 });
 
+test("cash reconciliation ledgers preserve source rows, partial allocations and reversible match groups", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertTransaction = db.prepare(`INSERT INTO finance_bank_transactions
+    (id, source_snapshot_date, account_id, currency, transaction_at, transaction_date,
+      direction, amount, imported_at, updated_at) VALUES (?, '2026-08-14', ?, 'KRW', ?, ?, ?, ?, ?, ?)`);
+  insertTransaction.run("bank-in-1", "162643", "2026-08-13T10:00:00", "2026-08-13", "IN", 100000, now, now);
+  insertTransaction.run("bank-out-1", "162645", "2026-08-13T10:00:00", "2026-08-13", "OUT", 100000, now, now);
+  const insertMatch = db.prepare(`INSERT INTO finance_cash_matches
+    (id, match_group_id, bank_transaction_id, source_type, source_id, matched_amount,
+      confirmed_by, confirmed_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, 'gc.kim', ?, ?, ?)`);
+  insertMatch.run("match-1", "group-1", "bank-out-1", "PAYMENT_LEDGER", "payment-1", 40000, now, now, now);
+  insertMatch.run("match-2", "group-2", "bank-out-1", "PAYMENT_LEDGER", "payment-2", 60000, now, now, now);
+  const allocated = db.prepare(`SELECT SUM(matched_amount) AS amount FROM finance_cash_matches
+    WHERE bank_transaction_id = ? AND status = 'CONFIRMED'`).get("bank-out-1");
+  assert.equal(allocated.amount, 100000);
+  assert.throws(() => insertMatch.run("match-3", "group-3", "bank-out-1", "PAYMENT_LEDGER", "payment-2", 1, now, now, now), /UNIQUE constraint failed/);
+  db.prepare(`UPDATE finance_cash_matches SET status = 'REVERSED', reversed_by = 'gc.kim',
+    reversed_at = ?, reversal_reason = '잘못 연결', updated_at = ? WHERE match_group_id = ?`)
+    .run(now, now, "group-2");
+  const remainingAllocation = db.prepare(`SELECT SUM(matched_amount) AS amount FROM finance_cash_matches
+    WHERE bank_transaction_id = ? AND status = 'CONFIRMED'`).get("bank-out-1");
+  assert.equal(remainingAllocation.amount, 40000);
+});
+
 test("retirement and recruitment offer ledgers preserve workflow state", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

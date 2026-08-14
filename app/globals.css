@@ -664,6 +664,40 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .quick-modal { border-radius: 48px; }
 }
 
+/* Cash reconciliation */
+.cash-reconciliation-workspace { display: grid; gap: 18px; padding-bottom: 36px; }
+.cash-reconciliation-hero { min-height: 132px; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 26px 30px; border: 1px solid #dedee3; border-radius: 22px; background: #fff; }
+.cash-reconciliation-hero p, .cash-reconciliation-hero h1, .cash-reconciliation-hero span, .cash-reconciliation-hero small, .cash-reconciliation-hero strong, .cash-reconciliation-hero em { margin: 0; }
+.cash-reconciliation-hero p { color: #ef5b36; font-size: 10px; font-weight: 900; letter-spacing: .12em; }
+.cash-reconciliation-hero h1 { margin: 7px 0 5px; font-size: clamp(34px, 3.5vw, 54px); letter-spacing: -.055em; }
+.cash-reconciliation-hero span { color: #61616a; font-size: 12px; }
+.cash-reconciliation-hero > div:last-child { min-width: 240px; display: grid; gap: 5px; padding: 14px 16px; border-radius: 16px; background: #18181b; color: #fff; }
+.cash-reconciliation-hero small, .cash-reconciliation-hero em { color: #b7b7bf; font-size: 9px; font-style: normal; font-weight: 800; }
+.cash-reconciliation-hero strong { font-size: 15px; }
+.cash-reconciliation-message { padding: 12px 16px; border: 1px solid #fed7aa; border-radius: 14px; background: #fff7ed; color: #9a3412; font-size: 11px; font-weight: 800; }
+.cash-reconciliation-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+.cash-reconciliation-metrics article { min-height: 112px; display: grid; align-content: space-between; padding: 18px 20px; border: 1px solid #dedee3; border-radius: 20px; background: #fff; }
+.cash-reconciliation-metrics small, .cash-reconciliation-metrics span { color: #71717a; font-size: 10px; }.cash-reconciliation-metrics strong { font-size: 28px; letter-spacing: -.04em; }
+.cash-reconciliation-ledger { overflow: hidden; border-radius: 22px; }
+.cash-reconciliation-ledger > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; padding: 22px 24px 16px; }
+.cash-reconciliation-ledger header p, .cash-reconciliation-ledger header h2, .cash-reconciliation-ledger header span { margin: 0; }
+.cash-reconciliation-ledger header p { color: #ef5b36; font-size: 9px; font-weight: 900; letter-spacing: .1em; }.cash-reconciliation-ledger header h2 { margin: 4px 0; font-size: 22px; }.cash-reconciliation-ledger header span { color: #71717a; font-size: 10px; }
+.cash-reconciliation-ledger header label { min-width: 280px; display: grid; gap: 5px; }.cash-reconciliation-ledger header input { height: 40px; padding: 0 13px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font-size: 11px; }
+.cash-reconciliation-filters { display: flex; align-items: center; gap: 5px; padding: 10px 24px; border-top: 1px solid #e4e4e7; background: #fafafa; }
+.cash-reconciliation-filters button { padding: 7px 11px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: #71717a; font-size: 10px; font-weight: 900; cursor: pointer; }.cash-reconciliation-filters button.active { color: #fff; background: #18181b; }.cash-reconciliation-filters > span { margin-left: auto; font-size: 10px; font-weight: 800; }
+.cash-reconciliation-table { min-width: 1080px; overflow-x: auto; }
+.cash-reconciliation-row { min-height: 76px; display: grid; grid-template-columns: 1.05fr 1.55fr .85fr .7fr 1.5fr; align-items: center; gap: 14px; padding: 11px 24px; border-top: 1px solid #ececef; }
+.cash-reconciliation-row.head { min-height: 42px; background: #f4f4f5; color: #71717a; font-size: 9px; font-weight: 900; }.cash-reconciliation-row.unmatched { background: #fffdfb; }.cash-reconciliation-row.partial { background: #fffbeb; }
+.cash-reconciliation-row p, .cash-reconciliation-row strong, .cash-reconciliation-row small { margin: 0; }.cash-reconciliation-row p { min-width: 0; display: grid; gap: 4px; }.cash-reconciliation-row p strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }.cash-reconciliation-row p small { overflow: hidden; color: #71717a; text-overflow: ellipsis; font-size: 9px; white-space: nowrap; }
+.cash-reconciliation-row > b { display: grid; gap: 3px; font-size: 13px; }.cash-reconciliation-row > b.in { color: #176b4d; }.cash-reconciliation-row > b.out { color: #b42318; }.cash-reconciliation-row > b small { color: #71717a; font-size: 8px; font-weight: 700; }
+.cash-match-status { width: fit-content; display: grid; gap: 2px; padding: 6px 9px; border-radius: 10px; background: #f4f4f5; font-size: 9px; font-style: normal; font-weight: 900; }.cash-match-status.matched, .cash-match-status.transfer { color: #176b4d; background: #e8f7f0; }.cash-match-status.partial { color: #9a3412; background: #fff3e8; }.cash-match-status.excluded { color: #52525b; background: #e4e4e7; }.cash-match-status small { font-size: 8px; font-weight: 700; }
+.cash-match-actions { min-width: 0; display: grid; gap: 5px; }.cash-match-actions button { min-height: 31px; border: 1px solid #d4d4d8; border-radius: 10px; background: #fff; font-size: 9px; font-weight: 900; cursor: pointer; }.cash-match-actions button.candidate { display: grid; gap: 2px; padding: 7px 9px; text-align: left; border-color: #18181b; background: #18181b; color: #fff; }.cash-match-actions button.candidate small { overflow: hidden; color: #c9c9cf; text-overflow: ellipsis; white-space: nowrap; }.cash-match-actions button.exclude, .cash-match-actions button.reverse { color: #b42318; border-color: #fda29b; }.cash-match-actions .no-candidate { color: #a1a1aa; font-size: 9px; }
+.cash-manual-match { display: grid; grid-template-columns: 1fr 48px; gap: 5px; }.cash-manual-match select { min-width: 0; height: 31px; padding: 0 7px; border: 1px solid #d4d4d8; border-radius: 10px; background: #fff; font-size: 9px; }.cash-manual-match button:disabled { cursor: not-allowed; opacity: .45; }
+.cash-reconciliation-empty, .cash-reconciliation-loading { padding: 48px 20px; color: #71717a; text-align: center; font-size: 12px; }.cash-reconciliation-limit { margin: 0; padding: 12px 24px; border-top: 1px solid #e4e4e7; color: #71717a; font-size: 9px; }
+.cash-reconciliation-principles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }.cash-reconciliation-principles article { display: grid; grid-template-columns: 34px 1fr; gap: 10px; padding: 15px; border: 1px solid #dedee3; border-radius: 18px; background: #fff; }.cash-reconciliation-principles article > span { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 11px; background: #18181b; color: #fff; font-size: 9px; font-weight: 900; }.cash-reconciliation-principles p { display: grid; gap: 4px; margin: 0; }.cash-reconciliation-principles strong { font-size: 11px; }.cash-reconciliation-principles small { color: #71717a; font-size: 9px; line-height: 1.5; }
+@media (max-width: 1100px) { .cash-reconciliation-metrics, .cash-reconciliation-principles { grid-template-columns: repeat(2, 1fr); } .cash-reconciliation-ledger { overflow-x: auto; } }
+@media (max-width: 760px) { .cash-reconciliation-hero { align-items: stretch; flex-direction: column; }.cash-reconciliation-hero > div:last-child { min-width: 0; }.cash-reconciliation-metrics, .cash-reconciliation-principles { grid-template-columns: 1fr; }.cash-reconciliation-ledger > header { align-items: stretch; flex-direction: column; }.cash-reconciliation-ledger header label { min-width: 0; } }
+
 .journal-ledger { margin-top: 22px; padding-top: 18px; border-top: 1px solid #e4e4e7; }
 .journal-ledger h3 { margin: 0 0 10px; font-size: 15px; }
 .journal-row { min-height: 62px; display: grid; grid-template-columns: minmax(180px, 1.25fr) minmax(130px, 1fr) minmax(130px, 1fr) 110px 96px 70px; gap: 12px; align-items: center; border-bottom: 1px solid #ececee; font-size: 10px; }

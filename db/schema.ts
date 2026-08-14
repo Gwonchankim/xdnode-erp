@@ -345,6 +345,60 @@ export const financeReconciliations = sqliteTable("finance_reconciliations", {
   index("idx_finance_reconciliation_bank_transaction").on(table.bankTransactionId),
 ]);
 
+export const financeBankTransactions = sqliteTable("finance_bank_transactions", {
+  id: text("id").primaryKey(),
+  source: text("source").notNull().default("CLOBE"),
+  sourceSnapshotDate: text("source_snapshot_date").notNull(),
+  accountId: text("account_id").notNull(),
+  bankCode: text("bank_code").notNull().default(""),
+  bankName: text("bank_name").notNull().default(""),
+  accountName: text("account_name").notNull().default(""),
+  accountLast4: text("account_last4").notNull().default(""),
+  currency: text("currency").notNull().default("KRW"),
+  transactionAt: text("transaction_at").notNull(),
+  transactionDate: text("transaction_date").notNull(),
+  transactionType: text("transaction_type").notNull().default(""),
+  description: text("description").notNull().default(""),
+  direction: text("direction").notNull(),
+  amount: integer("amount").notNull(),
+  afterBalance: integer("after_balance").notNull().default(0),
+  category: text("category").notNull().default(""),
+  businessEntityName: text("business_entity_name").notNull().default(""),
+  isUnclassified: integer("is_unclassified", { mode: "boolean" }).notNull().default(false),
+  memo: text("memo").notNull().default(""),
+  importedAt: integer("imported_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_bank_transaction_date_direction").on(table.transactionDate, table.direction),
+  index("idx_finance_bank_transaction_account_date").on(table.accountId, table.transactionDate),
+  index("idx_finance_bank_transaction_unclassified").on(table.isUnclassified, table.transactionDate),
+]);
+
+export const financeCashMatches = sqliteTable("finance_cash_matches", {
+  id: text("id").primaryKey(),
+  matchGroupId: text("match_group_id").notNull(),
+  bankTransactionId: text("bank_transaction_id").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  matchedAmount: integer("matched_amount").notNull(),
+  matchScore: integer("match_score").notNull().default(0),
+  matchMethod: text("match_method").notNull().default("MANUAL"),
+  status: text("status").notNull().default("CONFIRMED"),
+  memo: text("memo").notNull().default(""),
+  confirmedBy: text("confirmed_by").notNull(),
+  confirmedAt: integer("confirmed_at").notNull(),
+  reversedBy: text("reversed_by").notNull().default(""),
+  reversedAt: integer("reversed_at"),
+  reversalReason: text("reversal_reason").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_cash_match_unique_source").on(table.bankTransactionId, table.sourceType, table.sourceId),
+  index("idx_finance_cash_match_bank_status").on(table.bankTransactionId, table.status),
+  index("idx_finance_cash_match_source_status").on(table.sourceType, table.sourceId, table.status),
+  index("idx_finance_cash_match_group").on(table.matchGroupId),
+]);
+
 export const financeCashForecastItems = sqliteTable("finance_cash_forecast_items", {
   id: text("id").primaryKey(),
   expectedDate: text("expected_date").notNull(),

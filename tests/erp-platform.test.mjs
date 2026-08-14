@@ -27,15 +27,15 @@ test("employee persistence retains lifecycle state across refreshes", async () =
   assert.match(workspace, /RETIREMENT_CHECKLIST|resource: "retirement"/);
 });
 
-test("finance controls do not fabricate reconciliation or forecast source rows", async () => {
+test("finance controls distinguish imported bank rows from manual forecasts", async () => {
   const [api, view] = await Promise.all([
     read("app/api/finance/operations/route.ts"),
     read("app/finance-operations-center.tsx"),
   ]);
-  assert.match(api, /bankTransactionLines: reconciliations\.results\.length \? "IMPORTED" : "NOT_CONNECTED"/);
+  assert.match(api, /bankTransactionLines: \(bankTransactionCount\?\.count \?\? 0\) > 0 \? "IMPORTED" : "NOT_CONNECTED"/);
   assert.match(api, /forecast: forecast\.results\.length \? "MANUAL" : "NOT_CONNECTED"/);
   assert.match(view, /실제 자료를 임의 생성하지 않았습니다/);
-  assert.match(view, /원천 행이 연결되기 전에는 자동으로 ‘완료’ 처리하지 않습니다/);
+  assert.match(view, /좌측 ‘자금 대사’에서 자동 후보를 검토/);
 });
 
 test("sales incentive remains unverified until an approved active rule exists", async () => {
@@ -181,6 +181,27 @@ test("purchase-to-pay requires an approved order, accepted receipt and matched i
   assert.match(view, /발주·입고 현황/);
   assert.match(view, /매입채무·지급 연결/);
   assert.match(page, /"purchasing", "구매·매입채무"/);
+});
+
+test("cash reconciliation imports real Clobe transaction IDs and keeps confirmation human-controlled", async () => {
+  const [api, workspace, page, operations, schema, seed] = await Promise.all([
+    read("app/api/finance/reconciliation/route.ts"), read("app/cash-reconciliation-workspace.tsx"),
+    read("app/page.tsx"), read("app/api/finance/operations/route.ts"), read("db/schema.ts"),
+    read("app/finance-bank-transactions.ts"),
+  ]);
+  assert.match(api, /finance_bank_transactions/);
+  assert.match(api, /finance_cash_matches/);
+  assert.match(api, /SUGGESTED_CONFIRMED/);
+  assert.match(api, /requestedAmount > remaining \|\| requestedAmount > sourceRemaining/);
+  assert.match(api, /action === "REVERSE"/);
+  assert.match(workspace, /후보는 자동 제시하되 확정은 사용자가 수행합니다/);
+  assert.match(workspace, /부분 배분/);
+  assert.match(page, /"reconciliation", "자금 대사"/);
+  assert.match(operations, /미대사 은행 거래/);
+  assert.match(operations, /미대사 은행 거래 .*건을 먼저 처리/);
+  assert.match(schema, /idx_finance_cash_match_unique_source/);
+  assert.equal((seed.match(/"transactionId"/g) ?? []).length, 155);
+  assert.doesNotMatch(seed, /accountNumber/);
 });
 
 test("system tasks are generated from live workflow state instead of static counts", async () => {

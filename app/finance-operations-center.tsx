@@ -28,6 +28,7 @@ type OperationsData = {
   closeTasks: CloseTask[];
   budgets: BudgetItem[];
   reconciliations: unknown[];
+  reconciliationSummary: { bankTransactions: number; confirmedMatches: number };
   expenses: ExpenseItem[];
   payments: PaymentItem[];
   journals: JournalItem[];
@@ -286,9 +287,9 @@ export default function FinanceOperationsCenter() {
         <div className="reconciliation-readiness">
           <div><span>01</span><p><strong>은행 거래 원문</strong><small>거래일·입출금액·적요·계좌 식별값 필요</small></p><em>{statusLabel[data?.sourceStatus.bankTransactionLines ?? "NOT_CONNECTED"]}</em></div>
           <div><span>02</span><p><strong>분개 라인 식별값</strong><small>전표번호·라인번호·계정코드 필요</small></p><em>{statusLabel[data?.sourceStatus.journalMatching ?? "NOT_CONNECTED"]}</em></div>
-          <div><span>03</span><p><strong>자동 매칭 및 승인</strong><small>금액·일자·적요 점수로 후보를 제시하고 사람이 확정</small></p><em>{data?.reconciliations.length ? `${data.reconciliations.length}건` : "대기"}</em></div>
+          <div><span>03</span><p><strong>자동 후보·사용자 확정</strong><small>금액·일자·적요 점수로 후보를 제시하고 사람이 확정</small></p><em>{data?.reconciliationSummary.confirmedMatches ? `${data.reconciliationSummary.confirmedMatches}건 확정` : "확정 대기"}</em></div>
         </div>
-        <p className="finance-control-note">현재 보유한 집계 스냅샷만으로는 거래별 대사를 정확히 수행할 수 없습니다. 원천 행이 연결되기 전에는 자동으로 ‘완료’ 처리하지 않습니다.</p>
+        <p className="finance-control-note">Clobe 거래 원문 {data?.reconciliationSummary.bankTransactions ?? 0}건을 가져왔습니다. 좌측 ‘자금 대사’에서 자동 후보를 검토하고 확정·부분 배분·해제할 수 있습니다.</p>
       </article>
     </section>
   </div>;

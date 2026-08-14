@@ -134,6 +134,13 @@
       "when": 1786686269725,
       "tag": "0018_confused_thanos",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1786687504254,
+      "tag": "0019_chunky_prowler",
+      "breakpoints": true
     }
   ]
 }

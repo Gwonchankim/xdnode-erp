@@ -696,3 +696,24 @@ test("financial alert cases stay unique per task source and preserve append-only
   const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM finance_alert_cases WHERE status = 'OPEN' ORDER BY due_date").all();
   assert.ok(plan.some((row) => String(row.detail).includes("idx_finance_alert_case_status_due")));
 });
+
+test("workbench preferences stay unique per employee and source item", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insert = db.prepare(`INSERT INTO erp_workbench_preferences
+    (id, employee_id, item_type, item_id, pinned, snoozed_until, note, created_at, updated_at)
+    VALUES (?, ?, 'TASK', 'task-1', ?, ?, ?, ?, ?)`);
+  insert.run("gc.kim:TASK:task-1", "gc.kim", 1, "2026-08-16", "내 업무", now, now);
+  assert.throws(() => insert.run("duplicate", "gc.kim", 0, "", "중복", now, now), /UNIQUE constraint failed/);
+  insert.run("other:TASK:task-1", "other", 0, "", "다른 사용자", now, now);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_workbench_preferences WHERE item_id = 'task-1'").get().count, 2);
+  db.prepare(`INSERT INTO erp_workbench_preferences
+    (id, employee_id, item_type, item_id, pinned, snoozed_until, note, created_at, updated_at)
+    VALUES ('ignored', 'gc.kim', 'TASK', 'task-1', 0, '', '갱신', ?, ?)
+    ON CONFLICT(employee_id, item_type, item_id) DO UPDATE SET note = excluded.note, updated_at = excluded.updated_at`)
+    .run(now, now + 1);
+  const owner = db.prepare("SELECT pinned, snoozed_until, note FROM erp_workbench_preferences WHERE employee_id = 'gc.kim'").get();
+  assert.deepEqual({ ...owner }, { pinned: 1, snoozed_until: "2026-08-16", note: "갱신" });
+  const indexes = db.prepare("PRAGMA index_list(erp_workbench_preferences)").all();
+  assert.ok(indexes.some((row) => row.name === "idx_erp_workbench_preference_item" && row.unique === 1));
+});

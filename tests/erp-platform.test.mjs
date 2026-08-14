@@ -950,3 +950,30 @@ test("financial alert outcomes are frozen into treasury, management reporting an
   assert.match(plan, /현재 진행 중인 월은 미래 월말이 아니라 최신 재무 원천 기준일/);
   assert.match(page, /DailyTreasuryWorkspace onNavigate/);
 });
+
+test("personal workbench merges assigned sources without copying source status", async () => {
+  const [api, view, schema, migration, page, plan] = await Promise.all([
+    read("app/api/workbench/route.ts"), read("app/operations-workbench.tsx"), read("db/schema.ts"),
+    read("drizzle/0038_personal_workbench.sql"), read("app/page.tsx"),
+    read("docs/personal-operations-workbench-plan.md"),
+  ]);
+  assert.match(api, /owner_employee_id = \?/);
+  assert.match(api, /id NOT IN \('management-report-actions','management-report-decisions'\)/);
+  assert.match(api, /finance_management_report_actions/);
+  assert.match(api, /finance_management_decisions/);
+  assert.match(api, /Date\.now\(\) \+ 9 \* 60 \* 60 \* 1000/);
+  assert.match(api, /ON CONFLICT\(employee_id, item_type, item_id\)/);
+  assert.match(api, /본인에게 배정된 업무만/);
+  assert.match(api, /canWriteOperations/);
+  assert.match(api, /canWriteFinance/);
+  assert.doesNotMatch(migration, /\bstatus\b/i);
+  assert.match(schema, /erpWorkbenchPreferences/);
+  assert.match(view, /fetch\("\/api\/workbench"\)/);
+  assert.match(view, /fetch\(isTask \? "\/api\/operations" : "\/api\/finance\/management-report"/);
+  assert.match(view, /오늘의 업무/);
+  assert.match(view, /경영 의사결정/);
+  assert.match(page, /<OperationsWorkbench/);
+  assert.match(page, /오늘 업무 전체 보기/);
+  assert.match(plan, /상태의 진실은 각 원천 원장이 소유한다/);
+  assert.match(plan, /다른 사용자가 읽거나 수정할 수 없게 한다/);
+});

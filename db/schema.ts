@@ -261,6 +261,21 @@ export const erpTasks = sqliteTable("erp_tasks", {
   index("idx_erp_tasks_module_status").on(table.module, table.status),
 ]);
 
+export const erpWorkbenchPreferences = sqliteTable("erp_workbench_preferences", {
+  id: text("id").primaryKey(),
+  employeeId: text("employee_id").notNull(),
+  itemType: text("item_type").notNull(),
+  itemId: text("item_id").notNull(),
+  pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
+  snoozedUntil: text("snoozed_until").notNull().default(""),
+  note: text("note").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_erp_workbench_preference_item").on(table.employeeId, table.itemType, table.itemId),
+  index("idx_erp_workbench_preference_focus").on(table.employeeId, table.pinned, table.snoozedUntil),
+]);
+
 export const erpApprovalRequests = sqliteTable("erp_approval_requests", {
   id: text("id").primaryKey(),
   module: text("module").notNull(),

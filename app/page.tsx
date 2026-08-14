@@ -22,6 +22,7 @@ import FinanceRiskPolicyWorkspace from "./finance-risk-policy-workspace";
 import FinanceAlertActionCenter from "./finance-alert-action-center";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
+import OperationsWorkbench from "./operations-workbench";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
@@ -206,6 +207,7 @@ function formatCompactWon(value: number) {
 
 function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void; openRequestKey?: number }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [approvalRequestKey, setApprovalRequestKey] = useState(0);
   const [operationTasks, setOperationTasks] = useState<OperationTask[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
@@ -267,6 +269,22 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
     if (module === "hr") return { module: "hr", hrView: view || "dashboard" };
     if (module === "sales") return { module: "sales" };
     return undefined;
+  }
+
+  function openWorkbenchDestination(destination: string) {
+    if (destination === "approval:center") {
+      setApprovalRequestKey((value) => value + 1);
+      setWorkbenchOpen(false);
+      return;
+    }
+    const [module, view] = destination.split(":");
+    const target = module === "finance"
+      ? { module: "finance" as const, financeView: financeDestinationView(destination) }
+      : module === "hr" || module === "recruitment"
+        ? { module: "hr" as const, hrView: view || (module === "recruitment" ? "recruitment" : "dashboard") }
+        : module === "sales" ? { module: "sales" as const } : undefined;
+    if (target) onOpenAlert({ id: `workbench-${destination}`, category: "오늘 업무", title: "관련 업무", description: "", time: "", destination: target });
+    setWorkbenchOpen(false);
   }
 
   async function updateTask(task: OperationTask, status: OperationTask["status"]) {
@@ -340,6 +358,9 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
           <span className="status-dot" />
           <div><strong>Clobe · 2026 데이터</strong><small>8월 14일 수집</small></div>
         </div>
+        <button type="button" className="erp-workbench-button" aria-expanded={workbenchOpen} onClick={() => setWorkbenchOpen(true)}>
+          <span aria-hidden="true">✓</span><strong>오늘 업무</strong>
+        </button>
         <ApprovalCenter openRequestKey={approvalRequestKey} />
         <button
           type="button"
@@ -362,7 +383,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
               <div><p>OPERATIONS &amp; NOTIFICATIONS</p><h2>통합 업무함</h2></div>
               <button type="button" aria-label="닫기" onClick={() => setAlertsOpen(false)}>×</button>
             </div>
-            <div className="erp-alarm-summary"><strong>처리할 업무 {activeTasks.length}건 · 일반 알림 {visibleAlerts.length}건</strong><span>실제 데이터에서 생성된 업무는 처리상태와 감사기록이 서버에 저장됩니다.</span></div>
+            <div className="erp-alarm-summary"><strong>처리할 업무 {activeTasks.length}건 · 일반 알림 {visibleAlerts.length}건</strong><span>실제 데이터에서 생성된 업무는 처리상태와 감사기록이 서버에 저장됩니다.</span><button type="button" onClick={() => { setAlertsOpen(false); setWorkbenchOpen(true); }}>오늘 업무 전체 보기 →</button></div>
             <div className="erp-alarm-list">
               {operationsLoading && <div className="erp-alarm-empty"><span>…</span><strong>통합 업무를 불러오는 중입니다.</strong></div>}
               {operationsError && <div className="erp-alarm-empty"><span>!</span><strong>{operationsError}</strong><p>기존 일반 알림은 계속 확인할 수 있습니다.</p></div>}
@@ -396,6 +417,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
           </aside>
         </>
       )}
+      {workbenchOpen && <OperationsWorkbench onClose={() => setWorkbenchOpen(false)} onNavigate={openWorkbenchDestination} />}
     </>
   );
 }

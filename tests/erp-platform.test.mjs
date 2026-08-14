@@ -83,6 +83,24 @@ test("finance charts derive balance endpoints and invoice flows from shared sour
   assert.match(plan, /은행의 매출성 입금이나 판매채널 정산액과 합치지 않는다/);
 });
 
+test("finance forecast and account risk share explainable decision models with the AI assistant", async () => {
+  const [page, assistant, model, plan] = await Promise.all([
+    read("app/page.tsx"), read("app/api/finance/assistant/route.ts"),
+    read("app/finance-decision-model.ts"), read("docs/finance-forecast-risk-model-plan.md"),
+  ]);
+  assert.match(page, /buildSalesForecast\(financeCurrentData\.salesDaily2026, financeCurrentInsights\.taxInvoicesAsOf\)/);
+  assert.match(page, /buildAccountRiskModel\(financeCurrentData\.accountSummary/);
+  assert.match(page, /YEAR-END SCENARIOS/);
+  assert.match(page, /위험 신호와 배점/);
+  assert.doesNotMatch(page, /const elapsedDays2026/);
+  assert.doesNotMatch(page, /const accountRiskScore/);
+  assert.match(assistant, /buildSalesForecast/);
+  assert.match(assistant, /buildAccountRiskModel/);
+  assert.match(model, /2026\.08-v1/);
+  assert.match(model, /회사 최소 운영자금·외화 한도 정책 미등록/);
+  assert.match(plan, /보수 ≤ 기준 ≤ 낙관/);
+});
+
 test("finance master changes are approval-gated and new finance inputs validate active master records", async () => {
   const [api, workspace, engine, operations, budget, sales, purchasing, page, plan, taskRoute] = await Promise.all([
     read("app/api/finance/master-data/route.ts"), read("app/finance-master-workspace.tsx"),

@@ -24,6 +24,7 @@ import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
 import { buildAmountSeries, buildBalanceSeries, type FinancePeriod } from "./finance-time-series";
+import { buildAccountRiskModel, buildSalesForecast } from "./finance-decision-model";
 
 type ModuleKey = "finance" | "sales" | "hr";
 
@@ -667,8 +668,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const selectedSalesCount = commercialSalesRows.reduce((sum, row) => sum + row.count, 0);
   const selectedPurchaseCount = commercialPurchaseRows.reduce((sum, row) => sum + row.count, 0);
   const currentSalesYtd = financeCurrentData.sourceSummary.salesSupplyValue;
-  const elapsedDays2026 = 225;
-  const projectedAnnualSales = Math.round((currentSalesYtd / elapsedDays2026) * 365);
+  const salesForecast = buildSalesForecast(financeCurrentData.salesDaily2026, financeCurrentInsights.taxInvoicesAsOf);
+  const baseSalesForecast = salesForecast.scenarios.find((scenario) => scenario.key === "base")!;
   const priorYearSales = financeHistoricalData.years["2025"].revenue;
   const monthlySalesChart = financeCurrentData.salesMonthly2026.map((row) => ({
     label: `${Number(row.month.slice(5))}월`,
@@ -677,19 +678,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const bankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
   const bankLoans = financeCurrentData.accountSummary.loanBalanceSum;
   const liquidityCoverage = bankLoans ? bankAssets / bankLoans : 0;
-  const fxConcentration = bankAssets ? financeCurrentData.accountSummary.fxBalanceSumKrw / bankAssets : 0;
-  const lowBalanceAccounts = financeCurrentData.accounts.filter((row) => row.type === "CHECKING" && row.krwBalance < 100_000).length;
-  const latestBankBalance = financeCurrentData.balanceTrend[0]?.balance ?? 0;
-  const peakBankBalance = Math.max(...financeCurrentData.balanceTrend.map((row) => row.balance));
-  const bankDrawdown = peakBankBalance ? (peakBankBalance - latestBankBalance) / peakBankBalance : 0;
-  const accountRiskScore = Math.min(100,
-    (liquidityCoverage < 1 ? 25 : liquidityCoverage < 1.25 ? 12 : 0)
-    + (fxConcentration > .7 ? 20 : fxConcentration > .4 ? 10 : 0)
-    + (financeCurrentData.accountSummary.checkingBalanceSum < 300_000_000 ? 15 : 0)
-    + (lowBalanceAccounts >= 3 ? 10 : 0)
-    + (bankDrawdown > .2 ? 10 : 0)
-  );
-  const accountRiskLevel = accountRiskScore >= 60 ? "높음" : accountRiskScore >= 30 ? "주의" : "안정";
+  const accountRiskModel = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend);
+  const accountRiskLevel = accountRiskModel.level;
   const bankActivity = financeCurrentInsights.bankActivity31Days;
   const activeFinanceTasks = financeOverview.tasks.filter((task) => task.module === "finance" && task.status !== "DONE");
   const displayedFinanceTasks = activeFinanceTasks.slice(0, 4);
@@ -874,7 +864,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
               <>
                 <Metric label="은행성 자산" value={formatCompactWon(bankAssets)} delta={`${financeCurrentData.asOf.slice(5).replace("-", "월 ")}일 현재`} trend="neutral" hint="원화·외화 원화환산 합계" />
                 <Metric label="최근 31일 순유입" value={formatCompactWon(bankActivity.netInflowKrw)} delta={`입금 ${formatCompactWon(bankActivity.inflowKrw)} · 출금 ${formatCompactWon(bankActivity.outflowKrw)}`} trend={bankActivity.netInflowKrw >= 0 ? "up" : "down"} hint={bankActivity.scopeNote} />
-                <Metric label="외화 자산 비중" value={`${(fxConcentration * 100).toFixed(1)}%`} delta="환율 변동 집중도" trend="down" hint={`외화예금 ${formatCompactWon(financeCurrentData.accountSummary.fxBalanceSumKrw)}`} />
+                <Metric label="외화 자산 비중" value={`${(accountRiskModel.metrics.fxConcentration * 100).toFixed(1)}%`} delta="환율 변동 집중도" trend="down" hint={`외화예금 ${formatCompactWon(financeCurrentData.accountSummary.fxBalanceSumKrw)}`} />
                 <Metric label="대출 대비 유동성" value={`${(liquidityCoverage * 100).toFixed(1)}%`} delta={`대출 잔액 ${formatCompactWon(bankLoans)}`} trend="down" hint="은행성 자산 ÷ 대출 잔액" />
               </>
             ) : historicalMetrics?.map((item) => <Metric key={item.label} label={item.label} value={formatCompactWon(item.value)} delta={item.hint} trend={item.trend} hint={`${overviewYear}년 결산 자료`} />)}
@@ -1049,12 +1039,19 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
               <div className="chart-coverage-note"><span>i</span>8월은 13일까지의 부분 실적이며 공급가액 기준입니다.</div>
             </article>
             <article className="panel annual-forecast-panel">
-              <p>YEAR-END RUN RATE</p>
-              <h2>연말 예상 총 매출액</h2>
-              <strong>{formatCompactWon(projectedAnnualSales)}</strong>
-              <div className="forecast-meter"><i style={{ width: `${Math.min(100, (currentSalesYtd / projectedAnnualSales) * 100)}%` }} /></div>
-              <dl><div><dt>누적 실적</dt><dd>{formatCompactWon(currentSalesYtd)}</dd></div><div><dt>경과일</dt><dd>{elapsedDays2026}일 / 365일</dd></div><div><dt>2025 연간 매출</dt><dd>{formatCompactWon(priorYearSales)}</dd></div></dl>
-              <small>1월 1일~8월 13일의 일평균 매출을 365일로 연환산한 단순 예측입니다. 계절성·수주잔고·반품 가능성은 반영하지 않습니다.</small>
+              <p>YEAR-END SCENARIOS</p>
+              <h2>연말 매출 전망 · 기준</h2>
+              <strong>{formatCompactWon(baseSalesForecast.projectedTotal)}</strong>
+              <div className="forecast-meter"><i style={{ width: `${Math.min(100, (currentSalesYtd / baseSalesForecast.projectedTotal) * 100)}%` }} /></div>
+              <div className="forecast-scenarios">
+                {salesForecast.scenarios.map((scenario) => (
+                  <div className={scenario.key === "base" ? "base" : ""} key={scenario.key}>
+                    <span>{scenario.label}</span><strong>{formatCompactWon(scenario.projectedTotal)}</strong><small>{scenario.basis}</small>
+                  </div>
+                ))}
+              </div>
+              <dl><div><dt>누적 실적</dt><dd>{formatCompactWon(currentSalesYtd)}</dd></div><div><dt>경과·잔여일</dt><dd>{salesForecast.elapsedDays}일 · {salesForecast.remainingDays}일</dd></div><div><dt>2025 연간 매출</dt><dd>{formatCompactWon(priorYearSales)}</dd></div></dl>
+              <small>{salesForecast.limitations.join(" ")}</small>
             </article>
           </section>
         </>
@@ -1124,24 +1121,26 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
           <section className="content-grid account-risk-grid">
             <article className={`panel account-risk-hero ${accountRiskLevel === "높음" ? "high" : accountRiskLevel === "주의" ? "watch" : "stable"}`}>
               <p>ACCOUNT LIQUIDITY SIGNAL</p>
-              <div className="account-risk-score"><strong>{accountRiskScore}</strong><span>/ 100</span></div>
+              <div className="account-risk-score"><strong>{accountRiskModel.score}</strong><span>/ 100</span></div>
               <h2>계좌금액 위험도 · {accountRiskLevel}</h2>
-              <p>은행성 자산, 대출잔액, 원화 가용자금, 외화 집중도와 최근 고점 대비 감소폭을 조합한 운영 신호입니다.</p>
+              <p>은행성 자산·대출·외화 집중도와 실제 잔액 관측치를 조합한 설명 가능한 운영 신호입니다.</p>
               <div className="risk-factor-list">
-                <div><span>대출 대비 은행성 자산</span><b>{(liquidityCoverage * 100).toFixed(1)}%</b></div>
-                <div><span>외화자산 집중도</span><b>{(fxConcentration * 100).toFixed(1)}%</b></div>
+                <div><span>대출 대비 은행성 자산</span><b>{accountRiskModel.metrics.debtCoverage === null ? "대출 없음" : `${(accountRiskModel.metrics.debtCoverage * 100).toFixed(1)}%`}</b></div>
+                <div><span>외화자산 집중도</span><b>{(accountRiskModel.metrics.fxConcentration * 100).toFixed(1)}%</b></div>
                 <div><span>원화 입출금계좌 잔액</span><b>{formatCompactWon(financeCurrentData.accountSummary.checkingBalanceSum)}</b></div>
-                <div><span>최근 고점 대비 감소</span><b>{(bankDrawdown * 100).toFixed(1)}%</b></div>
+                <div><span>최근 고점 대비 감소</span><b>{(accountRiskModel.metrics.drawdownFromPeak * 100).toFixed(1)}%</b></div>
               </div>
-              <small>이 점수는 지급예정표·확정 수금일을 포함하지 않은 내부 조기경보 지표이며 신용평가나 지급불능 판정이 아닙니다.</small>
+              <small>{accountRiskModel.policyStatus} · {accountRiskModel.limitations[0]} {accountRiskModel.limitations[1]}</small>
             </article>
             <article className="panel account-risk-detail">
-              <PanelHeader eyebrow="Risk drivers" title="위험 신호 해석" action={`${financeCurrentData.asOf} 기준`} />
+              <PanelHeader eyebrow={`Risk drivers · ${accountRiskModel.version}`} title="위험 신호와 배점" action={`${financeCurrentData.asOf} 기준`} />
               <div className="account-risk-signals">
-                <div className={liquidityCoverage < 1 ? "high" : "stable"}><span>01</span><p><strong>유동성 커버리지</strong><small>은행성 자산이 대출잔액의 {(liquidityCoverage * 100).toFixed(1)}%입니다.</small></p></div>
-                <div className={fxConcentration > .7 ? "high" : "watch"}><span>02</span><p><strong>외화 집중</strong><small>은행성 자산 중 외화 비중이 {(fxConcentration * 100).toFixed(1)}%입니다.</small></p></div>
-                <div className={lowBalanceAccounts >= 3 ? "watch" : "stable"}><span>03</span><p><strong>소액 잔액 계좌</strong><small>10만원 미만 입출금계좌가 {lowBalanceAccounts}개입니다.</small></p></div>
-                <div className={bankDrawdown > .2 ? "watch" : "stable"}><span>04</span><p><strong>잔액 변동성</strong><small>최근 10주 고점 대비 {(bankDrawdown * 100).toFixed(1)}% 낮습니다.</small></p></div>
+                {accountRiskModel.drivers.map((driver, index) => (
+                  <div className={driver.status} key={driver.key}>
+                    <span>{String(index + 1).padStart(2, "0")}</span>
+                    <p><strong>{driver.label}<b>+{driver.points}/{driver.maxPoints}</b></strong><small>{driver.evidence}</small><em>{driver.rule}</em></p>
+                  </div>
+                ))}
               </div>
             </article>
           </section>

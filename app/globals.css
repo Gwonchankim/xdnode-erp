@@ -1177,6 +1177,14 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .annual-forecast-panel > strong { font-size: 36px; letter-spacing: -.06em; }
 .forecast-meter { height: 8px; margin: 16px 0 18px; overflow: hidden; border-radius: 999px; background: #e4e4e7; }
 .forecast-meter i { height: 100%; display: block; border-radius: inherit; background: #18181b; }
+.forecast-scenarios { margin: 0 0 18px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.forecast-scenarios > div { min-width: 0; padding: 10px; border: 1px solid #e4e4e7; border-radius: 13px; background: #fafafa; }
+.forecast-scenarios > div.base { color: #fff; border-color: #18181b; background: #18181b; }
+.forecast-scenarios span, .forecast-scenarios strong, .forecast-scenarios small { display: block; }
+.forecast-scenarios span { color: #71717a; font-size: 8px; font-weight: 900; }
+.forecast-scenarios > div.base span, .forecast-scenarios > div.base small { color: #d4d4d8; }
+.forecast-scenarios strong { margin-top: 6px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; white-space: nowrap; }
+.forecast-scenarios small { margin-top: 5px; color: #8b9491; font-size: 7px; line-height: 1.4; }
 .annual-forecast-panel dl { margin: 0 0 18px; display: grid; gap: 8px; }
 .annual-forecast-panel dl div { display: flex; justify-content: space-between; gap: 12px; color: #71717a; font-size: 9px; }
 .annual-forecast-panel dt, .annual-forecast-panel dd { margin: 0; }
@@ -1294,8 +1302,10 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .account-risk-signals > div.high > span { background: #be123c; }
 .account-risk-signals > div.watch > span { color: #9a3412; background: #ffedd5; }
 .account-risk-signals p, .account-risk-signals strong, .account-risk-signals small { margin: 0; display: block; }
-.account-risk-signals strong { font-size: 9px; }
+.account-risk-signals strong { display: flex; justify-content: space-between; gap: 8px; font-size: 9px; }
+.account-risk-signals strong b { color: #ff5a1f; font-size: 8px; white-space: nowrap; }
 .account-risk-signals small { margin-top: 5px; color: #71717a; font-size: 8px; line-height: 1.5; }
+.account-risk-signals em { margin-top: 5px; display: block; color: #a1a1aa; font-size: 7px; font-style: normal; line-height: 1.45; }
 .account-register-panel { overflow: hidden; }
 .account-register-list { padding: 0 18px 18px; display: grid; }
 .account-register-list > div { min-height: 57px; display: grid; grid-template-columns: 34px minmax(0, 1fr) minmax(130px, auto) 72px; gap: 11px; align-items: center; border-top: 1px solid #ececee; }

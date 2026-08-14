@@ -418,6 +418,10 @@ export async function PUT(request: Request) {
         db.prepare(`UPDATE finance_expense_requests SET status = 'PAID', payment_method = ?, paid_by = ?, paid_at = ?,
           journal_status = 'READY', updated_at = ? WHERE id = ? AND status = 'APPROVED'`)
           .bind(paymentMethod, approvalAuthorization.principal.employeeId, now, now, id),
+        db.prepare(`UPDATE finance_purchase_invoices SET status = 'PAID', updated_at = ?
+          WHERE id = ? AND status = 'PAYMENT_READY' AND ? = 'PURCHASE_INVOICE'
+            AND EXISTS (SELECT 1 FROM finance_expense_requests WHERE id = ? AND status = 'PAID' AND updated_at = ?)`)
+          .bind(now, before.source_id, before.source_type, id, now),
       ]);
       const payment = await db.prepare("SELECT * FROM finance_payment_ledger WHERE id = ?").bind(paymentId).first<PaymentRow>();
       await writeErpAudit(db, { principal: approvalAuthorization.principal, module: "finance", action: "EXPENSE_PAID", entityType: "financeExpense", entityId: id, before: toExpense(before), after: payment ? toPayment(payment) : { paymentId } });

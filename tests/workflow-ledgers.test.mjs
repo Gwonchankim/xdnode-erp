@@ -80,6 +80,41 @@ test("sales payment allocations preserve partial collections and one invoice tar
   assert.equal(totals.collected, 40000);
 });
 
+test("purchase ledgers preserve ordered quantities, accepted receipts and invoice uniqueness", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO finance_purchase_vendors
+    (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`)
+    .run("vendor-1", "테스트 공급사", "gc.kim", now, now);
+  db.prepare(`INSERT INTO finance_purchase_orders
+    (id, order_number, vendor_id, title, subtotal, tax_amount, total_amount, status,
+      requester_employee_id, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?)`)
+    .run("order-1", "PO-001", "vendor-1", "원재료 발주", 100000, 10000, 110000, "gc.kim", "gc.kim", now, now, now);
+  db.prepare(`INSERT INTO finance_purchase_order_lines
+    (id, order_id, line_number, item_name, quantity_milli, unit_price, line_amount, created_at, updated_at)
+    VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)`)
+    .run("order-line-1", "order-1", "원재료 A", 10000, 10000, 100000, now, now);
+  db.prepare(`INSERT INTO finance_purchase_receipts
+    (id, order_id, receipt_number, receipt_date, received_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run("receipt-1", "order-1", "GR-001", "2026-08-14", "gc.kim", now, now);
+  db.prepare(`INSERT INTO finance_purchase_receipt_lines
+    (id, receipt_id, order_line_id, received_quantity_milli, accepted_quantity_milli, rejected_quantity_milli, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run("receipt-line-1", "receipt-1", "order-line-1", 10000, 8000, 2000, now, now);
+  const accepted = db.prepare(`SELECT ROUND(SUM(receipt_line.accepted_quantity_milli * order_line.unit_price / 1000.0)) AS amount
+    FROM finance_purchase_receipt_lines receipt_line JOIN finance_purchase_order_lines order_line ON order_line.id = receipt_line.order_line_id
+    WHERE receipt_line.receipt_id = ?`).get("receipt-1");
+  assert.equal(accepted.amount, 80000);
+  const insertInvoice = db.prepare(`INSERT INTO finance_purchase_invoices
+    (id, order_id, invoice_number, invoice_date, supply_amount, tax_amount, total_amount,
+      matched_receipt_amount, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  insertInvoice.run("invoice-1", "order-1", "INV-001", "2026-08-14", 80000, 8000, 88000, 80000, "MATCHED", "gc.kim", now, now);
+  assert.throws(() => insertInvoice.run("invoice-2", "order-1", "INV-001", "2026-08-14", 1, 0, 1, 1, "MATCHED", "gc.kim", now, now), /UNIQUE constraint failed/);
+});
+
 test("retirement and recruitment offer ledgers preserve workflow state", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

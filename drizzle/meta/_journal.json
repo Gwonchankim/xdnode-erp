@@ -127,6 +127,13 @@
       "when": 1786685368852,
       "tag": "0017_workable_lady_deathstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1786686269725,
+      "tag": "0018_confused_thanos",
+      "breakpoints": true
     }
   ]
 }

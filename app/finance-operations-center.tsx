@@ -212,7 +212,7 @@ export default function FinanceOperationsCenter() {
       <div className="expense-ledger">
         <div className="expense-row head"><span>요청</span><span>거래처·계정</span><span>금액</span><span>증빙</span><span>상태</span><span>처리</span></div>
         {(data?.expenses ?? []).map((item) => <div className="expense-row" key={item.id}>
-          <p><strong>{item.title}</strong><small>{item.sourceType === "PAYROLL_RUN" ? "급여 마감 자동연결" : item.requestKind === "PAYMENT" ? "지급 요청" : "지출 결의"} · {item.requestedDate}</small></p>
+          <p><strong>{item.title}</strong><small>{item.sourceType === "PAYROLL_RUN" ? "급여 마감 자동연결" : item.sourceType === "PURCHASE_INVOICE" ? "구매 인보이스 자동연결" : item.requestKind === "PAYMENT" ? "지급 요청" : "지출 결의"} · {item.requestedDate}</small></p>
           <p><strong>{item.vendor || "거래처 미입력"}</strong><small>{item.accountName || "계정 미지정"}</small></p>
           <b>{won(item.amount)}</b>
           <label className="expense-evidence"><input type="file" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt,.csv" disabled={item.status !== "DRAFT"} onChange={(event) => void uploadEvidence(item.id, event.target.files?.[0])} /><span>{item.evidenceCount ? `${item.evidenceCount}개 첨부` : "증빙 첨부"}</span></label>

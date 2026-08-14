@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import HRWorkspace from "./hr-workspace";
 import FinanceOperationsCenter from "./finance-operations-center";
+import PurchasingWorkspace from "./purchasing-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
@@ -79,7 +80,7 @@ const cashTrend = [
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "control" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "control" | "purchasing" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 type ReceivableStatus = "UNSET" | "PLANNED" | "PARTIAL" | "OVERDUE" | "HOLD" | "COMPLETE";
 type ReceivableManagementRecord = {
@@ -872,7 +873,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
 
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["control", "재무 운영센터", "운"]] },
-    { title: "거래 관리", items: [["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
+    { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
     { title: "재무 분석", items: [["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["quality", "원장·데이터 점검", "원"]] },
   ];
@@ -999,6 +1000,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       )}
 
       {workspace === "control" && <FinanceOperationsCenter />}
+
+      {workspace === "purchasing" && <PurchasingWorkspace />}
 
       {workspace === "commercial" && (
         <>

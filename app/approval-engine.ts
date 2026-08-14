@@ -24,7 +24,7 @@ type PolicyStepRow = { step_name: string; approver_role: ErpRole; approver_emplo
 type DelegationRow = { delegator_employee_id: string; delegate_employee_id: string; module: string };
 
 export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> = {
-  finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", PAYMENT: "지급 승인" },
+  finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인" },
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인" },
   recruitment: { OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
   sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "할인 승인" },
@@ -192,6 +192,10 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
     return [db.prepare(`UPDATE finance_expense_requests SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
       AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "REJECTED", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "PURCHASE_ORDER") {
+    return [db.prepare(`UPDATE finance_purchase_orders SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
+      AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(approved ? "APPROVED" : "DRAFT", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
   } else if (targetEntityType === "HR_RETIREMENT") {
     const status = approved ? "IN_PROGRESS" : "REJECTED";
     const statements = [db.prepare(`UPDATE hr_retirement_requests SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?

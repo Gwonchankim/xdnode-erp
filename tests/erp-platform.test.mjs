@@ -159,6 +159,30 @@ test("sales collections explicitly allocate to an approved invoice and reserve i
   assert.match(migration, /idx_sales_payment_allocation_payment/);
 });
 
+test("purchase-to-pay requires an approved order, accepted receipt and matched invoice before payment", async () => {
+  const [api, view, approval, approvalCenter, finance, operations, schema, migration, page] = await Promise.all([
+    read("app/api/finance/purchasing/route.ts"), read("app/purchasing-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/approval-center.tsx"), read("app/api/finance/operations/route.ts"), read("app/api/operations/route.ts"), read("db/schema.ts"),
+    read("drizzle/0018_confused_thanos.sql"), read("app/page.tsx"),
+  ]);
+  for (const table of ["finance_purchase_vendors", "finance_purchase_orders", "finance_purchase_order_lines", "finance_purchase_receipts", "finance_purchase_receipt_lines", "finance_purchase_invoices"]) {
+    assert.match(schema, new RegExp(table));
+    assert.match(migration, new RegExp(table));
+  }
+  assert.match(api, /requestType: "PURCHASE_ORDER"/);
+  assert.match(api, /status IN \('APPROVED','PARTIALLY_RECEIVED'\)/);
+  assert.match(api, /검수 잔액/);
+  assert.match(api, /status = 'PAYMENT_READY'/);
+  assert.match(api, /'PURCHASE_INVOICE'/);
+  assert.match(approval, /targetEntityType === "PURCHASE_ORDER"/);
+  assert.match(approvalCenter, /PURCHASE_ORDER: "발주 승인"/);
+  assert.match(finance, /finance_purchase_invoices SET status = 'PAID'/);
+  assert.match(operations, /purchase-match-exceptions/);
+  assert.match(view, /발주·입고 현황/);
+  assert.match(view, /매입채무·지급 연결/);
+  assert.match(page, /"purchasing", "구매·매입채무"/);
+});
+
 test("system tasks are generated from live workflow state instead of static counts", async () => {
   const api = await read("app/api/operations/route.ts");
   assert.match(api, /TRIM\(owner_id\) = ''/);

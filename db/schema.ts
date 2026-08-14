@@ -466,6 +466,109 @@ export const financeJournalEntries = sqliteTable("finance_journal_entries", {
   index("idx_finance_journal_status_date").on(table.status, table.voucherDate),
 ]);
 
+export const financePurchaseVendors = sqliteTable("finance_purchase_vendors", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  businessNumber: text("business_number").notNull().default(""),
+  contactName: text("contact_name").notNull().default(""),
+  email: text("email").notNull().default(""),
+  paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+  status: text("status").notNull().default("ACTIVE"),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  deletedAt: integer("deleted_at"),
+}, (table) => [
+  index("idx_finance_purchase_vendor_status_name").on(table.status, table.name),
+]);
+
+export const financePurchaseOrders = sqliteTable("finance_purchase_orders", {
+  id: text("id").primaryKey(),
+  orderNumber: text("order_number").notNull(),
+  vendorId: text("vendor_id").notNull(),
+  title: text("title").notNull(),
+  currency: text("currency").notNull().default("KRW"),
+  subtotal: integer("subtotal").notNull().default(0),
+  taxAmount: integer("tax_amount").notNull().default(0),
+  totalAmount: integer("total_amount").notNull().default(0),
+  expectedDate: text("expected_date").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"),
+  requesterEmployeeId: text("requester_employee_id").notNull(),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_purchase_order_number").on(table.orderNumber),
+  index("idx_finance_purchase_order_vendor_status").on(table.vendorId, table.status),
+]);
+
+export const financePurchaseOrderLines = sqliteTable("finance_purchase_order_lines", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  lineNumber: integer("line_number").notNull(),
+  itemName: text("item_name").notNull(),
+  description: text("description").notNull().default(""),
+  quantityMilli: integer("quantity_milli").notNull(),
+  unitPrice: integer("unit_price").notNull(),
+  lineAmount: integer("line_amount").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_purchase_order_line_number").on(table.orderId, table.lineNumber),
+]);
+
+export const financePurchaseReceipts = sqliteTable("finance_purchase_receipts", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  receiptNumber: text("receipt_number").notNull(),
+  receiptDate: text("receipt_date").notNull(),
+  notes: text("notes").notNull().default(""),
+  status: text("status").notNull().default("ACCEPTED"),
+  receivedBy: text("received_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_purchase_receipt_number").on(table.receiptNumber),
+  index("idx_finance_purchase_receipt_order_date").on(table.orderId, table.receiptDate),
+]);
+
+export const financePurchaseReceiptLines = sqliteTable("finance_purchase_receipt_lines", {
+  id: text("id").primaryKey(),
+  receiptId: text("receipt_id").notNull(),
+  orderLineId: text("order_line_id").notNull(),
+  receivedQuantityMilli: integer("received_quantity_milli").notNull(),
+  acceptedQuantityMilli: integer("accepted_quantity_milli").notNull(),
+  rejectedQuantityMilli: integer("rejected_quantity_milli").notNull().default(0),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_purchase_receipt_line").on(table.receiptId, table.orderLineId),
+  index("idx_finance_purchase_receipt_order_line").on(table.orderLineId),
+]);
+
+export const financePurchaseInvoices = sqliteTable("finance_purchase_invoices", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull(),
+  invoiceNumber: text("invoice_number").notNull(),
+  invoiceDate: text("invoice_date").notNull(),
+  dueDate: text("due_date").notNull().default(""),
+  supplyAmount: integer("supply_amount").notNull(),
+  taxAmount: integer("tax_amount").notNull().default(0),
+  totalAmount: integer("total_amount").notNull(),
+  matchedReceiptAmount: integer("matched_receipt_amount").notNull().default(0),
+  status: text("status").notNull().default("DRAFT"),
+  exceptionReason: text("exception_reason").notNull().default(""),
+  paymentRequestId: text("payment_request_id").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_purchase_invoice_number").on(table.invoiceNumber),
+  index("idx_finance_purchase_invoice_order_status").on(table.orderId, table.status),
+  index("idx_finance_purchase_invoice_due_status").on(table.dueDate, table.status),
+]);
+
 export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   period: text("period").primaryKey(),
   status: text("status").notNull().default("DRAFT"),

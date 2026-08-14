@@ -182,6 +182,22 @@ async function seedStateDrivenOperations() {
   } catch {
     // 급여 기능을 처음 열기 전에는 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
   }
+
+  try {
+    const purchaseExceptions = await db.prepare(`SELECT COUNT(*) AS count FROM finance_purchase_invoices
+      WHERE status = 'EXCEPTION'`).first<{ count: number }>();
+    const count = purchaseExceptions?.count ?? 0;
+    if (count > 0) {
+      await upsertRuleTask({
+        id: "purchase-match-exceptions", module: "finance", category: "매입 대사",
+        title: `발주·검수·인보이스 대사 예외 ${count}건 확인`,
+        description: "발주 공급가 또는 합격 검수금액을 초과한 매입 인보이스는 지급 요청이 차단되어 있습니다.",
+        dueDate: today, priority: "HIGH", destination: "finance:purchasing", sourceId: String(count),
+      });
+    } else await closeRuleTask("purchase-match-exceptions");
+  } catch {
+    // 구매 기능을 처음 열기 전에는 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
+  }
 }
 
 export async function GET() {

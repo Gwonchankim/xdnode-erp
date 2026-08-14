@@ -92,14 +92,14 @@ function formulaInput(body: Record<string, unknown>) {
     ? body.eligibleLeadTypes.map(String).filter((value) => ["OUTBOUND", "INBOUND", "RAM"].includes(value)) : [];
   if (!Number.isInteger(thresholdMarginBps) || thresholdMarginBps < 0 || thresholdMarginBps > 10000
     || !Number.isInteger(payoutRateBps) || payoutRateBps < 0 || payoutRateBps > 10000 || !eligibleLeadTypes.length) return null;
-  return { recognitionBasis: "COLLECTED_PAYMENT", costBasis: "OPPORTUNITY_EXPECTED_COST_PRORATED",
+  return { recognitionBasis: "CUMULATIVE_COLLECTED_PAYMENT_TRUE_UP", costBasis: "PROJECT_ALLOCATED_ACTUAL_COST_WITH_DRAFT_FALLBACK",
     thresholdMarginBps, payoutRateBps, eligibleLeadTypes, exceptionsNote: String(body.exceptionsNote ?? "").trim() };
 }
 
 export async function POST(request: Request) {
   await ensureSchema();
   const body = await request.json() as Record<string, unknown>; const action = String(body.action ?? "");
-  const permission = action === "FINANCE_REVIEW" ? ["finance", "approve"] as const
+  const permission = ["FINANCE_REVIEW", "VOID_RESULT"].includes(action) ? ["finance", "approve"] as const
     : action === "APPLY_PAYROLL" ? ["hr", "approve"] as const : ["sales", action.includes("SUBMIT") ? "approve" : "write"] as const;
   const authorization = await authorizeErpRequest(db, permission[0], permission[1]);
   if (authorization.response) return authorization.response;
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "규정 원문·예시 계산·과거 지급내역의 세 차례 검증이 모두 PASS여야 합니다." }, { status: 409 });
     if (openApproval) return Response.json({ approvalId: openApproval.id, submitted: true }, { status: 202 });
     const approval = await createApprovalRequest(db, authorization.principal, { module: "sales", requestType: "INCENTIVE_RULE",
-      title: `${rule.name} v${rule.version} 인센티브 규정 승인`, description: "세 차례 교차검증 완료 · 실제 수금 기준 정산 규칙",
+      title: `${rule.name} v${rule.version} 인센티브 규정 승인`, description: "세 차례 교차검증 완료 · 누적 수금·프로젝트 실제원가 기준 정산 규칙",
       targetEntityType: "INCENTIVE_RULE", targetEntityId: rule.id, metadata: { version: rule.version, requiredValidations } });
     await db.prepare("UPDATE sales_incentive_rules SET status = 'SUBMITTED', updated_at = ? WHERE id = ? AND status = 'DRAFT'").bind(now, ruleId).run();
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "INCENTIVE_RULE_SUBMITTED", entityType: "salesIncentiveRule", entityId: ruleId, before: parseRule(rule), after: approval });
@@ -161,8 +161,9 @@ export async function POST(request: Request) {
   if (action === "CALCULATE_PERIOD") {
     const period = String(body.period ?? "").trim(); if (!validPeriod(period)) return Response.json({ error: "정산월을 확인해 주세요." }, { status: 400 });
     const start = `${period}-01`; const endDate = new Date(`${start}T00:00:00Z`); endDate.setUTCMonth(endDate.getUTCMonth() + 1); const end = endDate.toISOString().slice(0, 10);
-    const rule = await db.prepare(`SELECT * FROM sales_incentive_rules WHERE status = 'ACTIVE' AND effective_from < ?
-      AND (effective_to = '' OR effective_to >= ?) ORDER BY approved_at DESC, version DESC LIMIT 1`).bind(end, start).first<Rule>();
+    const rule = await db.prepare(`SELECT * FROM sales_incentive_rules WHERE status IN ('ACTIVE','RETIRED') AND approved_at IS NOT NULL
+      AND effective_from < ? AND (effective_to = '' OR effective_to >= ?)
+      ORDER BY effective_from DESC, approved_at DESC, version DESC LIMIT 1`).bind(end, start).first<Rule>();
     if (!rule) return Response.json({ error: "해당 정산월에 적용되는 승인된 인센티브 규정이 없습니다." }, { status: 409 });
     const rawFormula = objectJson(rule.rules_json); const formula = {
       thresholdMarginBps: Number(rawFormula.thresholdMarginBps), payoutRateBps: Number(rawFormula.payoutRateBps),
@@ -170,27 +171,68 @@ export async function POST(request: Request) {
     };
     if (!Number.isInteger(formula.thresholdMarginBps) || !Number.isInteger(formula.payoutRateBps) || !formula.eligibleLeadTypes.length)
       return Response.json({ error: "활성 규정의 산식 데이터가 손상되었습니다. 규정 버전을 재검토해 주세요." }, { status: 409 });
-    const sources = await db.prepare(`SELECT opportunity.id, opportunity.title, opportunity.owner_employee_id, opportunity.lead_type,
-        opportunity.expected_cost, account.name AS account_name,
-        COALESCE(SUM(CASE WHEN payment.document_type = 'PAYMENT' AND payment.status IN ('ACCEPTED','COMPLETED')
-          AND payment.issued_date >= ? AND payment.issued_date < ? THEN payment.amount ELSE 0 END), 0) AS collected,
+    const ruleStartPeriod = rule.effective_from.slice(0, 7); const recognitionStart = rule.effective_from > start ? rule.effective_from : start;
+    const sources = await db.prepare(`WITH source_rows AS (
+      SELECT opportunity.id, opportunity.title, opportunity.owner_employee_id, opportunity.lead_type,
+        opportunity.expected_cost, account.name AS account_name, center.id AS cost_center_id, center.status AS cost_center_status,
+        COALESCE((SELECT SUM(payment.amount) FROM sales_documents payment WHERE payment.opportunity_id = opportunity.id
+          AND payment.document_type = 'PAYMENT' AND payment.status IN ('ACCEPTED','COMPLETED')
+          AND payment.issued_date >= ? AND payment.issued_date < ?), 0) AS period_collected,
+        COALESCE((SELECT SUM(payment.amount) FROM sales_documents payment WHERE payment.opportunity_id = opportunity.id
+          AND payment.document_type = 'PAYMENT' AND payment.status IN ('ACCEPTED','COMPLETED')
+          AND payment.issued_date >= ? AND payment.issued_date < ?), 0) AS cumulative_collected,
         COALESCE((SELECT SUM(invoice.amount) FROM sales_documents invoice WHERE invoice.opportunity_id = opportunity.id
-          AND invoice.document_type = 'INVOICE' AND invoice.status IN ('ACCEPTED','COMPLETED')), 0) AS invoiced
+          AND invoice.document_type = 'INVOICE' AND invoice.status IN ('ACCEPTED','COMPLETED')), 0) AS invoiced,
+        COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST' AND allocation.period >= ? AND allocation.period <= ?), 0) AS actual_project_cost,
+        COALESCE((SELECT COUNT(*) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST' AND allocation.period >= ? AND allocation.period <= ?), 0) AS cost_allocation_count,
+        COALESCE((SELECT COUNT(*) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST' AND allocation.period = ?), 0) AS period_cost_allocation_count,
+        COALESCE((SELECT MAX(allocation.updated_at) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST' AND allocation.period >= ? AND allocation.period <= ?), 0) AS cost_allocation_updated_at,
+        COALESCE((SELECT SUM(prior.payout_amount) FROM sales_incentive_results prior
+          WHERE prior.opportunity_id = opportunity.id AND prior.rule_id = ? AND prior.period < ?
+            AND prior.status IN ('APPROVED','PAYROLL_APPLIED')), 0) AS prior_payout,
+        COALESCE((SELECT COUNT(*) FROM sales_incentive_results prior
+          WHERE prior.opportunity_id = opportunity.id AND prior.rule_id = ? AND prior.period < ?
+            AND prior.status IN ('DRAFT','SALES_CONFIRMED','FINANCE_REVIEWED','SUBMITTED')), 0) AS unresolved_prior_count
       FROM sales_opportunities opportunity JOIN sales_accounts account ON account.id = opportunity.account_id
-      LEFT JOIN sales_documents payment ON payment.opportunity_id = opportunity.id
-      WHERE opportunity.stage = 'WON' AND opportunity.deleted_at IS NULL
-      GROUP BY opportunity.id HAVING collected > 0`).bind(start, end).all<{
-        id: string; title: string; owner_employee_id: string; lead_type: string; expected_cost: number; account_name: string; collected: number; invoiced: number }>();
+      LEFT JOIN finance_cost_centers center ON center.opportunity_id = opportunity.id
+      WHERE opportunity.stage = 'WON' AND opportunity.deleted_at IS NULL)
+      SELECT * FROM source_rows WHERE period_collected > 0 OR period_cost_allocation_count > 0`)
+      .bind(recognitionStart, end, rule.effective_from, end, ruleStartPeriod, period, ruleStartPeriod, period, period,
+        ruleStartPeriod, period, rule.id, period, rule.id, period).all<{
+        id: string; title: string; owner_employee_id: string; lead_type: string; expected_cost: number; account_name: string;
+        cost_center_id: string | null; cost_center_status: string | null; period_collected: number; cumulative_collected: number;
+        invoiced: number; actual_project_cost: number; cost_allocation_count: number; period_cost_allocation_count: number;
+        cost_allocation_updated_at: number; prior_payout: number; unresolved_prior_count: number }>();
+    const blockedSources = sources.results.filter((source) => formula.eligibleLeadTypes.includes(source.lead_type)
+      && source.owner_employee_id && source.invoiced > 0 && source.unresolved_prior_count > 0);
+    if (blockedSources.length) return Response.json({
+      error: `이전 정산월의 미확정 결과가 남아 있어 누적 정산을 중단했습니다. ${blockedSources.slice(0, 3).map((source) => source.title).join(", ")} 건을 승인·급여반영 또는 무효 처리해 주세요.`,
+      blockedOpportunityIds: blockedSources.map((source) => source.id),
+    }, { status: 409 });
     const statements: D1PreparedStatement[] = [];
     for (const source of sources.results) {
       if (!formula.eligibleLeadTypes.includes(source.lead_type) || !source.owner_employee_id || source.invoiced <= 0) continue;
-      const recognizedRevenue = Math.round(source.collected); const costRatio = Math.min(1, recognizedRevenue / source.invoiced);
-      const recognizedCost = Math.round(source.expected_cost * costRatio); const margin = recognizedRevenue - recognizedCost;
-      const threshold = Math.round(recognizedRevenue * formula.thresholdMarginBps / 10000);
-      const payout = Math.max(0, Math.round((margin - threshold) * formula.payoutRateBps / 10000));
-      const calculation = { recognitionBasis: "COLLECTED_PAYMENT", sourceCollected: recognizedRevenue, acceptedInvoiceTotal: source.invoiced,
-        costBasis: "OPPORTUNITY_EXPECTED_COST_PRORATED", sourceExpectedCost: source.expected_cost, costRatio,
-        recognizedCost, margin, thresholdMarginBps: formula.thresholdMarginBps, threshold, payoutRateBps: formula.payoutRateBps, payout };
+      const periodCollected = Math.round(source.period_collected); const cumulativeRevenue = Math.round(source.cumulative_collected);
+      const costRatio = Math.min(1, cumulativeRevenue / source.invoiced);
+      const fallbackCost = Math.round(source.expected_cost * costRatio); const hasActualCost = Boolean(source.cost_center_id)
+        && source.cost_center_status === "ACTIVE" && source.cost_allocation_count > 0;
+      const cumulativeCost = hasActualCost ? Math.round(source.actual_project_cost) : fallbackCost;
+      const cumulativeMargin = cumulativeRevenue - cumulativeCost; const cumulativeThreshold = Math.round(cumulativeRevenue * formula.thresholdMarginBps / 10000);
+      const cumulativeEntitlement = Math.max(0, Math.round((cumulativeMargin - cumulativeThreshold) * formula.payoutRateBps / 10000));
+      const settlementDifference = cumulativeEntitlement - Math.round(source.prior_payout); const payout = Math.max(0, settlementDifference);
+      const calculation = { recognitionBasis: "CUMULATIVE_COLLECTED_PAYMENT_TRUE_UP", periodCollected, cumulativeRevenue,
+        acceptedInvoiceTotal: source.invoiced, costBasis: hasActualCost ? "PROJECT_ALLOCATED_ACTUAL_COST" : "OPPORTUNITY_EXPECTED_COST_PRORATED",
+        costQuality: hasActualCost ? "ACTUAL_PROJECT_COST" : "EXPECTED_COST_FALLBACK", costCenterId: source.cost_center_id || "",
+        costCenterStatus: source.cost_center_status || "UNMAPPED", costAllocationCount: source.cost_allocation_count,
+        costAllocationUpdatedAt: source.cost_allocation_updated_at,
+        sourceExpectedCost: source.expected_cost, fallbackCost, costRatio, cumulativeCost, cumulativeMargin,
+        thresholdMarginBps: formula.thresholdMarginBps, cumulativeThreshold, payoutRateBps: formula.payoutRateBps,
+        cumulativeEntitlement, priorPayout: Math.round(source.prior_payout), settlementDifference,
+        clawbackCandidate: Math.min(0, settlementDifference), payout };
       statements.push(db.prepare(`INSERT INTO sales_incentive_results
         (id, period, employee_id, opportunity_id, rule_id, rule_version, recognized_revenue, recognized_cost, payout_amount,
           calculation_json, status, sales_confirmed_at, finance_reviewed_at, representative_approved_at, payroll_ref, created_at, updated_at)
@@ -198,7 +240,7 @@ export async function POST(request: Request) {
         ON CONFLICT(period, employee_id, opportunity_id, rule_id) DO UPDATE SET recognized_revenue = excluded.recognized_revenue,
           recognized_cost = excluded.recognized_cost, payout_amount = excluded.payout_amount, calculation_json = excluded.calculation_json,
           updated_at = excluded.updated_at WHERE sales_incentive_results.status = 'DRAFT'`)
-        .bind(crypto.randomUUID(), period, source.owner_employee_id, source.id, rule.id, rule.version, recognizedRevenue, recognizedCost, payout, JSON.stringify(calculation), now, now));
+        .bind(crypto.randomUUID(), period, source.owner_employee_id, source.id, rule.id, rule.version, cumulativeRevenue, cumulativeCost, payout, JSON.stringify(calculation), now, now));
     }
     if (statements.length) await db.batch(statements);
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "INCENTIVE_PERIOD_CALCULATED", entityType: "salesIncentivePeriod", entityId: period, after: { ruleId: rule.id, sourceCount: sources.results.length, resultCount: statements.length } });
@@ -214,6 +256,37 @@ export async function POST(request: Request) {
   }
   if (action === "FINANCE_REVIEW") {
     if (!result || result.status !== "SALES_CONFIRMED") return Response.json({ error: "영업 확인 완료 정산만 재무 검토할 수 있습니다." }, { status: 409 });
+    const calculation = objectJson(result.calculation_json);
+    if (calculation.costQuality !== "ACTUAL_PROJECT_COST") return Response.json({ error: "프로젝트·원가센터에 실제 원가를 배부한 뒤 정산 초안을 다시 계산해 주세요. 예상 원가 대체값은 지급 승인에 사용할 수 없습니다." }, { status: 409 });
+    if (Number(calculation.clawbackCandidate ?? 0) < 0) return Response.json({ error: "누적 권리보다 과거 확정 지급액이 큽니다. 자동 차감하지 않고 환수·상계 기준을 먼저 확정해야 합니다." }, { status: 409 });
+    const periodEnd = new Date(`${result.period}-01T00:00:00Z`); periodEnd.setUTCMonth(periodEnd.getUTCMonth() + 1);
+    const currentSource = await db.prepare(`SELECT center.id AS cost_center_id, center.status AS cost_center_status,
+        COALESCE((SELECT SUM(payment.amount) FROM sales_documents payment WHERE payment.opportunity_id = opportunity.id
+          AND payment.document_type = 'PAYMENT' AND payment.status IN ('ACCEPTED','COMPLETED')
+          AND payment.issued_date >= rule.effective_from AND payment.issued_date < ?), 0) AS cumulative_collected,
+        COALESCE((SELECT SUM(invoice.amount) FROM sales_documents invoice WHERE invoice.opportunity_id = opportunity.id
+          AND invoice.document_type = 'INVOICE' AND invoice.status IN ('ACCEPTED','COMPLETED')), 0) AS invoiced,
+        COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST'
+            AND allocation.period >= substr(rule.effective_from, 1, 7) AND allocation.period <= ?), 0) AS actual_project_cost,
+        COALESCE((SELECT COUNT(*) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST'
+            AND allocation.period >= substr(rule.effective_from, 1, 7) AND allocation.period <= ?), 0) AS cost_allocation_count,
+        COALESCE((SELECT MAX(allocation.updated_at) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = center.id AND allocation.direction = 'COST'
+            AND allocation.period >= substr(rule.effective_from, 1, 7) AND allocation.period <= ?), 0) AS cost_allocation_updated_at
+      FROM sales_opportunities opportunity JOIN sales_incentive_rules rule ON rule.id = ?
+      LEFT JOIN finance_cost_centers center ON center.opportunity_id = opportunity.id
+      WHERE opportunity.id = ?`).bind(periodEnd.toISOString().slice(0, 10), result.period, result.period, result.period, result.rule_id, result.opportunity_id)
+      .first<{ cost_center_id: string | null; cost_center_status: string | null; cumulative_collected: number; invoiced: number;
+        actual_project_cost: number; cost_allocation_count: number; cost_allocation_updated_at: number }>();
+    const stale = !currentSource || currentSource.cost_center_id !== calculation.costCenterId || currentSource.cost_center_status !== "ACTIVE"
+      || Number(currentSource.cumulative_collected) !== Number(calculation.cumulativeRevenue)
+      || Number(currentSource.invoiced) !== Number(calculation.acceptedInvoiceTotal)
+      || Number(currentSource.actual_project_cost) !== Number(calculation.cumulativeCost)
+      || Number(currentSource.cost_allocation_count) !== Number(calculation.costAllocationCount)
+      || Number(currentSource.cost_allocation_updated_at) !== Number(calculation.costAllocationUpdatedAt);
+    if (stale) return Response.json({ error: "수금·매출 또는 프로젝트 원가 배부가 계산 후 변경되었습니다. 영업 확인을 무효 처리하고 정산 초안을 다시 계산해 주세요." }, { status: 409 });
     await db.prepare("UPDATE sales_incentive_results SET status = 'FINANCE_REVIEWED', finance_reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'SALES_CONFIRMED'").bind(now, now, resultId).run();
     return Response.json({ id: resultId, status: "FINANCE_REVIEWED" });
   }
@@ -233,6 +306,20 @@ export async function POST(request: Request) {
       (id, result_id, note_type, note, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
       .bind(id, resultId, noteType, note, authorization.principal.employeeId, now).run();
     return Response.json({ id }, { status: 201 });
+  }
+  if (action === "VOID_RESULT") {
+    const reason = String(body.reason ?? "").trim();
+    if (!result || !["DRAFT", "SALES_CONFIRMED", "FINANCE_REVIEWED"].includes(result.status) || reason.length < 10)
+      return Response.json({ error: "결재 제출 전 정산과 10자 이상의 무효 사유가 필요합니다." }, { status: 409 });
+    const noteId = crypto.randomUUID();
+    await db.batch([
+      db.prepare("UPDATE sales_incentive_results SET status = 'VOID', updated_at = ? WHERE id = ? AND status = ?").bind(now, result.id, result.status),
+      db.prepare(`INSERT INTO sales_incentive_notes (id, result_id, note_type, note, created_by, created_at)
+        VALUES (?, ?, 'RESOLUTION', ?, ?, ?)`).bind(noteId, result.id, `정산 무효: ${reason}`, authorization.principal.employeeId, now),
+    ]);
+    await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "INCENTIVE_RESULT_VOIDED",
+      entityType: "salesIncentiveResult", entityId: result.id, before: result, after: { status: "VOID", reason }, reason });
+    return Response.json({ id: result.id, status: "VOID" });
   }
   if (action === "APPLY_PAYROLL") {
     if (!result || result.status !== "APPROVED" || !validPeriod(result.period)) return Response.json({ error: "대표 승인된 정산만 동일 월 급여에 반영할 수 있습니다." }, { status: 409 });

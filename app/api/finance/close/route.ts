@@ -58,6 +58,7 @@ async function seedClose(period: string) {
     ["EVIDENCE", "지출·지급 증빙 누락 확인"],
     ["EXPENSE_CONTROL", "법인카드·지출증빙 대사"],
     ["PAYROLL", "급여월 승인·잠금 확인"],
+    ["INCENTIVE", "인센티브 누적 정산·원가·급여 연결 확인"],
     ["INVENTORY", "재고 음수·미반영 입고 확인"],
     ["FIXED_ASSET", "고정자산 감가상각 전기 확인"],
     ["PROJECT_COST", "프로젝트·원가센터 배부 확인"],
@@ -80,9 +81,11 @@ async function seedClose(period: string) {
 
 async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
+  const periodStart = `${period}-01`; const nextPeriodDate = new Date(`${periodStart}T00:00:00Z`);
+  nextPeriodDate.setUTCMonth(nextPeriodDate.getUTCMonth() + 1); const periodEndExclusive = nextPeriodDate.toISOString().slice(0, 10);
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
-  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, tax] = await Promise.all([
+  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, incentiveSettlement, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -192,6 +195,33 @@ async function computeControls(period: string): Promise<CloseControl[]> {
           WHERE newer.facility_id = review.facility_id AND newer.covenant_name = review.covenant_name
             AND (newer.review_date > review.review_date OR (newer.review_date = review.review_date AND newer.created_at > review.created_at)))) AS breach_count`)
       .bind(lastDayOfPeriod(period)).first<{ due_count: number; breach_count: number }>(),
+    db.prepare(`WITH eligible_sources AS (
+      SELECT DISTINCT opportunity.id
+      FROM sales_opportunities opportunity
+      JOIN sales_incentive_rules rule ON rule.status IN ('ACTIVE','RETIRED') AND rule.approved_at IS NOT NULL
+        AND rule.effective_from < ? AND (rule.effective_to = '' OR rule.effective_to >= ?)
+      JOIN json_each(rule.rules_json, '$.eligibleLeadTypes') eligible ON eligible.value = opportunity.lead_type
+      LEFT JOIN finance_cost_centers center ON center.opportunity_id = opportunity.id
+      WHERE opportunity.stage = 'WON' AND opportunity.deleted_at IS NULL AND opportunity.owner_employee_id <> ''
+        AND EXISTS (SELECT 1 FROM sales_documents invoice WHERE invoice.opportunity_id = opportunity.id
+          AND invoice.document_type = 'INVOICE' AND invoice.status IN ('ACCEPTED','COMPLETED'))
+        AND (EXISTS (SELECT 1 FROM sales_documents payment WHERE payment.opportunity_id = opportunity.id
+          AND payment.document_type = 'PAYMENT' AND payment.status IN ('ACCEPTED','COMPLETED')
+          AND payment.issued_date >= CASE WHEN rule.effective_from > ? THEN rule.effective_from ELSE ? END AND payment.issued_date < ?)
+          OR EXISTS (SELECT 1 FROM finance_project_allocations allocation WHERE allocation.cost_center_id = center.id
+            AND allocation.direction = 'COST' AND allocation.period = ?))
+    ) SELECT
+      (SELECT COUNT(*) FROM eligible_sources) AS eligible_source_count,
+      (SELECT COUNT(*) FROM eligible_sources source WHERE NOT EXISTS (
+        SELECT 1 FROM sales_incentive_results result WHERE result.period = ? AND result.opportunity_id = source.id)) AS missing_result_count,
+      (SELECT COUNT(*) FROM sales_incentive_results result WHERE result.period = ?
+        AND result.status NOT IN ('PAYROLL_APPLIED','VOID')) AS unresolved_count,
+      (SELECT COUNT(*) FROM sales_incentive_results result WHERE result.period = ? AND result.status <> 'VOID'
+        AND COALESCE(json_extract(result.calculation_json, '$.costQuality'), '') <> 'ACTUAL_PROJECT_COST') AS fallback_count,
+      (SELECT COUNT(*) FROM sales_incentive_results result WHERE result.period = ? AND result.status <> 'VOID'
+        AND COALESCE(json_extract(result.calculation_json, '$.clawbackCandidate'), 0) < 0) AS clawback_count`)
+      .bind(periodEndExclusive, periodStart, periodStart, periodStart, periodEndExclusive, period, period, period, period, period)
+      .first<{ eligible_source_count: number; missing_result_count: number; unresolved_count: number; fallback_count: number; clawback_count: number }>(),
     db.prepare(`SELECT tax_period.status, tax_period.source_as_of, tax_period.source_sales_supply, tax_period.source_purchase_supply,
         (SELECT COUNT(*) FROM erp_documents document WHERE document.module = 'finance'
           AND document.entity_type = 'financeTaxPeriod' AND document.entity_id = ? AND document.deleted_at IS NULL) AS evidence_count
@@ -226,6 +256,12 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     { key: "PAYROLL_LOCK", category: "PAYROLL", title: "급여월 잠금",
       status: payroll?.status === "LOCKED" ? "PASS" : "FAIL",
       message: payroll ? `${payroll.employee_count}명 · ${payroll.status}` : "급여월이 생성되지 않았습니다.", count: payroll?.status === "LOCKED" ? 0 : 1 },
+    { key: "INCENTIVE_SETTLEMENT_CONTROL", category: "INCENTIVE", title: "인센티브 누적 정산",
+      status: Number(incentiveSettlement?.missing_result_count ?? 0) + Number(incentiveSettlement?.unresolved_count ?? 0)
+        + Number(incentiveSettlement?.fallback_count ?? 0) + Number(incentiveSettlement?.clawback_count ?? 0) === 0 ? "PASS" : "FAIL",
+      message: `대상 ${Number(incentiveSettlement?.eligible_source_count ?? 0)}건 · 미계산 ${Number(incentiveSettlement?.missing_result_count ?? 0)}건 · 미완료 ${Number(incentiveSettlement?.unresolved_count ?? 0)}건 · 예상원가 대체 ${Number(incentiveSettlement?.fallback_count ?? 0)}건 · 환수 검토 ${Number(incentiveSettlement?.clawback_count ?? 0)}건`,
+      count: Number(incentiveSettlement?.missing_result_count ?? 0) + Number(incentiveSettlement?.unresolved_count ?? 0)
+        + Number(incentiveSettlement?.fallback_count ?? 0) + Number(incentiveSettlement?.clawback_count ?? 0) },
     { key: "INVENTORY_LEDGER", category: "INVENTORY", title: "재고원장 완전성",
       status: Number(inventory?.negative_count ?? 0) === 0 && Number(inventory?.unmapped_count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `음수재고 ${Number(inventory?.negative_count ?? 0)}건 · 미반영 입고검수 ${Number(inventory?.unmapped_count ?? 0)}건`,

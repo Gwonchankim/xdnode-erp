@@ -272,8 +272,14 @@ test("sales incentives require triple validation, collected cash, staged review 
   assert.match(api, /"UNVERIFIED"/);
   const control = await read("app/api/sales/incentives/route.ts");
   assert.match(control, /requiredValidations = \["POLICY", "EXAMPLE", "HISTORICAL"\]/);
-  assert.match(control, /recognitionBasis: "COLLECTED_PAYMENT"/);
-  assert.match(control, /costBasis: "OPPORTUNITY_EXPECTED_COST_PRORATED"/);
+  assert.match(control, /recognitionBasis: "CUMULATIVE_COLLECTED_PAYMENT_TRUE_UP"/);
+  assert.match(control, /PROJECT_ALLOCATED_ACTUAL_COST_WITH_DRAFT_FALLBACK/);
+  assert.match(control, /costQuality: hasActualCost \? "ACTUAL_PROJECT_COST" : "EXPECTED_COST_FALLBACK"/);
+  assert.match(control, /prior\.status IN \('APPROVED','PAYROLL_APPLIED'\)/);
+  assert.match(control, /unresolved_prior_count/);
+  assert.match(control, /clawbackCandidate: Math\.min\(0, settlementDifference\)/);
+  assert.match(control, /cost_allocation_updated_at/);
+  assert.match(control, /action === "VOID_RESULT"/);
   assert.match(control, /payment\.status IN \('ACCEPTED','COMPLETED'\)/);
   assert.match(control, /status = 'SALES_CONFIRMED'/);
   assert.match(control, /status = 'FINANCE_REVIEWED'/);
@@ -284,8 +290,14 @@ test("sales incentives require triple validation, collected cash, staged review 
   assert.match(engine, /INCENTIVE_RULE/); assert.match(engine, /INCENTIVE_RESULT/);
   assert.match(documents, /검증 또는 승인 절차에 사용된 인센티브 근거문서/);
   assert.match(operations, /incentive-governance-risk/);
+  assert.match(operations, /fallback_cost_count/);
+  assert.match(operations, /clawback_count/);
   assert.match(governance, /자동 확정 없음 · 3회 교차검증/);
-  assert.match(governance, /확정 수금액/);
+  assert.match(governance, /누적 확정 수금액/);
+  assert.match(governance, /예상원가 대체 · 승인 불가/);
+  const close = await read("app/api/finance/close/route.ts");
+  assert.match(close, /INCENTIVE_SETTLEMENT_CONTROL/);
+  assert.match(close, /missing_result_count/);
   for (const table of ["sales_incentive_validations", "sales_incentive_notes", "sales_incentive_payroll_links"]) {
     assert.match(migration, new RegExp(table)); assert.match(schema, new RegExp(table));
   }

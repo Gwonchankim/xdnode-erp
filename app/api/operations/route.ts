@@ -553,17 +553,23 @@ async function seedStateDrivenOperations() {
         WHERE validation.rule_id = rule.id AND validation.result = 'PASS'
           AND validation.validation_type IN ('POLICY','EXAMPLE','HISTORICAL')) < 3) AS unverified_rule_count,
       (SELECT COUNT(*) FROM sales_incentive_results WHERE status IN ('DRAFT','SALES_CONFIRMED','FINANCE_REVIEWED','SUBMITTED')) AS pending_result_count,
+      (SELECT COUNT(*) FROM sales_incentive_results WHERE status <> 'VOID'
+        AND COALESCE(json_extract(calculation_json, '$.costQuality'), '') <> 'ACTUAL_PROJECT_COST') AS fallback_cost_count,
+      (SELECT COUNT(*) FROM sales_incentive_results WHERE status <> 'VOID'
+        AND COALESCE(json_extract(calculation_json, '$.clawbackCandidate'), 0) < 0) AS clawback_count,
       (SELECT COUNT(*) FROM sales_incentive_results WHERE status = 'APPROVED' AND payroll_ref = '') AS payroll_pending_count`)
-      .first<{ active_rule_count: number; unverified_rule_count: number; pending_result_count: number; payroll_pending_count: number }>();
+      .first<{ active_rule_count: number; unverified_rule_count: number; pending_result_count: number; fallback_cost_count: number;
+        clawback_count: number; payroll_pending_count: number }>();
     const noActive = Number(incentiveRisk?.active_rule_count ?? 0) === 0 ? 1 : 0;
     const unverified = Number(incentiveRisk?.unverified_rule_count ?? 0); const pending = Number(incentiveRisk?.pending_result_count ?? 0);
-    const payrollPending = Number(incentiveRisk?.payroll_pending_count ?? 0); const riskCount = noActive + unverified + pending + payrollPending;
+    const fallback = Number(incentiveRisk?.fallback_cost_count ?? 0); const clawback = Number(incentiveRisk?.clawback_count ?? 0);
+    const payrollPending = Number(incentiveRisk?.payroll_pending_count ?? 0); const riskCount = noActive + unverified + pending + fallback + clawback + payrollPending;
     if (riskCount > 0) await upsertRuleTask({
       id: "incentive-governance-risk", module: "sales", category: "인센티브 통제",
       title: `인센티브 규정·정산 ${riskCount}건 확인`,
-      description: `활성 규정 없음 ${noActive}건 · 3회 검증 미완료 규정 ${unverified}건 · 승인 진행 정산 ${pending}건 · 급여 미반영 승인액 ${payrollPending}건입니다.`,
-      dueDate: today, priority: noActive + payrollPending > 0 ? "HIGH" : "NORMAL", destination: "sales:incentive",
-      sourceId: `${noActive}:${unverified}:${pending}:${payrollPending}`,
+      description: `활성 규정 없음 ${noActive}건 · 3회 검증 미완료 규정 ${unverified}건 · 승인 진행 정산 ${pending}건 · 예상원가 대체 ${fallback}건 · 환수 검토 ${clawback}건 · 급여 미반영 승인액 ${payrollPending}건입니다.`,
+      dueDate: today, priority: noActive + fallback + clawback + payrollPending > 0 ? "HIGH" : "NORMAL", destination: "sales:incentive",
+      sourceId: `${noActive}:${unverified}:${pending}:${fallback}:${clawback}:${payrollPending}`,
     }); else await closeRuleTask("incentive-governance-risk");
   } catch {
     // 인센티브 통제 원장이 배포된 뒤부터 규정·정산·급여 반영 위험을 평가합니다.

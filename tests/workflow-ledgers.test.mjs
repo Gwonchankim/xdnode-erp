@@ -555,9 +555,47 @@ test("incentive governance keeps rule versions, triple checks, source results an
     VALUES (?, '2026-08', 'gc.kim', 'opportunity-1', 'rule-1', 1, 100000000, 90000000, 250000, '{}', 'APPROVED', '', ?, ?)`);
   insertResult.run("result-1", now, now);
   assert.throws(() => insertResult.run("result-duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO sales_incentive_results
+    (id, period, employee_id, opportunity_id, rule_id, rule_version, recognized_revenue, recognized_cost,
+      payout_amount, calculation_json, status, payroll_ref, created_at, updated_at)
+    VALUES ('result-prior-review', '2026-07', 'gc.kim', 'opportunity-1', 'rule-1', 1, 80000000, 70000000,
+      200000, '{}', 'FINANCE_REVIEWED', '', ?, ?)`).run(now, now);
+  const prior = db.prepare(`SELECT
+    COALESCE(SUM(CASE WHEN status IN ('APPROVED','PAYROLL_APPLIED') THEN payout_amount ELSE 0 END), 0) AS committed,
+    COALESCE(SUM(CASE WHEN status IN ('DRAFT','SALES_CONFIRMED','FINANCE_REVIEWED','SUBMITTED') THEN 1 ELSE 0 END), 0) AS unresolved
+    FROM sales_incentive_results WHERE opportunity_id = 'opportunity-1' AND rule_id = 'rule-1' AND period < '2026-09'`).get();
+  assert.equal(prior.committed, 250000);
+  assert.equal(prior.unresolved, 1);
+  assert.equal(Math.max(0, 400000 - prior.committed), 150000);
+  assert.equal(Math.min(0, 100000 - prior.committed), -150000);
+  db.prepare("UPDATE sales_incentive_results SET status = 'VOID' WHERE id = 'result-prior-review'").run();
+  assert.equal(db.prepare(`SELECT COUNT(*) AS count FROM sales_incentive_results
+    WHERE opportunity_id = 'opportunity-1' AND period < '2026-09'
+      AND status IN ('DRAFT','SALES_CONFIRMED','FINANCE_REVIEWED','SUBMITTED')`).get().count, 0);
   const insertLink = db.prepare(`INSERT INTO sales_incentive_payroll_links
     (id, result_id, payroll_period, payroll_record_id, applied_amount, applied_by, applied_at)
     VALUES (?, 'result-1', '2026-08', 'payroll-1', 250000, 'gc.kim', ?)`);
   insertLink.run("link-1", now);
   assert.throws(() => insertLink.run("link-duplicate", now), /UNIQUE constraint failed/);
+});
+
+test("incentive cumulative settlement and month-close queries compile against the production schema", async () => {
+  const db = await migratedDatabase();
+  const incentiveRoute = await readFile(new URL("../app/api/sales/incentives/route.ts", import.meta.url), "utf8");
+  const sourceQuery = incentiveRoute.match(/const sources = await db\.prepare\(`([\s\S]*?)`\)\s*\.bind\(/)?.[1];
+  const reviewQuery = incentiveRoute.match(/const currentSource = await db\.prepare\(`([\s\S]*?)`\)\.bind\(/)?.[1];
+  assert.ok(sourceQuery); assert.ok(reviewQuery);
+  assert.doesNotThrow(() => db.prepare(sourceQuery).all(
+    "2026-08-01", "2026-09-01", "2026-01-01", "2026-09-01", "2026-01", "2026-08", "2026-01", "2026-08",
+    "2026-08", "2026-01", "2026-08", "rule-1", "2026-08", "rule-1", "2026-08",
+  ));
+  assert.doesNotThrow(() => db.prepare(reviewQuery).get("2026-09-01", "2026-08", "2026-08", "2026-08", "rule-1", "opportunity-1"));
+
+  const closeRoute = await readFile(new URL("../app/api/finance/close/route.ts", import.meta.url), "utf8");
+  const closeQuery = closeRoute.match(/db\.prepare\(`(WITH eligible_sources AS \([\s\S]*?clawback_count)`\)/)?.[1];
+  assert.ok(closeQuery);
+  assert.doesNotThrow(() => db.prepare(closeQuery).get(
+    "2026-09-01", "2026-08-01", "2026-08-01", "2026-08-01", "2026-09-01",
+    "2026-08", "2026-08", "2026-08", "2026-08", "2026-08",
+  ));
 });

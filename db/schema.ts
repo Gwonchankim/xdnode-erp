@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const employeeInterviewRecords = sqliteTable("employee_interview_records", {
@@ -1438,6 +1438,68 @@ export const hrRecruitmentRequisitions = sqliteTable("hr_recruitment_requisition
   index("idx_hr_requisition_plan_org").on(table.workforcePlanId, table.organizationId),
   index("idx_hr_requisition_status_owner").on(table.status, table.ownerEmployeeId),
 ]);
+
+export const hrPerformanceCycles = sqliteTable("hr_performance_cycles", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  period: text("period").notNull(),
+  description: text("description").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"),
+  goalDueDate: text("goal_due_date").notNull(),
+  selfDueDate: text("self_due_date").notNull(),
+  managerDueDate: text("manager_due_date").notNull(),
+  calibrationDueDate: text("calibration_due_date").notNull(),
+  createdBy: text("created_by").notNull(),
+  openedAt: integer("opened_at"),
+  finalizedBy: text("finalized_by").notNull().default(""),
+  finalizedAt: integer("finalized_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_performance_cycle_period_name").on(table.period, table.name),
+  index("idx_hr_performance_cycle_status_period").on(table.status, table.period),
+]);
+
+export const hrPerformanceParticipants = sqliteTable("hr_performance_participants", {
+  id: text("id").primaryKey(), cycleId: text("cycle_id").notNull(), employeeId: text("employee_id").notNull(),
+  organizationId: text("organization_id").notNull().default(""), managerEmployeeId: text("manager_employee_id").notNull().default(""),
+  status: text("status").notNull().default("NOT_STARTED"), finalScore: integer("final_score"),
+  finalRating: text("final_rating").notNull().default(""), calibrationNote: text("calibration_note").notNull().default(""),
+  finalizedBy: text("finalized_by").notNull().default(""), finalizedAt: integer("finalized_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_performance_participant_cycle_employee").on(table.cycleId, table.employeeId),
+  index("idx_hr_performance_participant_manager_status").on(table.managerEmployeeId, table.status),
+]);
+
+export const hrPerformanceGoals = sqliteTable("hr_performance_goals", {
+  id: text("id").primaryKey(), participantId: text("participant_id").notNull(), title: text("title").notNull(),
+  description: text("description").notNull().default(""), weight: integer("weight").notNull(),
+  metricType: text("metric_type").notNull().default("PERCENT"), targetValue: real("target_value").notNull(),
+  actualValue: real("actual_value"), unit: text("unit").notNull().default("%"), evidence: text("evidence").notNull().default(""),
+  employeeComment: text("employee_comment").notNull().default(""), managerComment: text("manager_comment").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("idx_hr_performance_goal_participant_status").on(table.participantId, table.status)]);
+
+export const hrPerformanceReviews = sqliteTable("hr_performance_reviews", {
+  id: text("id").primaryKey(), participantId: text("participant_id").notNull(), reviewerType: text("reviewer_type").notNull(),
+  reviewerEmployeeId: text("reviewer_employee_id").notNull(), score: integer("score").notNull(), rating: text("rating").notNull(),
+  strengths: text("strengths").notNull().default(""), improvements: text("improvements").notNull().default(""),
+  comment: text("comment").notNull().default(""), status: text("status").notNull().default("DRAFT"),
+  submittedAt: integer("submitted_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_performance_review_participant_type").on(table.participantId, table.reviewerType),
+  index("idx_hr_performance_review_reviewer_status").on(table.reviewerEmployeeId, table.status),
+]);
+
+export const hrPerformanceAppeals = sqliteTable("hr_performance_appeals", {
+  id: text("id").primaryKey(), participantId: text("participant_id").notNull(), reason: text("reason").notNull(),
+  status: text("status").notNull().default("SUBMITTED"), response: text("response").notNull().default(""),
+  submittedBy: text("submitted_by").notNull(), submittedAt: integer("submitted_at").notNull(),
+  resolvedBy: text("resolved_by").notNull().default(""), resolvedAt: integer("resolved_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("idx_hr_performance_appeal_participant_status").on(table.participantId, table.status)]);
 
 export const hrOfferRequests = sqliteTable("hr_offer_requests", {
   id: text("id").primaryKey(),

@@ -759,3 +759,34 @@ test("recruitment requisitions preserve approved-plan lineage and applicant link
   const indexes = db.prepare("PRAGMA index_list(hr_applicants)").all();
   assert.ok(indexes.some((row) => row.name === "idx_hr_applicants_requisition"));
 });
+
+test("performance ledgers preserve cycle participants and one review per stage", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertCycle = db.prepare(`INSERT INTO hr_performance_cycles
+    (id, name, period, description, status, goal_due_date, self_due_date, manager_due_date,
+      calibration_due_date, created_by, opened_at, finalized_by, finalized_at, created_at, updated_at)
+    VALUES (?, '하반기 평가', '2026-H2', '', 'GOAL_SETTING', '2026-09-15', '2026-12-10',
+      '2026-12-20', '2026-12-27', 'gc.kim', ?, '', NULL, ?, ?)`);
+  insertCycle.run("cycle-1", now, now, now);
+  assert.throws(() => insertCycle.run("cycle-duplicate", now, now, now), /UNIQUE constraint failed/);
+  const insertParticipant = db.prepare(`INSERT INTO hr_performance_participants
+    (id, cycle_id, employee_id, organization_id, manager_employee_id, status, final_score,
+      final_rating, calibration_note, finalized_by, finalized_at, created_at, updated_at)
+    VALUES (?, 'cycle-1', 'employee-1', 'org-1', 'manager-1', 'GOALS_SUBMITTED', NULL, '', '', '', NULL, ?, ?)`);
+  insertParticipant.run("participant-1", now, now);
+  assert.throws(() => insertParticipant.run("participant-duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO hr_performance_goals
+    (id, participant_id, title, description, weight, metric_type, target_value, actual_value, unit,
+      evidence, employee_comment, manager_comment, status, created_by, created_at, updated_at)
+    VALUES ('goal-1', 'participant-1', '매출 목표', '목표 설명', 100, 'NUMBER', 100, NULL, '건', '', '', '', 'LOCKED', 'employee-1', ?, ?)`).run(now, now);
+  const insertReview = db.prepare(`INSERT INTO hr_performance_reviews
+    (id, participant_id, reviewer_type, reviewer_employee_id, score, rating, strengths, improvements,
+      comment, status, submitted_at, created_at, updated_at)
+    VALUES (?, 'participant-1', 'SELF', 'employee-1', 80, 'B', '강점 기록', '개선 기록', '종합 의견', 'SUBMITTED', ?, ?, ?)`);
+  insertReview.run("review-self", now, now, now);
+  assert.throws(() => insertReview.run("review-self-duplicate", now, now, now), /UNIQUE constraint failed/);
+  const participantIndexes = db.prepare("PRAGMA index_list(hr_performance_participants)").all();
+  const reviewIndexes = db.prepare("PRAGMA index_list(hr_performance_reviews)").all();
+  assert.ok(participantIndexes.some((row) => row.name === "idx_hr_performance_participant_cycle_employee" && row.unique === 1));
+  assert.ok(reviewIndexes.some((row) => row.name === "idx_hr_performance_review_participant_type" && row.unique === 1));
+});

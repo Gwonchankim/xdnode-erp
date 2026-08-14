@@ -251,6 +251,30 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const cycle = await db.prepare(`SELECT id, period, name, status, goal_due_date, self_due_date,
+      manager_due_date, calibration_due_date FROM hr_performance_cycles
+      WHERE status <> 'FINALIZED' ORDER BY period DESC, created_at DESC LIMIT 1`)
+      .first<{ id: string; period: string; name: string; status: string; goal_due_date: string; self_due_date: string; manager_due_date: string; calibration_due_date: string }>();
+    if (cycle) {
+      const requiredStatus = ({ GOAL_SETTING: "GOALS_SUBMITTED", SELF_REVIEW: "SELF_SUBMITTED", MANAGER_REVIEW: "MANAGER_SUBMITTED", CALIBRATION: "CALIBRATED" } as Record<string, string>)[cycle.status];
+      const incomplete = requiredStatus ? await db.prepare(`SELECT COUNT(*) AS count FROM hr_performance_participants
+        WHERE cycle_id = ? AND status <> ?`).bind(cycle.id, requiredStatus).first<{ count: number }>() : null;
+      const count = cycle.status === "DRAFT" ? 1 : incomplete?.count ?? 0;
+      const dueDate = cycle.status === "DRAFT" || cycle.status === "GOAL_SETTING" ? cycle.goal_due_date
+        : cycle.status === "SELF_REVIEW" ? cycle.self_due_date : cycle.status === "MANAGER_REVIEW" ? cycle.manager_due_date : cycle.calibration_due_date;
+      if (count > 0 && cycle.status !== "FINALIZATION_SUBMITTED") await upsertRuleTask({
+        id: `performance-cycle-${cycle.id}`, module: "hr", category: "성과평가",
+        title: cycle.status === "DRAFT" ? `${cycle.name} 목표설정 시작 필요` : `${cycle.name} ${count}명 단계 제출 필요`,
+        description: `${cycle.period} · 현재 ${cycle.status} 단계입니다. 단계별 제출 완료와 마감일을 확인해 주세요.`,
+        dueDate, priority: dueDate < today ? "HIGH" : "NORMAL", destination: "hr:performance",
+        sourceId: `${cycle.status}:${count}:${dueDate}`,
+      }); else await closeRuleTask(`performance-cycle-${cycle.id}`);
+    }
+  } catch {
+    // 성과평가 원장이 배포된 뒤부터 단계별 미제출 업무를 생성합니다.
+  }
+
+  try {
     const purchaseExceptions = await db.prepare(`SELECT COUNT(*) AS count FROM finance_purchase_invoices
       WHERE status = 'EXCEPTION'`).first<{ count: number }>();
     const count = purchaseExceptions?.count ?? 0;

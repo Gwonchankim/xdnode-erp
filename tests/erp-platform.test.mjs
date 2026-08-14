@@ -1035,3 +1035,39 @@ test("recruitment requisitions reserve approved gaps and link applicants through
   assert.match(approval, /targetEntityType === "HR_RECRUITMENT_REQUISITION"/);
   assert.match(plan, /추가 기안 가능 = 계획 부족 - 예약 TO/);
 });
+
+test("performance management separates goals, reviews, calibration, approval and appeals", async () => {
+  const [api, view, workspace, schema, migration, approval, operations, plan] = await Promise.all([
+    read("app/api/hr/performance/route.ts"), read("app/performance-management-view.tsx"),
+    read("app/hr-workspace.tsx"), read("db/schema.ts"), read("drizzle/0041_performance_management.sql"),
+    read("app/approval-engine.ts"), read("app/api/operations/route.ts"), read("docs/hr-performance-management-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "hr", "read"\)/);
+  assert.match(api, /employee\.status !== "퇴직" && employee\.status !== "입사 예정"/);
+  assert.match(api, /totals\?\.weight !== 100/);
+  assert.match(api, /action === "DELETE_GOAL"/);
+  assert.match(api, /!item\.manager_employee_id/);
+  assert.match(api, /actual_value IS NULL OR length\(trim\(evidence\)\) < 5/);
+  assert.match(api, /reviewerType === "SELF"/);
+  assert.match(api, /reviewerType === "MANAGER"/);
+  assert.match(api, /reviewerType === "CALIBRATION"/);
+  assert.match(api, /14 \* 24 \* 60 \* 60 \* 1000/);
+  assert.match(api, /requestType: "PERFORMANCE_CYCLE"/);
+  assert.match(api, /targetEntityType: "HR_PERFORMANCE_CYCLE"/);
+  assert.match(view, /평가 제출·잠금/);
+  assert.match(view, /resolveAppeal/);
+  assert.match(view, /급여·승진·강등에 자동 반영되지 않습니다/);
+  assert.match(workspace, /<PerformanceManagementView/);
+  assert.match(schema, /hrPerformanceCycles/);
+  assert.match(schema, /hrPerformanceParticipants/);
+  assert.match(schema, /hrPerformanceGoals/);
+  assert.match(schema, /hrPerformanceReviews/);
+  assert.match(schema, /hrPerformanceAppeals/);
+  assert.match(migration, /idx_hr_performance_participant_cycle_employee/);
+  assert.match(migration, /idx_hr_performance_review_participant_type/);
+  assert.match(approval, /PERFORMANCE_CYCLE: "성과평가 최종확정"/);
+  assert.match(approval, /targetEntityType === "HR_PERFORMANCE_CYCLE"/);
+  assert.match(operations, /performance-cycle-\$\{cycle\.id\}/);
+  assert.match(operations, /destination: "hr:performance"/);
+  assert.match(plan, /급여·승진·강등에 자동 반영하지 않는다/);
+});

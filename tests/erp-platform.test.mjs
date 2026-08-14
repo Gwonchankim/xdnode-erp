@@ -162,6 +162,30 @@ test("fixed assets require explicit classification, evidence and posted straight
   assert.match(plan, /과거 자료와 자유입력 품목을 자동으로 자산화하지 않는다/);
 });
 
+test("project profitability uses exact sales links, bounded manual allocations and close controls", async () => {
+  const [api, view, page, schema, migration, close, operations, plan, purchasing, payroll, sales] = await Promise.all([
+    read("app/api/finance/project-costing/route.ts"), read("app/project-costing-workspace.tsx"), read("app/page.tsx"),
+    read("db/schema.ts"), read("drizzle/0030_project_costing.sql"), read("app/api/finance/close/route.ts"),
+    read("app/api/operations/route.ts"), read("docs/finance-project-costing-plan.md"),
+    read("app/api/finance/purchasing/route.ts"), read("app/api/hr/payroll/route.ts"), read("app/api/sales/route.ts"),
+  ]);
+  for (const table of ["finance_cost_centers", "finance_project_monthly_budgets", "finance_project_allocations"]) {
+    assert.match(api, new RegExp(table)); assert.match(migration, new RegExp(table));
+  }
+  assert.match(schema, /financeCostCenters/); assert.match(schema, /financeProjectMonthlyBudgets/); assert.match(schema, /financeProjectAllocations/);
+  assert.match(api, /center\.opportunity_id = opportunity\.id/);
+  assert.match(api, /Number\(allocated\?\.amount \?\? 0\) \+ allocationAmount > source\.amount/);
+  assert.match(api, /영업기회로 자동 귀속된 매출은 수동으로 다시 배부할 수 없습니다/);
+  assert.match(api, /잠긴 마감월에는 프로젝트 배부를 추가할 수 없습니다/);
+  assert.match(view, /추정 자동배부 금지/); assert.match(view, /타임시트·관리자 확인 근거/);
+  assert.match(page, /\["project-costing", "프로젝트·원가센터", "프"\]/); assert.match(page, /<ProjectCostingWorkspace \/>/);
+  assert.match(close, /PROJECT_COST_ALLOCATION/); assert.match(operations, /project-costing-risk/);
+  assert.match(purchasing, /프로젝트 원가에 배부된 매입 인보이스/);
+  assert.match(payroll, /프로젝트 원가에 배부된 급여월/);
+  assert.match(sales, /프로젝트 손익에 반영된 청구서/);
+  assert.match(plan, /Clobe 세금계산서 스냅샷은 문서 ID가 없는 일·거래처 집계이므로 프로젝트 손익 원천으로 자동 배부할 수 없다/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

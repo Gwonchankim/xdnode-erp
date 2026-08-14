@@ -59,6 +59,7 @@ async function seedClose(period: string) {
     ["PAYROLL", "급여월 승인·잠금 확인"],
     ["INVENTORY", "재고 음수·미반영 입고 확인"],
     ["FIXED_ASSET", "고정자산 감가상각 전기 확인"],
+    ["PROJECT_COST", "프로젝트·원가센터 배부 확인"],
     ["AR_AP", "외상매출금·미수금·매입채무 검토"],
     ["TAX", "세금계산서·부가세 검토"],
     ["STATEMENT", "월 손익·재무상태표 검토"],
@@ -79,7 +80,7 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
-  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, tax] = await Promise.all([
+  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, projectCost, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -121,6 +122,41 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       (SELECT COUNT(*) FROM finance_asset_depreciation_schedules schedule
         WHERE schedule.period = ? AND schedule.status <> 'POSTED') AS unposted_count`)
       .bind(period, period, period, period, period, period, period, period).first<{ eligible_count: number; missing_count: number; unposted_count: number }>(),
+    db.prepare(`WITH source_rows AS (
+      SELECT 'SALES_INVOICE' AS source_type, document.id AS source_id, document.amount AS source_amount,
+        CASE WHEN center.id IS NOT NULL THEN document.amount ELSE COALESCE((SELECT SUM(allocation.amount)
+          FROM finance_project_allocations allocation WHERE allocation.source_type = 'SALES_INVOICE'
+            AND allocation.source_id = document.id), 0) END AS allocated_amount
+      FROM sales_documents document
+      LEFT JOIN finance_cost_centers center ON center.opportunity_id = document.opportunity_id
+      WHERE document.document_type = 'INVOICE' AND document.status IN ('ACCEPTED','COMPLETED') AND document.issued_date LIKE ?
+      UNION ALL
+      SELECT 'PURCHASE_INVOICE', invoice.id, invoice.supply_amount,
+        COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+          WHERE allocation.source_type = 'PURCHASE_INVOICE' AND allocation.source_id = invoice.id), 0)
+      FROM finance_purchase_invoices invoice
+      WHERE invoice.status IN ('MATCHED','PAYMENT_READY','PAID') AND invoice.invoice_date LIKE ?
+      UNION ALL
+      SELECT 'EXPENSE_REQUEST', expense.id, expense.amount,
+        COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+          WHERE allocation.source_type = 'EXPENSE_REQUEST' AND allocation.source_id = expense.id), 0)
+      FROM finance_expense_requests expense
+      WHERE expense.status = 'PAID' AND expense.requested_date LIKE ? AND expense.source_type NOT IN ('PURCHASE_INVOICE','PAYROLL_RUN')
+      UNION ALL
+      SELECT 'PAYROLL_RUN', payroll.period, payroll.gross_pay,
+        COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+          WHERE allocation.source_type = 'PAYROLL_RUN' AND allocation.source_id = payroll.period), 0)
+      FROM hr_payroll_runs payroll WHERE payroll.period = ? AND payroll.status = 'LOCKED'
+    ) SELECT
+      COALESCE(SUM(CASE WHEN allocated_amount < source_amount THEN 1 ELSE 0 END), 0) AS unmapped_count,
+      COALESCE(SUM(CASE WHEN allocated_amount < source_amount THEN source_amount - allocated_amount ELSE 0 END), 0) AS unmapped_amount,
+      (SELECT COUNT(*) FROM finance_project_monthly_budgets budget
+        WHERE budget.period = ? AND budget.cost_budget > 0 AND
+          COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+            WHERE allocation.cost_center_id = budget.cost_center_id AND allocation.period = budget.period
+              AND allocation.direction = 'COST'), 0) > budget.cost_budget) AS over_budget_count
+      FROM source_rows`).bind(like, like, like, period, period)
+      .first<{ unmapped_count: number; unmapped_amount: number; over_budget_count: number }>(),
     db.prepare(`SELECT tax_period.status, tax_period.source_as_of, tax_period.source_sales_supply, tax_period.source_purchase_supply,
         (SELECT COUNT(*) FROM erp_documents document WHERE document.module = 'finance'
           AND document.entity_type = 'financeTaxPeriod' AND document.entity_id = ? AND document.deleted_at IS NULL) AS evidence_count
@@ -150,6 +186,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       status: Number(fixedAssets?.missing_count ?? 0) === 0 && Number(fixedAssets?.unposted_count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `대상 ${Number(fixedAssets?.eligible_count ?? 0)}개 · 계획 누락 ${Number(fixedAssets?.missing_count ?? 0)}개 · 미전기 ${Number(fixedAssets?.unposted_count ?? 0)}건`,
       count: Number(fixedAssets?.missing_count ?? 0) + Number(fixedAssets?.unposted_count ?? 0) },
+    { key: "PROJECT_COST_ALLOCATION", category: "PROJECT_COST", title: "프로젝트·원가센터 배부",
+      status: Number(projectCost?.unmapped_count ?? 0) > 0 ? "FAIL" : Number(projectCost?.over_budget_count ?? 0) > 0 ? "REVIEW" : "PASS",
+      message: `미분류 원천 ${Number(projectCost?.unmapped_count ?? 0)}건 · ${Number(projectCost?.unmapped_amount ?? 0).toLocaleString("ko-KR")}원 · 원가예산 초과 ${Number(projectCost?.over_budget_count ?? 0)}개 센터`,
+      count: Number(projectCost?.unmapped_count ?? 0) + Number(projectCost?.over_budget_count ?? 0) },
     { key: "TAX_RECONCILIATION", category: "TAX", title: "세금계산서·부가세 검토",
       status: tax?.status === "REVIEWED" && Number(tax.evidence_count ?? 0) > 0 && tax.source_as_of === financeCurrentData.asOf
         && tax.source_sales_supply === currentTaxSalesSupply && tax.source_purchase_supply === currentTaxPurchaseSupply ? "PASS" : "FAIL",
@@ -181,7 +221,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY", "FIXED_ASSET", "TAX"];
+  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

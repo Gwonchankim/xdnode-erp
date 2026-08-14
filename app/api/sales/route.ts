@@ -223,6 +223,13 @@ export async function PUT(request: Request) {
       && !(before.status === "ACCEPTED" && status === "COMPLETED")) {
       return Response.json({ error: "확정·완료된 수금은 되돌릴 수 없습니다. 역수금·환불 절차가 필요합니다." }, { status: 409 });
     }
+    if (before.document_type === "INVOICE" && status === "CANCELLED" && ["ACCEPTED", "COMPLETED"].includes(before.status)) {
+      const projectReference = await db.prepare(`SELECT
+        (SELECT COUNT(*) FROM finance_project_allocations WHERE source_type = 'SALES_INVOICE' AND source_id = ?) +
+        (SELECT COUNT(*) FROM finance_cost_centers WHERE opportunity_id = ?) AS count`)
+        .bind(id, before.opportunity_id).first<{ count: number }>();
+      if (Number(projectReference?.count ?? 0) > 0) return Response.json({ error: "프로젝트 손익에 반영된 청구서입니다. 취소 대신 수정 청구·역분개 절차로 처리해 주세요." }, { status: 409 });
+    }
     if (status === "ACCEPTED" && before.status !== "ACCEPTED") {
       const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests
         WHERE target_entity_type = 'SALES_DOCUMENT' AND target_entity_id = ?

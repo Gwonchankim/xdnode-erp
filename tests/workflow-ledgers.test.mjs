@@ -447,3 +447,35 @@ test("receivable collection cases stay unique per invoice while contact notes re
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM finance_receivable_notes WHERE invoice_id = 'invoice-1'").get().count, 2);
   assert.ok(db.prepare("PRAGMA index_list(finance_receivable_cases)").all().some((row) => row.name === "idx_finance_receivable_case_status_promise"));
 });
+
+test("project cost centers preserve unique opportunity links, monthly budgets and bounded source splits", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertCenter = db.prepare(`INSERT INTO finance_cost_centers
+    (id, code, name, center_type, owner_employee_id, opportunity_id, client_name, start_date, end_date,
+      status, note, created_by, created_at, updated_at) VALUES (?, ?, ?, 'PROJECT', 'gc.kim', ?, '고객사',
+      '2026-08-01', '', 'ACTIVE', '', 'gc.kim', ?, ?)`);
+  insertCenter.run("center-1", "PRJ-001", "프로젝트 1", "opportunity-1", now, now);
+  assert.throws(() => insertCenter.run("center-code", "PRJ-001", "중복 코드", "opportunity-2", now, now), /UNIQUE constraint failed/);
+  assert.throws(() => insertCenter.run("center-opportunity", "PRJ-002", "중복 영업기회", "opportunity-1", now, now), /UNIQUE constraint failed/);
+
+  const insertBudget = db.prepare(`INSERT INTO finance_project_monthly_budgets
+    (id, cost_center_id, period, revenue_budget, cost_budget, note, approved_by, created_at, updated_at)
+    VALUES (?, 'center-1', '2026-08', 10000000, 7000000, '승인 계획', 'gc.kim', ?, ?)`);
+  insertBudget.run("budget-1", now, now);
+  assert.throws(() => insertBudget.run("budget-2", now, now), /UNIQUE constraint failed/);
+
+  db.prepare(`INSERT INTO finance_cost_centers
+    (id, code, name, center_type, owner_employee_id, opportunity_id, client_name, start_date, end_date,
+      status, note, created_by, created_at, updated_at) VALUES ('center-2', 'OVERHEAD', '공통비', 'OVERHEAD',
+      'gc.kim', '', '', '2026-01-01', '', 'ACTIVE', '', 'gc.kim', ?, ?)`).run(now, now);
+  const insertAllocation = db.prepare(`INSERT INTO finance_project_allocations
+    (id, cost_center_id, source_type, source_id, period, direction, source_amount, amount,
+      allocation_basis, note, created_by, created_at, updated_at)
+    VALUES (?, ?, 'EXPENSE_REQUEST', 'expense-1', '2026-08', 'COST', 1000000, ?, 'MANUAL_AMOUNT', ?, 'gc.kim', ?, ?)`);
+  insertAllocation.run("allocation-1", "center-1", 600000, "계약 과업 직접비", now, now);
+  insertAllocation.run("allocation-2", "center-2", 400000, "전사 공통 운영비", now, now);
+  assert.throws(() => insertAllocation.run("allocation-duplicate", "center-1", 1, "중복", now, now), /UNIQUE constraint failed/);
+  const allocated = db.prepare("SELECT SUM(amount) AS amount FROM finance_project_allocations WHERE source_type = 'EXPENSE_REQUEST' AND source_id = 'expense-1'").get();
+  assert.equal(allocated.amount, 1000000);
+  assert.ok(db.prepare("PRAGMA index_list(finance_cost_centers)").all().some((row) => row.name === "idx_finance_cost_center_opportunity"));
+});

@@ -1,4 +1,5 @@
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
 
 export const employeeInterviewRecords = sqliteTable("employee_interview_records", {
   id: text("id").primaryKey(),
@@ -1058,6 +1059,35 @@ export const financeAssetEvents = sqliteTable("finance_asset_events", {
   journalReference: text("journal_reference").notNull().default(""), reason: text("reason").notNull(),
   createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
 }, (table) => [index("idx_finance_asset_event_asset_date").on(table.assetId, table.eventDate)]);
+
+export const financeCostCenters = sqliteTable("finance_cost_centers", {
+  id: text("id").primaryKey(), code: text("code").notNull(), name: text("name").notNull(), centerType: text("center_type").notNull(),
+  ownerEmployeeId: text("owner_employee_id").notNull().default(""), opportunityId: text("opportunity_id").notNull().default(""),
+  clientName: text("client_name").notNull().default(""), startDate: text("start_date").notNull().default(""),
+  endDate: text("end_date").notNull().default(""), status: text("status").notNull().default("ACTIVE"),
+  note: text("note").notNull().default(""), createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_cost_center_code").on(table.code),
+  uniqueIndex("idx_finance_cost_center_opportunity").on(table.opportunityId).where(sql`${table.opportunityId} <> ''`),
+  index("idx_finance_cost_center_status_type").on(table.status, table.centerType)]);
+
+export const financeProjectMonthlyBudgets = sqliteTable("finance_project_monthly_budgets", {
+  id: text("id").primaryKey(), costCenterId: text("cost_center_id").notNull(), period: text("period").notNull(),
+  revenueBudget: integer("revenue_budget").notNull().default(0), costBudget: integer("cost_budget").notNull().default(0),
+  note: text("note").notNull().default(""), approvedBy: text("approved_by").notNull(), createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_project_budget_period").on(table.costCenterId, table.period),
+  index("idx_finance_project_budget_period_center").on(table.period, table.costCenterId)]);
+
+export const financeProjectAllocations = sqliteTable("finance_project_allocations", {
+  id: text("id").primaryKey(), costCenterId: text("cost_center_id").notNull(), sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(), period: text("period").notNull(), direction: text("direction").notNull(),
+  sourceAmount: integer("source_amount").notNull(), amount: integer("amount").notNull(),
+  allocationBasis: text("allocation_basis").notNull().default("MANUAL_AMOUNT"), note: text("note").notNull(),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_project_allocation_source_center").on(table.sourceType, table.sourceId, table.costCenterId),
+  index("idx_finance_project_allocation_period_center").on(table.period, table.costCenterId),
+  index("idx_finance_project_allocation_source").on(table.sourceType, table.sourceId)]);
 
 export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   id: text("id").primaryKey(),

@@ -400,6 +400,9 @@ export async function PUT(request: Request) {
     const before = await db.prepare("SELECT * FROM finance_purchase_invoices WHERE id = ?").bind(id).first<InvoiceRow>();
     if (!before) return Response.json({ error: "매입 인보이스를 찾을 수 없습니다." }, { status: 404 });
     if (!["MATCHED", "EXCEPTION"].includes(before.status) || before.payment_request_id) return Response.json({ error: "지급 요청 전의 대사 완료·예외 인보이스만 취소할 수 있습니다." }, { status: 409 });
+    const projectAllocation = await db.prepare(`SELECT COUNT(*) AS count FROM finance_project_allocations
+      WHERE source_type = 'PURCHASE_INVOICE' AND source_id = ?`).bind(id).first<{ count: number }>();
+    if (Number(projectAllocation?.count ?? 0) > 0) return Response.json({ error: "프로젝트 원가에 배부된 매입 인보이스입니다. 배부 이력을 먼저 정정한 뒤 취소해 주세요." }, { status: 409 });
     await db.prepare("UPDATE finance_purchase_invoices SET status = 'CANCELLED', updated_at = ? WHERE id = ? AND payment_request_id = ''").bind(now, id).run();
     const after = await db.prepare("SELECT * FROM finance_purchase_invoices WHERE id = ?").bind(id).first<InvoiceRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "PURCHASE_INVOICE_CANCELLED", entityType: "purchaseInvoice", entityId: id, before: toInvoice(before), after: after ? toInvoice(after) : null });

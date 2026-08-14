@@ -344,6 +344,9 @@ export async function PUT(request: Request) {
     if (approvalAuthorization.response) return approvalAuthorization.response;
     const reopenedReason = typeof body.reopenedReason === "string" ? body.reopenedReason.trim() : "";
     if (!reopenedReason) return Response.json({ error: "승인·마감된 급여월을 다시 열려면 사유가 필요합니다." }, { status: 400 });
+    const projectAllocation = await db.prepare(`SELECT COUNT(*) AS count FROM finance_project_allocations
+      WHERE source_type = 'PAYROLL_RUN' AND source_id = ?`).bind(period).first<{ count: number }>();
+    if (Number(projectAllocation?.count ?? 0) > 0) return Response.json({ error: "프로젝트 원가에 배부된 급여월입니다. 재무 담당자가 배부를 먼저 정정해야 다시 열 수 있습니다." }, { status: 409 });
     const financeBefore = await db.prepare("SELECT * FROM finance_expense_requests WHERE id = ?").bind(payrollExpenseId).first<Record<string, unknown>>();
     if (financeBefore && (financeBefore.status === "PAID" || !["UNPOSTED", ""].includes(String(financeBefore.journal_status ?? "")))) {
       return Response.json({ error: "이미 지급 또는 회계전표 처리가 시작되어 급여월을 다시 열 수 없습니다. 재무 취소·역분개 절차가 필요합니다." }, { status: 409 });

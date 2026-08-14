@@ -453,6 +453,53 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const projectPeriod = financeCurrentData.asOf.slice(0, 7); const like = `${projectPeriod}-%`;
+    const projectRisk = await db.prepare(`WITH source_rows AS (
+      SELECT document.id AS source_id, document.amount AS source_amount,
+        CASE WHEN center.id IS NOT NULL THEN document.amount ELSE COALESCE((SELECT SUM(allocation.amount)
+          FROM finance_project_allocations allocation WHERE allocation.source_type = 'SALES_INVOICE'
+            AND allocation.source_id = document.id), 0) END AS allocated_amount
+      FROM sales_documents document LEFT JOIN finance_cost_centers center ON center.opportunity_id = document.opportunity_id
+      WHERE document.document_type = 'INVOICE' AND document.status IN ('ACCEPTED','COMPLETED') AND document.issued_date LIKE ?
+      UNION ALL
+      SELECT invoice.id, invoice.supply_amount, COALESCE((SELECT SUM(allocation.amount)
+        FROM finance_project_allocations allocation WHERE allocation.source_type = 'PURCHASE_INVOICE'
+          AND allocation.source_id = invoice.id), 0)
+      FROM finance_purchase_invoices invoice WHERE invoice.status IN ('MATCHED','PAYMENT_READY','PAID') AND invoice.invoice_date LIKE ?
+      UNION ALL
+      SELECT expense.id, expense.amount, COALESCE((SELECT SUM(allocation.amount)
+        FROM finance_project_allocations allocation WHERE allocation.source_type = 'EXPENSE_REQUEST'
+          AND allocation.source_id = expense.id), 0)
+      FROM finance_expense_requests expense WHERE expense.status = 'PAID' AND expense.requested_date LIKE ?
+        AND expense.source_type NOT IN ('PURCHASE_INVOICE','PAYROLL_RUN')
+      UNION ALL
+      SELECT payroll.period, payroll.gross_pay, COALESCE((SELECT SUM(allocation.amount)
+        FROM finance_project_allocations allocation WHERE allocation.source_type = 'PAYROLL_RUN'
+          AND allocation.source_id = payroll.period), 0)
+      FROM hr_payroll_runs payroll WHERE payroll.period = ? AND payroll.status = 'LOCKED'
+    ) SELECT
+      COALESCE(SUM(CASE WHEN allocated_amount < source_amount THEN 1 ELSE 0 END), 0) AS unmapped_count,
+      COALESCE(SUM(CASE WHEN allocated_amount < source_amount THEN source_amount - allocated_amount ELSE 0 END), 0) AS unmapped_amount,
+      (SELECT COUNT(*) FROM finance_project_monthly_budgets budget WHERE budget.period = ? AND budget.cost_budget > 0
+        AND COALESCE((SELECT SUM(allocation.amount) FROM finance_project_allocations allocation
+          WHERE allocation.cost_center_id = budget.cost_center_id AND allocation.period = budget.period
+            AND allocation.direction = 'COST'), 0) > budget.cost_budget) AS over_budget_count
+      FROM source_rows`).bind(like, like, like, projectPeriod, projectPeriod)
+      .first<{ unmapped_count: number; unmapped_amount: number; over_budget_count: number }>();
+    const projectRiskCount = Number(projectRisk?.unmapped_count ?? 0) + Number(projectRisk?.over_budget_count ?? 0);
+    if (projectRiskCount > 0) await upsertRuleTask({
+      id: "project-costing-risk", module: "finance", category: "프로젝트 손익",
+      title: `${projectPeriod} 프로젝트 원천 ${projectRiskCount}건 확인`,
+      description: `미분류 원천 ${Number(projectRisk?.unmapped_count ?? 0)}건 · ${Number(projectRisk?.unmapped_amount ?? 0).toLocaleString("ko-KR")}원 · 원가예산 초과 ${Number(projectRisk?.over_budget_count ?? 0)}개 센터입니다.`,
+      dueDate: today, priority: Number(projectRisk?.unmapped_count ?? 0) > 0 ? "HIGH" : "NORMAL", destination: "finance:project-costing",
+      sourceId: `${projectPeriod}:${Number(projectRisk?.unmapped_count ?? 0)}:${Number(projectRisk?.unmapped_amount ?? 0)}:${Number(projectRisk?.over_budget_count ?? 0)}`,
+    });
+    else await closeRuleTask("project-costing-risk");
+  } catch {
+    // 프로젝트 원가 원장이 배포된 뒤부터 미분류 원천과 예산 초과를 평가합니다.
+  }
+
+  try {
     const receivableRisk = await db.prepare(`WITH invoice_balance AS (
       SELECT invoice.id, invoice.due_date, invoice.amount,
         MAX(0, invoice.amount - COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0)) AS outstanding,

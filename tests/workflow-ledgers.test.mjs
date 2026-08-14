@@ -1221,3 +1221,27 @@ test("finance import mapping ledgers preserve one active version and validation 
   assert.match(plan.map((row) => row.detail).join(' '), /idx_finance_import_validation_batch_created/);
   db.close();
 });
+
+test("finance posting ledgers prevent source reposting and duplicate reversals", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertBatch = db.prepare(`INSERT INTO finance_posting_batches (id,validation_id,batch_number,source_type,reversal_of_batch_id,status,period_from,period_to,voucher_count,line_count,total_debit,total_credit,difference_amount,prepared_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insertBatch.run('posting-1','validation-1','IMP-DRAFT-1','IMPORT','','DRAFT','2026-08','2026-08',1,2,10000,10000,0,'gc.kim',now,now);
+  assert.throws(() => insertBatch.run('posting-duplicate','validation-1','IMP-DRAFT-2','IMPORT','','DRAFT','2026-08','2026-08',1,2,10000,10000,0,'gc.kim',now,now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_posting_vouchers (id,batch_id,source_voucher_key,voucher_date,period,status,line_count,total_debit,total_credit,created_at,updated_at)
+    VALUES ('voucher-1','posting-1','ECOUNT-1','2026-08-15','2026-08','DRAFT',2,10000,10000,?,?)`).run(now,now);
+  const insertLine = db.prepare(`INSERT INTO finance_posting_lines (id,voucher_id,line_number,account_id,account_code,account_name,tax_review_status,tax_review_note,debit_amount,credit_amount,source_canonical_row_id,source_checksum,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insertLine.run('line-1','voucher-1',1,'account-1','10100','현금','REVIEWED','해당 없음',10000,0,'canonical-1','hash-1',now,now);
+  insertLine.run('line-2','voucher-1',2,'account-2','40100','매출','REVIEWED','해당 없음',0,10000,'canonical-2','hash-2',now,now);
+  assert.throws(() => insertLine.run('line-repost','voucher-1',3,'account-2','40100','매출','REVIEWED','해당 없음',0,10000,'canonical-2','hash-2',now,now), /UNIQUE constraint failed/);
+  insertBatch.run('reversal-1','','REV-DRAFT-1','REVERSAL','posting-1','DRAFT','2026-08','2026-08',1,2,10000,10000,0,'gc.kim',now,now);
+  assert.throws(() => insertBatch.run('reversal-2','','REV-DRAFT-2','REVERSAL','posting-1','DRAFT','2026-08','2026-08',1,2,10000,10000,0,'gc.kim',now,now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_posting_events (id,batch_id,action,from_status,to_status,actor_employee_id,note,created_at)
+    VALUES ('posting-event-1','posting-1','POSTED','APPROVED','POSTED','gc.kim','전기 완료',?)`).run(now);
+  assert.equal(db.prepare("SELECT SUM(debit_amount) AS debit,SUM(credit_amount) AS credit FROM finance_posting_lines WHERE voucher_id='voucher-1'").get().debit, 10000);
+  assert.equal(db.prepare("SELECT SUM(debit_amount) AS debit,SUM(credit_amount) AS credit FROM finance_posting_lines WHERE voucher_id='voucher-1'").get().credit, 10000);
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM finance_posting_lines WHERE tax_review_status=? AND tax_code_id=?").all('PENDING','');
+  assert.match(plan.map((row) => row.detail).join(' '), /idx_finance_posting_tax_review/);
+  db.close();
+});

@@ -1459,3 +1459,21 @@ test("finance import mappings are versioned, approval-gated and balance-blocking
   assert.match(workspace, /자동 유사매칭 없음/); assert.match(workspace, /차대변 1원 차이도/); assert.match(workspace, /운영 총계정원장이 아닌 검증용 스테이징/); assert.match(integration, /FinanceImportMappingWorkspace/);
   assert.match(migration, /WHERE `status` = 'ACTIVE'/); assert.match(plan, /명칭 유사도 자동 병합은 하지 않는다/); assert.match(plan, /운영 총계정원장 전기를 의미하지 않는다/);
 });
+
+test("finance posting control preserves multi-line lineage and requires tax, period and approval gates", async () => {
+  const [api, server, workspace, integration, approval, close, schema, migration, plan] = await Promise.all([
+    read("app/api/finance/posting-control/route.ts"), read("app/finance-posting.ts"), read("app/finance-posting-workspace.tsx"),
+    read("app/data-integration-workspace.tsx"), read("app/approval-engine.ts"), read("app/api/finance/close/route.ts"), read("db/schema.ts"),
+    read("drizzle/0056_finance_posting_control.sql"), read("docs/finance-posting-control-plan.md"),
+  ]);
+  for (const source of [api, server, schema, migration]) for (const table of ["finance_posting_batches", "finance_posting_vouchers", "finance_posting_lines", "finance_posting_events"]) assert.match(source, new RegExp(table));
+  assert.match(api, /authorizeErpRequest\(db, "finance", "admin"\)/); assert.match(api, /validation\.status='PASSED'/); assert.match(api, /validation\.data_type='JOURNAL'/);
+  assert.match(api, /total_debit.*total_credit/); assert.match(api, /tax_review_status !== "REVIEWED"/); assert.match(api, /finance_close_runs WHERE period IN/); assert.match(api, /미개방 회계기간/);
+  assert.match(api, /requestType:"JOURNAL_POSTING"/); assert.match(api, /status='APPROVED'/); assert.match(api, /source_canonical_row_id/); assert.match(api, /reversal_of_line_id/);
+  assert.match(api, /Number\(line\.credit_amount\), Number\(line\.debit_amount\)/); assert.doesNotMatch(api, /DELETE FROM finance_posting_batches WHERE id=\? AND status='POSTED'/);
+  assert.match(approval, /JOURNAL_POSTING: "분개 전기 승인"/); assert.match(approval, /targetEntityType === "FINANCE_POSTING_BATCH"/);
+  assert.match(close, /ensureFinancePostingSchema/); assert.match(close, /status IN \('DRAFT','SUBMITTED','APPROVED'\)/);
+  assert.match(close, /통제 분개 미전기 배치/); assert.match(close, /period_from <= \? AND period_to >= \?/);
+  assert.match(workspace, /금액 수정 금지/); assert.match(workspace, /수정분개만 허용/); assert.match(workspace, /승인본 전기/); assert.match(integration, /FinancePostingWorkspace/);
+  assert.match(migration, /WHERE `source_canonical_row_id` <> ''/); assert.match(migration, /WHERE `reversal_of_batch_id` <> ''/); assert.match(plan, /전기된 전표는 수정·삭제하지 않는다/); assert.match(plan, /현재 월이 아닌데 마감 원장 자체가 없는 기간도 미개방/);
+});

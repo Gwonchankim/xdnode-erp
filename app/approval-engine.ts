@@ -24,7 +24,7 @@ type PolicyStepRow = { step_name: string; approver_role: ErpRole; approver_emplo
 type DelegationRow = { delegator_employee_id: string; delegate_employee_id: string; module: string };
 
 export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> = {
-  finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인", MASTER_DATA: "재무 마스터 승인", DATA_IMPORT: "재무 데이터 반영 승인", IMPORT_MAPPING: "재무 파일 매핑 승인" },
+  finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인", MASTER_DATA: "재무 마스터 승인", DATA_IMPORT: "재무 데이터 반영 승인", IMPORT_MAPPING: "재무 파일 매핑 승인", JOURNAL_POSTING: "분개 전기 승인" },
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인", WORKFORCE_PLAN: "인력계획 승인", PERFORMANCE_CYCLE: "성과평가 최종확정", DATA_IMPORT: "HR 데이터 반영 승인" },
   recruitment: { REQUISITION: "채용요청 승인", OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
   sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "가격·할인 예외 승인", CONTRACT: "계약 활성화 승인", CONTRACT_CHANGE: "계약 변경 승인", SERVICE_POLICY: "고객지원 SLA 승인", SERVICE_RESOLUTION: "고객 이슈 처리 승인" },
@@ -150,7 +150,16 @@ export async function createApprovalRequest(db: D1Database, principal: ErpPrinci
 
 export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType: string, targetEntityId: string, approved: boolean, actorEmployeeId: string, now: number, requestId: string, transitionToken: string) {
   if (!targetEntityType || !targetEntityId) return [];
-  if (targetEntityType === "FINANCE_IMPORT_MAPPING_SET") {
+  if (targetEntityType === "FINANCE_POSTING_BATCH") {
+    return [
+      db.prepare(`UPDATE finance_posting_batches SET status=?,approved_by=?,approved_at=?,version=version+1,updated_at=?
+        WHERE id=? AND status='SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id=? AND transition_token=?)`)
+        .bind(approved ? "APPROVED" : "REJECTED", actorEmployeeId, now, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`INSERT INTO finance_posting_events (id,batch_id,action,from_status,to_status,actor_employee_id,note,snapshot_json,created_at)
+        SELECT ?,?,?, 'SUBMITTED',?,?,?,'{}',? WHERE EXISTS (SELECT 1 FROM erp_approval_requests WHERE id=? AND transition_token=?)`)
+        .bind(crypto.randomUUID(), targetEntityId, approved ? "APPROVED" : "REJECTED", approved ? "APPROVED" : "REJECTED", actorEmployeeId, approved ? "전자결재 최종 승인. 사용자 전기 확인 대기" : "전자결재 반려", now, requestId, transitionToken),
+    ];
+  } else if (targetEntityType === "FINANCE_IMPORT_MAPPING_SET") {
     if (!approved) return [
       db.prepare(`UPDATE finance_import_mapping_sets SET status='REJECTED',approved_by=?,approved_at=?,updated_at=?
         WHERE id=? AND status='SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id=? AND transition_token=?)`)

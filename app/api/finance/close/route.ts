@@ -3,6 +3,7 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
+import { ensureFinancePostingSchema } from "../../../finance-posting";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -49,6 +50,7 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_close_period_status ON finance_close_tasks(period, status)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_close_run_status_period ON finance_close_runs(status, period)"),
   ]);
+  await ensureFinancePostingSchema(db);
 }
 
 async function seedClose(period: string) {
@@ -89,7 +91,7 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const treasuryTargetDate = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
-  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, incentiveSettlement, treasuryReport, tax] = await Promise.all([
+  const [bank, unposted, pendingPosting, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, incentiveSettlement, treasuryReport, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -97,6 +99,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       .bind(like).first<{ total_count: number; pending_count: number }>(),
     db.prepare("SELECT COUNT(*) AS count FROM finance_journal_entries WHERE voucher_date LIKE ? AND status <> 'POSTED'")
       .bind(like).first<{ count: number }>(),
+    db.prepare(`SELECT COUNT(*) AS batch_count, COALESCE(SUM(line_count), 0) AS line_count
+      FROM finance_posting_batches
+      WHERE status IN ('DRAFT','SUBMITTED','APPROVED') AND period_from <= ? AND period_to >= ?`)
+      .bind(period, period).first<{ batch_count: number; line_count: number }>(),
     db.prepare(`SELECT COUNT(*) AS count FROM finance_expense_requests expense
       WHERE expense.requested_date LIKE ? AND expense.status NOT IN ('CANCELLED','REJECTED') AND expense.evidence_required = 1
         AND NOT EXISTS (SELECT 1 FROM erp_documents document WHERE document.module = 'finance'
@@ -266,6 +272,12 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     { key: "ERP_UNPOSTED_JOURNALS", category: "JOURNAL", title: "ERP 미전기 회계전표",
       status: Number(unposted?.count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `미전기 전표 ${Number(unposted?.count ?? 0)}건`, count: Number(unposted?.count ?? 0) },
+    { key: "CONTROLLED_POSTING_PENDING", category: "JOURNAL", title: "통제 분개 미전기 배치",
+      status: Number(pendingPosting?.batch_count ?? 0) === 0 ? "PASS" : "FAIL",
+      message: Number(pendingPosting?.batch_count ?? 0) === 0
+        ? "작성·결재·승인 후 전기 대기 중인 분개 배치가 없습니다."
+        : `미전기 분개 ${Number(pendingPosting?.batch_count ?? 0)}개 배치 · ${Number(pendingPosting?.line_count ?? 0)}행`,
+      count: Number(pendingPosting?.batch_count ?? 0) },
     { key: "EXPENSE_EVIDENCE", category: "EVIDENCE", title: "지출·지급 증빙",
       status: Number(missingEvidence?.count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `증빙 누락 요청 ${Number(missingEvidence?.count ?? 0)}건`, count: Number(missingEvidence?.count ?? 0) },

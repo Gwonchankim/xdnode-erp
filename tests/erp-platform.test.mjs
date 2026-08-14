@@ -89,6 +89,30 @@ test("payables use vendor-scoped invoice uniqueness, accountable schedules and f
   assert.match(plan, /부분지급·분할지급/);
 });
 
+test("inventory control connects accepted receipts and deliveries without inventing SKU mappings", async () => {
+  const [api, view, page, schema, migration, close, operations, plan] = await Promise.all([
+    read("app/api/finance/inventory/route.ts"), read("app/inventory-workspace.tsx"), read("app/page.tsx"),
+    read("db/schema.ts"), read("drizzle/0027_inventory_control.sql"), read("app/api/finance/close/route.ts"),
+    read("app/api/operations/route.ts"), read("docs/finance-inventory-plan.md"),
+  ]);
+  assert.match(schema, /inventoryProducts/);
+  assert.match(schema, /idx_inventory_movement_source_line/);
+  assert.match(migration, /CREATE TABLE `inventory_movements`/);
+  assert.match(api, /receipt_line\.accepted_quantity_milli > 0/);
+  assert.match(api, /가용재고 .*초과해 출고할 수 없습니다/);
+  assert.match(api, /INVENTORY_MOVEMENT_POSTED/);
+  assert.match(api, /INVENTORY_PRODUCT_UPDATED/);
+  assert.match(api, /잠긴 마감월에는 재고 이동을 추가할 수 없습니다/);
+  assert.match(api, /source\.receipt_date, productId, warehouseId/);
+  assert.match(view, /자유입력 품목명.*자동 SKU로 간주하지 않습니다/);
+  assert.match(view, /이동평균 원가 · 음수재고 차단/);
+  assert.match(view, /변경 저장/);
+  assert.match(page, /\["inventory", "재고·상품원가", "재"\]/);
+  assert.match(close, /INVENTORY_LEDGER/);
+  assert.match(operations, /inventory-control-risk/);
+  assert.match(plan, /과거 Clobe·이카운트 자료를 임의로 재고수량으로 환산하지 않는다/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

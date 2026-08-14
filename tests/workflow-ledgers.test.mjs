@@ -144,6 +144,30 @@ test("purchase ledgers preserve ordered quantities, accepted receipts and invoic
   assert.equal(payable.priority, "HIGH");
 });
 
+test("inventory movements keep source lines unique and preserve moving-average stock value", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO inventory_products
+    (id, sku, name, category, unit, minimum_stock_milli, status, created_by, created_at, updated_at)
+    VALUES ('product-1', 'GPU-001', '테스트 GPU', 'GPU', 'EA', 2000, 'ACTIVE', 'gc.kim', ?, ?)`).run(now, now);
+  db.prepare(`INSERT INTO inventory_warehouses
+    (id, code, name, location, status, created_by, created_at, updated_at)
+    VALUES ('warehouse-1', 'MAIN', '주창고', '서울', 'ACTIVE', 'gc.kim', ?, ?)`).run(now, now);
+  const insertMovement = db.prepare(`INSERT INTO inventory_movements
+    (id, movement_date, movement_type, direction, product_id, warehouse_id, quantity_milli, unit_cost, amount,
+      source_type, source_id, source_line_key, reference_number, reason, posted_by, created_at)
+    VALUES (?, '2026-08-14', ?, ?, 'product-1', 'warehouse-1', ?, ?, ?, ?, ?, ?, ?, ?, 'gc.kim', ?)`);
+  insertMovement.run("movement-in-1", "PURCHASE_RECEIPT_IN", "IN", 10000, 100000, 1000000, "PURCHASE_RECEIPT", "receipt-1", "receipt-line-1", "GR-001", "", now);
+  assert.throws(() => insertMovement.run("movement-in-duplicate", "PURCHASE_RECEIPT_IN", "IN", 1000, 100000, 100000, "PURCHASE_RECEIPT", "receipt-1", "receipt-line-1", "GR-001", "", now), /UNIQUE constraint failed/);
+  insertMovement.run("movement-out-1", "DELIVERY_OUT", "OUT", 4000, 100000, 400000, "SALES_DELIVERY", "delivery-1", "product-1:warehouse-1", "DN-001", "", now);
+  const stock = db.prepare(`SELECT
+    SUM(CASE WHEN direction = 'IN' THEN quantity_milli ELSE -quantity_milli END) AS quantity_milli,
+    SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END) AS stock_amount
+    FROM inventory_movements WHERE product_id = 'product-1' AND warehouse_id = 'warehouse-1'`).get();
+  assert.equal(stock.quantity_milli, 6000);
+  assert.equal(stock.stock_amount, 600000);
+});
+
 test("cash reconciliation ledgers preserve source rows, partial allocations and reversible match groups", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

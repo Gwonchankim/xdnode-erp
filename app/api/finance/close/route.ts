@@ -57,6 +57,7 @@ async function seedClose(period: string) {
     ["JOURNAL", "분개장 차변·대변 및 미전기 전표 확인"],
     ["EVIDENCE", "지출·지급 증빙 누락 확인"],
     ["PAYROLL", "급여월 승인·잠금 확인"],
+    ["INVENTORY", "재고 음수·미반영 입고 확인"],
     ["AR_AP", "외상매출금·미수금·매입채무 검토"],
     ["TAX", "세금계산서·부가세 검토"],
     ["STATEMENT", "월 손익·재무상태표 검토"],
@@ -75,7 +76,7 @@ async function seedClose(period: string) {
 
 async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
-  const [bank, unposted, missingEvidence, payroll] = await Promise.all([
+  const [bank, unposted, missingEvidence, payroll, inventory] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -90,6 +91,17 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       .bind(like).first<{ count: number }>(),
     db.prepare("SELECT status, employee_count, net_pay FROM hr_payroll_runs WHERE period = ?")
       .bind(period).first<{ status: string; employee_count: number; net_pay: number }>(),
+    db.prepare(`SELECT
+      (SELECT COUNT(*) FROM (SELECT product_id, warehouse_id,
+        SUM(CASE WHEN direction = 'IN' THEN quantity_milli ELSE -quantity_milli END) AS quantity_milli
+        FROM inventory_movements GROUP BY product_id, warehouse_id
+        HAVING SUM(CASE WHEN direction = 'IN' THEN quantity_milli ELSE -quantity_milli END) < 0)) AS negative_count,
+      (SELECT COUNT(*) FROM finance_purchase_receipt_lines receipt_line
+        JOIN finance_purchase_receipts receipt ON receipt.id = receipt_line.receipt_id AND receipt.status = 'ACCEPTED'
+        WHERE receipt.receipt_date LIKE ? AND receipt_line.accepted_quantity_milli > 0 AND NOT EXISTS (
+          SELECT 1 FROM inventory_movements movement WHERE movement.source_type = 'PURCHASE_RECEIPT'
+            AND movement.source_id = receipt.id AND movement.source_line_key = receipt_line.id)) AS unmapped_count`)
+      .bind(like).first<{ negative_count: number; unmapped_count: number }>(),
   ]);
   const bankTotal = Number(bank?.total_count ?? 0);
   const bankPending = Number(bank?.pending_count ?? 0);
@@ -106,6 +118,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     { key: "PAYROLL_LOCK", category: "PAYROLL", title: "급여월 잠금",
       status: payroll?.status === "LOCKED" ? "PASS" : "FAIL",
       message: payroll ? `${payroll.employee_count}명 · ${payroll.status}` : "급여월이 생성되지 않았습니다.", count: payroll?.status === "LOCKED" ? 0 : 1 },
+    { key: "INVENTORY_LEDGER", category: "INVENTORY", title: "재고원장 완전성",
+      status: Number(inventory?.negative_count ?? 0) === 0 && Number(inventory?.unmapped_count ?? 0) === 0 ? "PASS" : "FAIL",
+      message: `음수재고 ${Number(inventory?.negative_count ?? 0)}건 · 미반영 입고검수 ${Number(inventory?.unmapped_count ?? 0)}건`,
+      count: Number(inventory?.negative_count ?? 0) + Number(inventory?.unmapped_count ?? 0) },
   ];
   controls.splice(1, 0, { key: "CLOBE_JOURNAL_BALANCE", category: "JOURNAL", title: "Clobe 분개장 차대변",
     status: period === currentPeriod ? (financeCurrentData.journalSummary.differenceKrw === 0 ? "PASS" : "FAIL") : "REVIEW",
@@ -131,7 +147,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL"];
+  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

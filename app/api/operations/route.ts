@@ -229,6 +229,32 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const [minimumRows, unmappedReceipt] = await Promise.all([
+      db.prepare(`SELECT product.id, product.minimum_stock_milli,
+        COALESCE(SUM(CASE WHEN movement.direction = 'IN' THEN movement.quantity_milli ELSE -movement.quantity_milli END), 0) AS quantity_milli
+        FROM inventory_products product LEFT JOIN inventory_movements movement ON movement.product_id = product.id
+        WHERE product.status = 'ACTIVE' GROUP BY product.id`).all<{ id: string; minimum_stock_milli: number; quantity_milli: number }>(),
+      db.prepare(`SELECT COUNT(*) AS count FROM finance_purchase_receipt_lines receipt_line
+        JOIN finance_purchase_receipts receipt ON receipt.id = receipt_line.receipt_id AND receipt.status = 'ACCEPTED'
+        WHERE receipt_line.accepted_quantity_milli > 0 AND NOT EXISTS (
+          SELECT 1 FROM inventory_movements movement WHERE movement.source_type = 'PURCHASE_RECEIPT'
+            AND movement.source_id = receipt.id AND movement.source_line_key = receipt_line.id)`).first<{ count: number }>(),
+    ]);
+    const belowMinimum = minimumRows.results.filter((row) => Number(row.quantity_milli) < Number(row.minimum_stock_milli)).length;
+    const unmapped = Number(unmappedReceipt?.count ?? 0);
+    if (belowMinimum > 0 || unmapped > 0) await upsertRuleTask({
+      id: "inventory-control-risk", module: "finance", category: "재고 통제",
+      title: `재고 통제 확인 ${belowMinimum + unmapped}건`,
+      description: `안전재고 미달 ${belowMinimum}개 · 상품·창고 미연결 입고검수 ${unmapped}건입니다. 재고·상품원가 화면에서 원천을 확인해 주세요.`,
+      dueDate: today, priority: unmapped > 0 ? "HIGH" : "NORMAL", destination: "finance:inventory",
+      sourceId: `${financeCurrentData.asOf}:${belowMinimum}:${unmapped}`,
+    });
+    else await closeRuleTask("inventory-control-risk");
+  } catch {
+    // 재고 원장이 배포된 뒤부터 안전재고와 미반영 입고 규칙을 평가합니다.
+  }
+
+  try {
     const bankReconciliation = await db.prepare(`SELECT COUNT(*) AS imported_count,
       SUM(CASE WHEN transaction_row.currency = 'KRW' AND transaction_row.amount > COALESCE((
         SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row

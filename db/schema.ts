@@ -923,6 +923,59 @@ export const financePayablePlans = sqliteTable("finance_payable_plans", {
   index("idx_finance_payable_plan_owner_priority").on(table.ownerEmployeeId, table.priority),
 ]);
 
+export const inventoryProducts = sqliteTable("inventory_products", {
+  id: text("id").primaryKey(),
+  sku: text("sku").notNull(),
+  name: text("name").notNull(),
+  category: text("category").notNull().default(""),
+  unit: text("unit").notNull().default("EA"),
+  minimumStockMilli: integer("minimum_stock_milli").notNull().default(0),
+  status: text("status").notNull().default("ACTIVE"),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_inventory_product_sku").on(table.sku),
+  index("idx_inventory_product_status_name").on(table.status, table.name),
+]);
+
+export const inventoryWarehouses = sqliteTable("inventory_warehouses", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  location: text("location").notNull().default(""),
+  status: text("status").notNull().default("ACTIVE"),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_inventory_warehouse_code").on(table.code),
+  index("idx_inventory_warehouse_status_name").on(table.status, table.name),
+]);
+
+export const inventoryMovements = sqliteTable("inventory_movements", {
+  id: text("id").primaryKey(),
+  movementDate: text("movement_date").notNull(),
+  movementType: text("movement_type").notNull(),
+  direction: text("direction").notNull(),
+  productId: text("product_id").notNull(),
+  warehouseId: text("warehouse_id").notNull(),
+  quantityMilli: integer("quantity_milli").notNull(),
+  unitCost: integer("unit_cost").notNull(),
+  amount: integer("amount").notNull(),
+  sourceType: text("source_type").notNull(),
+  sourceId: text("source_id").notNull(),
+  sourceLineKey: text("source_line_key").notNull(),
+  referenceNumber: text("reference_number").notNull().default(""),
+  reason: text("reason").notNull().default(""),
+  postedBy: text("posted_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_inventory_movement_source_line").on(table.sourceType, table.sourceId, table.sourceLineKey),
+  index("idx_inventory_movement_product_warehouse_date").on(table.productId, table.warehouseId, table.movementDate),
+  index("idx_inventory_movement_date_type").on(table.movementDate, table.movementType),
+]);
+
 export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   period: text("period").primaryKey(),
   status: text("status").notNull().default("DRAFT"),

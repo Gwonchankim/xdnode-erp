@@ -8,13 +8,13 @@ import { buildAmountSeries, buildBalanceSeries } from "../app/finance-time-serie
 test("cash series use observed closing balances without inventing unsupported months", () => {
   const daily = buildBalanceSeries(financeCurrentData.balanceTrend, "day");
   assert.equal(daily.points.length, 14);
-  assert.equal(daily.points[0].startDate, "2026-08-01");
+  assert.equal(daily.points[0].startDate, "2026-08-02");
   assert.equal(daily.points.at(-1).endDate, financeCurrentData.asOf);
   assert.equal(daily.points.at(-1).value, financeCurrentData.balanceTrend[0].balance);
 
   const monthly = buildBalanceSeries(financeCurrentData.balanceTrend, "month");
   assert.deepEqual(monthly.points.map((point) => point.label), ["6월", "7월", "8월"]);
-  assert.deepEqual(monthly.points.map((point) => point.value), [1_242_819_712, 1_692_218_331, 1_632_535_863]);
+  assert.deepEqual(monthly.points.map((point) => point.value), [1_242_819_712, 1_692_218_331, 2_068_051_673]);
   assert.doesNotMatch(monthly.coverageNote, /2026-05/);
 });
 

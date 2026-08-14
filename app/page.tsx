@@ -107,7 +107,7 @@ const erpAlerts = [
   { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
   { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
   { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: `분개장 차변과 대변 사이의 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이를 확인해 주세요.`, time: "확인 필요", destination: { module: "finance", financeView: "quality" } },
-  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: `2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.`, time: "8월 14일", destination: { module: "finance", financeView: "quality" } },
+  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: `2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.`, time: `${Number(financeCurrentData.asOf.slice(5, 7))}월 ${Number(financeCurrentData.asOf.slice(8, 10))}일`, destination: { module: "finance", financeView: "quality" } },
   { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
 ] satisfies ERPAlert[];
 
@@ -386,7 +386,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         <div className="erp-nav-spacer" />
         <div className="erp-sync-state">
           <span className="status-dot" />
-          <div><strong>Clobe · 2026 데이터</strong><small>8월 14일 수집</small></div>
+          <div><strong>Clobe · 2026 데이터</strong><small>{Number(financeCurrentData.asOf.slice(5, 7))}월 {Number(financeCurrentData.asOf.slice(8, 10))}일 수집</small></div>
         </div>
         <button type="button" className="erp-workbench-button" aria-expanded={workbenchOpen} onClick={() => setWorkbenchOpen(true)}>
           <span aria-hidden="true">✓</span><strong>오늘 업무</strong>
@@ -1172,7 +1172,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             <Metric label="2025 기말 보통예금" value={formatCompactWon(financeHistoricalData.years["2025"].cash)} delta="전년 대비 +65.8%" trend="up" hint="자금현황표 일치" />
             <Metric label="2025 외상매출금" value={formatCompactWon(financeHistoricalData.years["2025"].ar)} delta="전년 대비 -22.3%" trend="up" hint="회수대상 잔액" />
             <Metric label="2025 외상매입금" value={formatCompactWon(financeHistoricalData.years["2025"].ap)} delta="전년 대비 +14.8%" trend="down" hint="지급대상 잔액" />
-            <Metric label="2026 은행성 자산" value={formatCompactWon(bankAssets)} delta={`대출 대비 ${(liquidityCoverage * 100).toFixed(1)}%`} trend="down" hint="8월 14일 Clobe" />
+            <Metric label="2026 은행성 자산" value={formatCompactWon(bankAssets)} delta={`대출 대비 ${(liquidityCoverage * 100).toFixed(1)}%`} trend="down" hint={`${Number(financeCurrentData.asOf.slice(5, 7))}월 ${Number(financeCurrentData.asOf.slice(8, 10))}일 Clobe`} />
           </section>
           <section className="content-grid finance-liquidity-grid">
             <article className="panel finance-chart-panel">

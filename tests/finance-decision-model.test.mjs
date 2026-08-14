@@ -28,7 +28,7 @@ test("account risk score equals visible driver points and is deterministic", () 
   const second = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend);
   assert.deepEqual(first, second);
   assert.equal(first.score, first.drivers.reduce((sum, driver) => sum + driver.points, 0));
-  assert.equal(first.score, 58);
+  assert.equal(first.score, 37);
   assert.equal(first.level, "주의");
   assert.ok(first.score <= 100);
   assert.equal(first.drivers.length, 6);
@@ -38,10 +38,10 @@ test("account risk score equals visible driver points and is deterministic", () 
 test("configured company policy changes the operating-cash signal without breaking the 100-point model", () => {
   const policy = { ...DEFAULT_FINANCE_RISK_POLICY, configured: true, version: 2, minimumOperatingCash: 300_000_000 };
   const model = buildAccountRiskModel(financeCurrentData.accountSummary, financeCurrentData.accounts, financeCurrentData.balanceTrend, policy);
-  assert.equal(model.score, 83);
-  assert.equal(model.level, "높음");
+  assert.equal(model.score, 49);
+  assert.equal(model.level, "주의");
   assert.equal(model.drivers.reduce((sum, driver) => sum + driver.maxPoints, 0), 100);
-  assert.equal(model.drivers.find((driver) => driver.key === "operating-cash")?.points, 25);
+  assert.equal(model.drivers.find((driver) => driver.key === "operating-cash")?.points, 12);
   assert.match(model.policyStatus, /v2 적용/);
 });
 

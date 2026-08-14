@@ -1125,3 +1125,35 @@ test("HR audio transcription ledger preserves attempts and locks each human revi
   assert.equal(db.prepare("SELECT attempt, transcript, reviewed_text FROM hr_audio_transcriptions WHERE id = 'transcription-2'").get().reviewed_text, "검토된 면담 전사");
   db.close();
 });
+
+test("data governance ledgers preserve immutable checks, snapshot evidence and reviewed retention policies", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO erp_data_control_runs
+    (id, status, requested_by, check_count, failed_count, warning_count, summary_json, started_at, completed_at, created_at)
+    VALUES ('control-run-1', 'ATTENTION', 'gc.kim', 2, 0, 1, '{"passed":1}', ?, ?, ?)`).run(now, now, now);
+  const insertCheck = db.prepare(`INSERT INTO erp_data_control_checks
+    (id, run_id, check_code, category, status, title, detail, evidence_json, created_at)
+    VALUES (?, 'control-run-1', 'SCHEMA_CORE', '데이터베이스', 'PASS', '핵심 업무 테이블', '정상', '{}', ?)`);
+  insertCheck.run("check-1", now);
+  assert.throws(() => insertCheck.run("check-duplicate", now), /UNIQUE constraint failed/);
+
+  db.prepare(`INSERT INTO erp_logical_snapshots
+    (id, scope, status, object_key, file_name, content_type, sha256, byte_size, table_count, row_count,
+      manifest_json, requested_by, created_at, verified_at, verified_by, verification_status, verification_detail, failure_message)
+    VALUES ('snapshot-1', 'D1_APPLICATION_DATA', 'READY', 'erp-governance/snapshots/1.json', 'snapshot.json',
+      'application/json', 'abc123', 2048, 4, 10, '{"format":"XD_NODE_D1_LOGICAL_SNAPSHOT_V1"}',
+      'gc.kim', ?, ?, 'gc.kim', 'PASS', '해시와 구조 확인', '')`).run(now, now);
+  db.prepare(`INSERT INTO erp_recovery_rehearsals
+    (id, snapshot_id, status, check_count, failure_count, detail_json, performed_by, performed_at)
+    VALUES ('rehearsal-1', 'snapshot-1', 'PASS', 4, 0, '{"productionWrites":0}', 'gc.kim', ?)`).run(now);
+  assert.equal(db.prepare("SELECT verification_status FROM erp_logical_snapshots WHERE id = 'snapshot-1'").get().verification_status, "PASS");
+  assert.equal(JSON.parse(db.prepare("SELECT detail_json FROM erp_recovery_rehearsals WHERE id = 'rehearsal-1'").get().detail_json).productionWrites, 0);
+
+  const insertPolicy = db.prepare(`INSERT INTO erp_retention_policies
+    (id, data_type, label, retention_days, disposition, active, updated_by, updated_at)
+    VALUES (?, 'AUDIT_LOG', '감사기록', 2555, 'REVIEW_REQUIRED', 0, '', ?)`);
+  insertPolicy.run("policy-1", now);
+  assert.throws(() => insertPolicy.run("policy-duplicate", now), /UNIQUE constraint failed/);
+  assert.equal(db.prepare("SELECT active, disposition FROM erp_retention_policies WHERE id = 'policy-1'").get().active, 0);
+  db.close();
+});

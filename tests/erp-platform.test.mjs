@@ -1370,3 +1370,40 @@ test("HR audio transcription separates consent, AI attempts and one-time human r
   assert.match(migration, /idx_hr_audio_transcription_entity_attempt/);
   assert.match(plan, /AI 원문은 수정하지 않고 사용자 검토본을 별도 필드/);
 });
+
+test("data governance control center verifies recoverability without automatic restore or deletion", async () => {
+  const [api, server, view, page, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/data-governance/route.ts"), read("app/data-governance.ts"),
+    read("app/data-governance-center.tsx"), read("app/page.tsx"), read("app/api/operations/route.ts"), read("db/schema.ts"),
+    read("drizzle/0052_data_governance.sql"), read("docs/data-governance-control-plan.md"),
+  ]);
+  for (const source of [api, server, schema, migration]) {
+    for (const table of ["erp_data_control_runs", "erp_data_control_checks", "erp_logical_snapshots",
+      "erp_recovery_rehearsals", "erp_audit_exports", "erp_retention_policies"]) assert.match(source, new RegExp(table));
+  }
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(api, /productionWrites: 0/);
+  assert.match(api, /totalRows > 50_000/);
+  assert.match(api, /20 \* 1024 \* 1024/);
+  assert.match(api, /COUNT\(\*\).*10_000/s);
+  assert.match(api, /bindings\.HR_AUDIO\.head/);
+  assert.match(api, /auditBefore/);
+  assert.match(api, /스냅샷 생성 중 감사 대상 업무 변경/);
+  assert.match(api, /data-governance-attention/);
+  assert.match(api, /settings:data-governance/);
+  assert.match(api, /automaticRestore: false/);
+  assert.match(api, /automaticDeletion: false/);
+  assert.doesNotMatch(api, /DROP TABLE|DELETE FROM erp_audit_logs|DELETE FROM hr_employee_records/);
+  assert.match(view, /데이터 신뢰성 통제 센터/);
+  assert.match(view, /복구 모의훈련/);
+  assert.match(view, /자동 복구 없음/);
+  assert.match(view, /자동 삭제 없음/);
+  assert.match(page, /DataGovernanceCenter/);
+  assert.match(page, /데이터 통제/);
+  assert.match(page, /destination === "settings:data-governance"/);
+  assert.match(page, /task\.id !== "data-governance-attention"/);
+  assert.match(operations, /데이터 통제 점검이 정상 상태가 된 뒤 업무가 자동 종료/);
+  assert.match(plan, /실제 복구는 자동 제공하지 않는다/);
+  assert.match(plan, /settings:admin/);
+});

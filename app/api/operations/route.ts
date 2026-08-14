@@ -1174,6 +1174,11 @@ export async function PUT(request: Request) {
     && !await hasClosedFinanceAlertCase(db, before.id, before.source_id)) {
     return Response.json({ error: "중요 재무 경보는 조치계획·근거자료·재무 승인을 완료한 뒤 종료할 수 있습니다." }, { status: 409 });
   }
+  if (status === "DONE" && before.id === "data-governance-attention") {
+    const control = await db.prepare("SELECT status FROM erp_data_control_runs ORDER BY created_at DESC LIMIT 1")
+      .first<{ status: string }>();
+    if (control?.status !== "HEALTHY") return Response.json({ error: "데이터 통제 점검이 정상 상태가 된 뒤 업무가 자동 종료됩니다." }, { status: 409 });
+  }
 
   const now = Date.now();
   const completedAt = status === "DONE" ? (before.completed_at ?? now) : null;

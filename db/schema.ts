@@ -277,6 +277,96 @@ export const erpAuditLogs = sqliteTable("erp_audit_logs", {
   index("idx_erp_audit_entity").on(table.entityType, table.entityId),
 ]);
 
+export const erpDataControlRuns = sqliteTable("erp_data_control_runs", {
+  id: text("id").primaryKey(),
+  status: text("status").notNull().default("RUNNING"),
+  requestedBy: text("requested_by").notNull(),
+  checkCount: integer("check_count").notNull().default(0),
+  failedCount: integer("failed_count").notNull().default(0),
+  warningCount: integer("warning_count").notNull().default(0),
+  summaryJson: text("summary_json").notNull().default("{}"),
+  startedAt: integer("started_at").notNull(),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_erp_data_control_run_created").on(table.createdAt)]);
+
+export const erpDataControlChecks = sqliteTable("erp_data_control_checks", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  checkCode: text("check_code").notNull(),
+  category: text("category").notNull(),
+  status: text("status").notNull(),
+  title: text("title").notNull(),
+  detail: text("detail").notNull().default(""),
+  evidenceJson: text("evidence_json").notNull().default("{}"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_erp_data_control_check_run_code").on(table.runId, table.checkCode),
+  index("idx_erp_data_control_check_status").on(table.status, table.createdAt),
+]);
+
+export const erpLogicalSnapshots = sqliteTable("erp_logical_snapshots", {
+  id: text("id").primaryKey(),
+  scope: text("scope").notNull(),
+  status: text("status").notNull().default("CREATING"),
+  objectKey: text("object_key").notNull().default(""),
+  fileName: text("file_name").notNull().default(""),
+  contentType: text("content_type").notNull().default("application/json"),
+  sha256: text("sha256").notNull().default(""),
+  byteSize: integer("byte_size").notNull().default(0),
+  tableCount: integer("table_count").notNull().default(0),
+  rowCount: integer("row_count").notNull().default(0),
+  manifestJson: text("manifest_json").notNull().default("{}"),
+  requestedBy: text("requested_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  verifiedAt: integer("verified_at"),
+  verifiedBy: text("verified_by").notNull().default(""),
+  verificationStatus: text("verification_status").notNull().default("PENDING"),
+  verificationDetail: text("verification_detail").notNull().default(""),
+  failureMessage: text("failure_message").notNull().default(""),
+}, (table) => [
+  index("idx_erp_logical_snapshot_created").on(table.createdAt),
+  index("idx_erp_logical_snapshot_status").on(table.status, table.verificationStatus),
+]);
+
+export const erpRecoveryRehearsals = sqliteTable("erp_recovery_rehearsals", {
+  id: text("id").primaryKey(),
+  snapshotId: text("snapshot_id").notNull(),
+  status: text("status").notNull(),
+  checkCount: integer("check_count").notNull().default(0),
+  failureCount: integer("failure_count").notNull().default(0),
+  detailJson: text("detail_json").notNull().default("{}"),
+  performedBy: text("performed_by").notNull(),
+  performedAt: integer("performed_at").notNull(),
+}, (table) => [index("idx_erp_recovery_rehearsal_snapshot").on(table.snapshotId, table.performedAt)]);
+
+export const erpAuditExports = sqliteTable("erp_audit_exports", {
+  id: text("id").primaryKey(),
+  dateFrom: text("date_from").notNull(),
+  dateTo: text("date_to").notNull(),
+  module: text("module").notNull().default("ALL"),
+  status: text("status").notNull().default("CREATING"),
+  objectKey: text("object_key").notNull().default(""),
+  fileName: text("file_name").notNull().default(""),
+  sha256: text("sha256").notNull().default(""),
+  byteSize: integer("byte_size").notNull().default(0),
+  rowCount: integer("row_count").notNull().default(0),
+  requestedBy: text("requested_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  failureMessage: text("failure_message").notNull().default(""),
+}, (table) => [index("idx_erp_audit_export_created").on(table.createdAt)]);
+
+export const erpRetentionPolicies = sqliteTable("erp_retention_policies", {
+  id: text("id").primaryKey(),
+  dataType: text("data_type").notNull().unique(),
+  label: text("label").notNull(),
+  retentionDays: integer("retention_days").notNull(),
+  disposition: text("disposition").notNull().default("REVIEW_REQUIRED"),
+  active: integer("active", { mode: "boolean" }).notNull().default(false),
+  updatedBy: text("updated_by").notNull().default(""),
+  updatedAt: integer("updated_at").notNull(),
+});
+
 export const erpTasks = sqliteTable("erp_tasks", {
   id: text("id").primaryKey(),
   module: text("module").notNull(),

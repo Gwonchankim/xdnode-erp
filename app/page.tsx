@@ -23,6 +23,7 @@ import FinanceAlertActionCenter from "./finance-alert-action-center";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import OperationsWorkbench from "./operations-workbench";
+import DataGovernanceCenter from "./data-governance-center";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
@@ -208,6 +209,7 @@ function formatCompactWon(value: number) {
 function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void; openRequestKey?: number }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [dataGovernanceOpen, setDataGovernanceOpen] = useState(false);
   const [approvalRequestKey, setApprovalRequestKey] = useState(0);
   const [operationTasks, setOperationTasks] = useState<OperationTask[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
@@ -277,6 +279,11 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
       setWorkbenchOpen(false);
       return;
     }
+    if (destination === "settings:data-governance") {
+      setDataGovernanceOpen(true);
+      setWorkbenchOpen(false);
+      return;
+    }
     const [module, view] = destination.split(":");
     const target = module === "finance"
       ? { module: "finance" as const, financeView: financeDestinationView(destination) }
@@ -303,6 +310,12 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   }
 
   function openTask(task: OperationTask) {
+    if (task.destination === "settings:data-governance") {
+      setDataGovernanceOpen(true);
+      void updateTask(task, "IN_PROGRESS");
+      setAlertsOpen(false);
+      return;
+    }
     if (task.destination === "approval:center") {
       setApprovalRequestKey((value) => value + 1);
       void updateTask(task, "IN_PROGRESS");
@@ -361,6 +374,9 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         <button type="button" className="erp-workbench-button" aria-expanded={workbenchOpen} onClick={() => setWorkbenchOpen(true)}>
           <span aria-hidden="true">✓</span><strong>오늘 업무</strong>
         </button>
+        <button type="button" className="erp-data-governance-button" aria-expanded={dataGovernanceOpen} onClick={() => setDataGovernanceOpen(true)}>
+          <span aria-hidden="true">◇</span><strong>데이터 통제</strong>
+        </button>
         <ApprovalCenter openRequestKey={approvalRequestKey} />
         <button
           type="button"
@@ -395,7 +411,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
                     <h3>{task.title}</h3><span>{task.description}</span>
                     <div className="operation-task-actions">
                       {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>{task.module === "finance" && task.sourceType === "SYSTEM_RULE" ? "조치 등록 →" : "관련 업무 열기 →"}</button>}
-                      {task.sourceType !== "APPROVAL" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
+                      {task.sourceType !== "APPROVAL" && task.id !== "data-governance-attention" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
                     </div>
                   </div>
                 </article>
@@ -418,6 +434,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         </>
       )}
       {workbenchOpen && <OperationsWorkbench onClose={() => setWorkbenchOpen(false)} onNavigate={openWorkbenchDestination} />}
+      {dataGovernanceOpen && <DataGovernanceCenter onClose={() => setDataGovernanceOpen(false)} />}
     </>
   );
 }

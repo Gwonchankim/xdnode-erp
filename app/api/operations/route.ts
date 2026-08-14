@@ -348,6 +348,46 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const receivableRisk = await db.prepare(`WITH invoice_balance AS (
+      SELECT invoice.id, invoice.due_date, invoice.amount,
+        MAX(0, invoice.amount - COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0)) AS outstanding,
+        COALESCE(receivable.owner_employee_id, '') AS owner_employee_id,
+        COALESCE(receivable.collection_status, 'OPEN') AS collection_status,
+        COALESCE(receivable.promised_date, '') AS promised_date,
+        COALESCE(receivable.next_action_date, '') AS next_action_date
+      FROM sales_documents invoice
+      LEFT JOIN sales_payment_allocations allocation ON allocation.invoice_document_id = invoice.id
+      LEFT JOIN sales_documents payment ON payment.id = allocation.payment_document_id
+      LEFT JOIN finance_receivable_cases receivable ON receivable.invoice_id = invoice.id
+      WHERE invoice.document_type = 'INVOICE' AND invoice.status IN ('ACCEPTED','COMPLETED')
+      GROUP BY invoice.id
+    ) SELECT
+      COALESCE(SUM(CASE WHEN outstanding > 0 THEN outstanding ELSE 0 END), 0) AS outstanding_amount,
+      COALESCE(SUM(CASE WHEN outstanding > 0 AND due_date <> '' AND due_date < ? THEN 1 ELSE 0 END), 0) AS overdue_count,
+      COALESCE(SUM(CASE WHEN outstanding > 0 AND due_date = '' THEN 1 ELSE 0 END), 0) AS missing_due_count,
+      COALESCE(SUM(CASE WHEN outstanding > 0 AND owner_employee_id = '' THEN 1 ELSE 0 END), 0) AS unassigned_count,
+      COALESCE(SUM(CASE WHEN outstanding > 0 AND collection_status = 'PROMISED' AND promised_date <> '' AND promised_date < ? THEN 1 ELSE 0 END), 0) AS broken_promise_count,
+      COALESCE(SUM(CASE WHEN outstanding > 0 AND next_action_date <> '' AND next_action_date < ? THEN 1 ELSE 0 END), 0) AS overdue_action_count
+      FROM invoice_balance`).bind(today, today, today).first<{
+        outstanding_amount: number; overdue_count: number; missing_due_count: number; unassigned_count: number;
+        broken_promise_count: number; overdue_action_count: number;
+      }>();
+    const riskCount = (receivableRisk?.overdue_count ?? 0) + (receivableRisk?.missing_due_count ?? 0)
+      + (receivableRisk?.unassigned_count ?? 0) + (receivableRisk?.broken_promise_count ?? 0) + (receivableRisk?.overdue_action_count ?? 0);
+    if ((receivableRisk?.outstanding_amount ?? 0) > 0 && riskCount > 0) await upsertRuleTask({
+      id: "receivable-collections-risk", module: "finance", category: "채권 회수",
+      title: `채권 회수 조치 ${riskCount}건 확인`,
+      description: `연체 ${receivableRisk?.overdue_count ?? 0}건 · 만기일 누락 ${receivableRisk?.missing_due_count ?? 0}건 · 담당자 미지정 ${receivableRisk?.unassigned_count ?? 0}건 · 약속 경과 ${receivableRisk?.broken_promise_count ?? 0}건 · 조치일 경과 ${receivableRisk?.overdue_action_count ?? 0}건입니다.`,
+      dueDate: today, priority: (receivableRisk?.broken_promise_count ?? 0) > 0 || (receivableRisk?.overdue_count ?? 0) > 0 ? "HIGH" : "NORMAL",
+      destination: "finance:receivables",
+      sourceId: `${financeCurrentData.asOf}:${receivableRisk?.outstanding_amount ?? 0}:${riskCount}`,
+    });
+    else await closeRuleTask("receivable-collections-risk");
+  } catch {
+    // 청구서별 채권관리 원장이 배포된 뒤부터 회수 위험 규칙을 평가합니다.
+  }
+
+  try {
     const asOf = new Date(`${financeCurrentData.asOf}T00:00:00Z`);
     asOf.setUTCDate(1); asOf.setUTCDate(0);
     const reportPeriod = asOf.toISOString().slice(0, 7);

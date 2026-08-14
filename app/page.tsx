@@ -10,6 +10,7 @@ import FinanceCloseWorkspace from "./finance-close-workspace";
 import BudgetActualWorkspace from "./budget-actual-workspace";
 import ManagementReportWorkspace from "./management-report-workspace";
 import FinanceMasterWorkspace from "./finance-master-workspace";
+import ReceivablesWorkspace from "./receivables-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
@@ -88,26 +89,6 @@ type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
 type FinanceWorkspaceView = "overview" | "control" | "report" | "purchasing" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
-type ReceivableStatus = "UNSET" | "PLANNED" | "PARTIAL" | "OVERDUE" | "HOLD" | "COMPLETE";
-type ReceivableManagementRecord = {
-  partnerName: string;
-  outstandingAmount: number;
-  owner: string;
-  dueDate: string;
-  status: ReceivableStatus;
-  memo: string;
-  updatedAt?: number;
-};
-
-const receivableStatusLabels: Record<ReceivableStatus, string> = {
-  UNSET: "확인 필요",
-  PLANNED: "회수 예정",
-  PARTIAL: "일부 회수",
-  OVERDUE: "연체",
-  HOLD: "분쟁·보류",
-  COMPLETE: "회수 완료",
-};
-
 const financePeriodLabels: Record<FinancePeriod, string> = {
   day: "일",
   week: "주",
@@ -671,11 +652,6 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const [liquidityMetric, setLiquidityMetric] = useState<"cash" | "ar" | "ap">("cash");
   const [commercialStartDate, setCommercialStartDate] = useState("2026-01-01");
   const [commercialEndDate, setCommercialEndDate] = useState(financeCurrentData.asOf);
-  const [receivableRecords, setReceivableRecords] = useState<Record<string, ReceivableManagementRecord>>({});
-  const [receivablesLoaded, setReceivablesLoaded] = useState(false);
-  const [receivableLoading, setReceivableLoading] = useState(false);
-  const [receivableDraft, setReceivableDraft] = useState<ReceivableManagementRecord | null>(null);
-  const [receivableMessage, setReceivableMessage] = useState("");
   const [assistantQuestion, setAssistantQuestion] = useState("");
   const [assistantAnswer, setAssistantAnswer] = useState("2024~2026년 재무 데이터 범위와 출처를 구분해 답변합니다. 궁금한 항목을 선택하거나 질문을 입력해 주세요.");
   const [assistantStatus, setAssistantStatus] = useState<"idle" | "loading" | "error">("idle");
@@ -683,7 +659,6 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   useEffect(() => {
     if (workspaceRequestKey > 0) {
       setWorkspace(requestedWorkspace);
-      if (requestedWorkspace === "receivables") void loadReceivableRecords();
     }
   }, [requestedWorkspace, workspaceRequestKey]);
 
@@ -723,23 +698,6 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
     label: `${Number(row.month.slice(5))}월`,
     value: row.amount,
   }));
-  const managedReceivables = financeHistoricalData.receivables.map((row) => (
-    receivableRecords[row.name] ?? {
-      partnerName: row.name,
-      outstandingAmount: row.ending,
-      owner: "",
-      dueDate: "",
-      status: "UNSET" as ReceivableStatus,
-      memo: "",
-    }
-  )).sort((a, b) => b.outstandingAmount - a.outstandingAmount);
-  const receivableOutstandingTotal = managedReceivables.reduce((sum, row) => sum + row.outstandingAmount, 0);
-  const receivableOverdueAmount = managedReceivables.reduce((sum, row) => (
-    row.status !== "COMPLETE" && (row.status === "OVERDUE" || (row.dueDate && row.dueDate < financeCurrentData.asOf))
-      ? sum + row.outstandingAmount
-      : sum
-  ), 0);
-  const missingCollectionPlan = managedReceivables.filter((row) => row.status !== "COMPLETE" && !row.dueDate).length;
   const bankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
   const bankLoans = financeCurrentData.accountSummary.loanBalanceSum;
   const liquidityCoverage = bankLoans ? bankAssets / bankLoans : 0;
@@ -776,55 +734,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
     value: liquidityMetric === "cash" ? item.cashBalance : liquidityMetric === "ar" ? item.arBalance : item.apBalance,
   }));
 
-  async function loadReceivableRecords() {
-    if (receivablesLoaded || receivableLoading) return;
-    setReceivableLoading(true);
-    setReceivableMessage("");
-    try {
-      const response = await fetch("/api/finance/receivables");
-      const data = await response.json() as { records?: ReceivableManagementRecord[]; error?: string };
-      if (!response.ok) throw new Error(data.error || "외상·미수 관리 기록을 불러오지 못했습니다.");
-      const records = Object.fromEntries((data.records ?? []).map((record) => [record.partnerName, record]));
-      setReceivableRecords(records);
-      setReceivablesLoaded(true);
-    } catch (error) {
-      setReceivableMessage(error instanceof Error ? error.message : "외상·미수 관리 기록을 불러오지 못했습니다.");
-    } finally {
-      setReceivableLoading(false);
-    }
-  }
-
   function selectWorkspace(next: FinanceWorkspaceView) {
     setWorkspace(next);
-    if (next === "receivables") void loadReceivableRecords();
-  }
-
-  function editReceivable(record: ReceivableManagementRecord) {
-    setReceivableDraft({ ...record });
-    setReceivableMessage("");
-  }
-
-  async function saveReceivable(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!receivableDraft || receivableLoading) return;
-    setReceivableLoading(true);
-    setReceivableMessage("");
-    try {
-      const response = await fetch("/api/finance/receivables", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(receivableDraft),
-      });
-      const data = await response.json() as { record?: ReceivableManagementRecord; error?: string };
-      if (!response.ok || !data.record) throw new Error(data.error || "회수 관리 기록을 저장하지 못했습니다.");
-      setReceivableRecords((current) => ({ ...current, [data.record!.partnerName]: data.record! }));
-      setReceivableDraft(data.record);
-      setReceivableMessage("변경내용을 저장했습니다.");
-    } catch (error) {
-      setReceivableMessage(error instanceof Error ? error.message : "회수 관리 기록을 저장하지 못했습니다.");
-    } finally {
-      setReceivableLoading(false);
-    }
   }
 
   async function askFinanceAssistant(question: string) {
@@ -1093,52 +1004,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
         </>
       )}
 
-      {workspace === "receivables" && (
-        <>
-          <div className="finance-subpage-heading">
-            <div><p>ACCOUNTS RECEIVABLE CONTROL</p><h2>외상·미수 매출 관리</h2><span>2025년 결산잔액을 기준선으로 두고 현재 회수잔액·담당자·예정일·메모를 저장합니다.</span></div>
-            <span className="finance-data-badge warning">만기일 원천자료 미연동</span>
-          </div>
-          <section className="kpi-grid">
-            <Metric label="관리대상 미수잔액" value={formatCompactWon(receivableOutstandingTotal)} delta={`${managedReceivables.length}개 거래처`} trend="down" hint="저장된 현재잔액 우선" />
-            <Metric label="연체·기한경과" value={formatCompactWon(receivableOverdueAmount)} delta={receivableOverdueAmount ? "즉시 확인 필요" : "기한경과 없음"} trend={receivableOverdueAmount ? "down" : "up"} hint="회수예정일·상태 기준" />
-            <Metric label="회수계획 미설정" value={`${missingCollectionPlan}곳`} delta="예정일 입력 필요" trend={missingCollectionPlan ? "down" : "up"} hint="회수완료 거래처 제외" />
-            <Metric label="관리기록 저장" value={`${Object.keys(receivableRecords).length}곳`} delta="비공개 서버 저장" trend="neutral" hint="새로고침 후에도 유지" />
-          </section>
-          <section className="content-grid receivable-control-grid">
-            <article className="panel receivable-list-panel">
-              <PanelHeader eyebrow="Collection queue" title="거래처별 회수 현황" action={receivableLoading ? "불러오는 중" : `${managedReceivables.length}곳`} />
-              {receivableMessage && <div className={receivableMessage.includes("저장") ? "finance-inline-message success" : "finance-inline-message"}>{receivableMessage}</div>}
-              <div className="receivable-list">
-                {managedReceivables.map((record) => {
-                  const displayedStatus = record.status !== "COMPLETE" && record.dueDate && record.dueDate < financeCurrentData.asOf ? "OVERDUE" : record.status;
-                  return <button type="button" key={record.partnerName} className={receivableDraft?.partnerName === record.partnerName ? "active" : ""} onClick={() => editReceivable(record)}>
-                    <span className={`receivable-status ${displayedStatus.toLowerCase()}`}>{receivableStatusLabels[displayedStatus]}</span>
-                    <p><strong>{record.partnerName}</strong><small>{record.owner || "담당자 미지정"} · {record.dueDate || "회수예정일 미설정"}</small></p>
-                    <b>{formatCompactWon(record.outstandingAmount)}</b>
-                  </button>;
-                })}
-              </div>
-            </article>
-            <article className="panel receivable-editor-panel">
-              {receivableDraft ? (
-                <form onSubmit={saveReceivable}>
-                  <p>COLLECTION RECORD</p><h2>{receivableDraft.partnerName}</h2>
-                  <label>현재 미수잔액<input type="number" min="0" step="1" value={receivableDraft.outstandingAmount} onChange={(event) => setReceivableDraft({ ...receivableDraft, outstandingAmount: Number(event.target.value) })} /></label>
-                  <div className="receivable-form-grid">
-                    <label>회수 담당자<input value={receivableDraft.owner} maxLength={50} placeholder="담당자 이름" onChange={(event) => setReceivableDraft({ ...receivableDraft, owner: event.target.value })} /></label>
-                    <label>회수 예정일<input type="date" value={receivableDraft.dueDate} onChange={(event) => setReceivableDraft({ ...receivableDraft, dueDate: event.target.value })} /></label>
-                  </div>
-                  <label>회수 상태<select value={receivableDraft.status} onChange={(event) => setReceivableDraft({ ...receivableDraft, status: event.target.value as ReceivableStatus })}>{(Object.keys(receivableStatusLabels) as ReceivableStatus[]).map((status) => <option key={status} value={status}>{receivableStatusLabels[status]}</option>)}</select></label>
-                  <label>특이사항·회수 메모<textarea value={receivableDraft.memo} maxLength={1000} rows={7} placeholder="입금 약정, 연락 내역, 분쟁 사유 등을 기록하세요." onChange={(event) => setReceivableDraft({ ...receivableDraft, memo: event.target.value })} /></label>
-                  <button type="submit" className="receivable-save-button" disabled={receivableLoading}>{receivableLoading ? "저장 중…" : "변경내용 저장"}</button>
-                  <small>결산 기준 잔액과 다르면 현재 미수잔액을 직접 수정해 주세요. 저장값은 원천 회계자료를 변경하지 않고 관리기록으로 별도 보관됩니다.</small>
-                </form>
-              ) : <div className="receivable-empty-editor"><span>₩</span><strong>관리할 거래처를 선택하세요.</strong><p>왼쪽 목록에서 거래처를 선택하면 회수계획과 메모를 기록할 수 있습니다.</p></div>}
-            </article>
-          </section>
-        </>
-      )}
+      {workspace === "receivables" && <ReceivablesWorkspace />}
 
       {workspace === "statements" && (
         <>

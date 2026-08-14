@@ -59,6 +59,12 @@ test("payroll close can identify its single downstream finance request", async (
 test("sales payment allocations preserve partial collections and one invoice target per payment", async () => {
   const db = await migratedDatabase();
   const now = Date.now();
+  db.prepare(`INSERT INTO sales_accounts
+    (id, name, owner_employee_id, created_at, updated_at) VALUES ('account-1', '테스트 고객사', 'gc.kim', ?, ?)`)
+    .run(now, now);
+  db.prepare(`INSERT INTO sales_opportunities
+    (id, account_id, title, owner_employee_id, created_at, updated_at) VALUES ('opportunity-1', 'account-1', '테스트 매출', 'gc.kim', ?, ?)`)
+    .run(now, now);
   const insertDocument = db.prepare(`INSERT INTO sales_documents
     (id, opportunity_id, document_type, document_number, amount, status, issued_date, created_at, updated_at)
     VALUES (?, 'opportunity-1', ?, ?, ?, ?, '2026-08-14', ?, ?)`);
@@ -78,6 +84,20 @@ test("sales payment allocations preserve partial collections and one invoice tar
     WHERE allocation.invoice_document_id = ? AND payment.status <> 'CANCELLED'`).get("invoice-1");
   assert.equal(totals.reserved, 65000);
   assert.equal(totals.collected, 40000);
+  const receivable = db.prepare(`SELECT invoice.id,
+    COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0) AS collected_amount,
+    COALESCE(SUM(CASE WHEN payment.status NOT IN ('CANCELLED','ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0) AS reserved_amount
+    FROM sales_documents invoice
+    JOIN sales_opportunities opportunity ON opportunity.id = invoice.opportunity_id
+    JOIN sales_accounts account ON account.id = opportunity.account_id
+    LEFT JOIN sales_payment_allocations allocation ON allocation.invoice_document_id = invoice.id
+    LEFT JOIN sales_documents payment ON payment.id = allocation.payment_document_id
+    LEFT JOIN finance_receivable_cases receivable_case ON receivable_case.invoice_id = invoice.id
+    WHERE invoice.document_type = 'INVOICE' AND invoice.status IN ('ACCEPTED','COMPLETED') AND invoice.id = ?
+    GROUP BY invoice.id`).get("invoice-1");
+  assert.equal(receivable.collected_amount, 40000);
+  assert.equal(receivable.reserved_amount, 25000);
+  assert.equal(100000 - receivable.collected_amount, 60000);
 });
 
 test("purchase ledgers preserve ordered quantities, accepted receipts and invoice uniqueness", async () => {
@@ -353,4 +373,26 @@ test("finance master data enforces unique codes, aliases and approval-tracked ch
   assert.equal(change.status, "SUBMITTED");
   assert.equal(change.reason, "미사용 계정 비활성화");
   assert.ok(db.prepare("PRAGMA index_list(finance_master_accounts)").all().some((row) => row.name === "idx_finance_master_account_code"));
+});
+
+test("receivable collection cases stay unique per invoice while contact notes remain append-only", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertCase = db.prepare(`INSERT INTO finance_receivable_cases
+    (invoice_id, collection_status, owner_employee_id, promised_date, promised_amount,
+      next_action, next_action_date, updated_by, created_at, updated_at)
+    VALUES (?, 'PROMISED', 'gc.kim', '2026-08-20', 5000000, '입금증 확인', '2026-08-21', 'gc.kim', ?, ?)`);
+  insertCase.run("invoice-1", now, now);
+  assert.throws(() => insertCase.run("invoice-1", now, now), /UNIQUE constraint failed/);
+  db.prepare(`UPDATE finance_receivable_cases SET collection_status = 'IN_PROGRESS',
+    next_action = '담당자 재통화', updated_at = ? WHERE invoice_id = 'invoice-1'`).run(now + 1);
+  const insertNote = db.prepare(`INSERT INTO finance_receivable_notes
+    (id, invoice_id, note_type, content, created_by, created_at) VALUES (?, 'invoice-1', ?, ?, 'gc.kim', ?)`);
+  insertNote.run("note-1", "CALL", "입금 예정일 확인", now);
+  insertNote.run("note-2", "EMAIL", "입금증 요청", now + 1);
+  const collectionCase = db.prepare("SELECT * FROM finance_receivable_cases WHERE invoice_id = 'invoice-1'").get();
+  assert.equal(collectionCase.collection_status, "IN_PROGRESS");
+  assert.equal(collectionCase.next_action, "담당자 재통화");
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM finance_receivable_notes WHERE invoice_id = 'invoice-1'").get().count, 2);
+  assert.ok(db.prepare("PRAGMA index_list(finance_receivable_cases)").all().some((row) => row.name === "idx_finance_receivable_case_status_promise"));
 });

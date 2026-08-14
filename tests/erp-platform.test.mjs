@@ -42,6 +42,31 @@ test("finance master changes are approval-gated and new finance inputs validate 
   assert.match(plan, /임의 코드를 생성하지 않는다/);
 });
 
+test("invoice receivables derive balances from accepted payments and preserve operational collection history", async () => {
+  const [api, workspace, schema, migration, page, operations, plan] = await Promise.all([
+    read("app/api/finance/receivables/route.ts"), read("app/receivables-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0025_receivable_collections.sql"), read("app/page.tsx"),
+    read("app/api/operations/route.ts"), read("docs/finance-receivables-plan.md"),
+  ]);
+  for (const table of ["finance_receivable_cases", "finance_receivable_notes"]) {
+    assert.match(api, new RegExp(table));
+    assert.match(migration, new RegExp(table));
+  }
+  assert.match(schema, /financeReceivableCases/);
+  assert.match(schema, /financeReceivableNotes/);
+  assert.match(api, /payment\.status IN \('ACCEPTED','COMPLETED'\)/);
+  assert.match(api, /source\.outstandingAmount <= 0/);
+  assert.match(api, /입금 약속 상태에는 약속일과 약속금액/);
+  assert.match(api, /분쟁·보류 상태에는 사유/);
+  assert.match(workspace, /회계·영업 원천값 · 읽기 전용/);
+  assert.match(workspace, /연체 구간별 미수잔액/);
+  assert.match(workspace, /접촉·특이사항 기록/);
+  assert.match(page, /<ReceivablesWorkspace \/>/);
+  assert.match(operations, /receivable-collections-risk/);
+  assert.match(plan, /사용자가 임의 종결하지 못한다/);
+  assert.match(plan, /공식 신용등급/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

@@ -136,6 +136,35 @@ export const financeReceivableManagement = sqliteTable("finance_receivable_manag
   index("idx_finance_receivable_status_due").on(table.status, table.dueDate),
 ]);
 
+export const financeReceivableCases = sqliteTable("finance_receivable_cases", {
+  invoiceId: text("invoice_id").primaryKey(),
+  collectionStatus: text("collection_status").notNull().default("OPEN"),
+  ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  promisedDate: text("promised_date").notNull().default(""),
+  promisedAmount: integer("promised_amount").notNull().default(0),
+  disputeReason: text("dispute_reason").notNull().default(""),
+  nextAction: text("next_action").notNull().default(""),
+  nextActionDate: text("next_action_date").notNull().default(""),
+  memo: text("memo").notNull().default(""),
+  updatedBy: text("updated_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_receivable_case_status_promise").on(table.collectionStatus, table.promisedDate),
+  index("idx_finance_receivable_case_owner_action").on(table.ownerEmployeeId, table.nextActionDate),
+]);
+
+export const financeReceivableNotes = sqliteTable("finance_receivable_notes", {
+  id: text("id").primaryKey(),
+  invoiceId: text("invoice_id").notNull(),
+  noteType: text("note_type").notNull().default("GENERAL"),
+  content: text("content").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_finance_receivable_note_invoice_created").on(table.invoiceId, table.createdAt),
+]);
+
 export const erpUserAccess = sqliteTable("erp_user_access", {
   employeeId: text("employee_id").primaryKey(),
   email: text("email").notNull().unique(),

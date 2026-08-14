@@ -1206,6 +1206,67 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .receivable-empty-editor span { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 16px; color: #fff; background: #18181b; font-weight: 900; }
 .receivable-empty-editor strong { margin-top: 14px; font-size: 13px; }
 .receivable-empty-editor p { max-width: 270px; margin: 7px 0 0; color: #8b9491; font-size: 9px; line-height: 1.55; }
+.receivables-workspace { display: grid; gap: 18px; }
+.receivable-heading { margin-bottom: 0; }
+.receivable-kpis article { min-height: 126px; padding: 22px; border: 1px solid #e4e4e7; border-radius: 22px; background: #fff; }
+.receivable-kpis article span, .receivable-kpis article small { display: block; color: #71717a; font-size: 10px; }
+.receivable-kpis article strong { display: block; margin: 13px 0 7px; font-size: 28px; letter-spacing: -.05em; }
+.receivable-aging-panel { padding: 22px; }
+.receivable-section-head { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.receivable-section-head p { margin: 0; color: #71717a; font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.receivable-section-head h3 { margin: 5px 0 0; font-size: 18px; }
+.receivable-section-head > small { color: #71717a; font-size: 9px; }
+.receivable-aging-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+.receivable-aging-grid button { min-width: 0; padding: 15px; overflow: hidden; border: 1px solid #e4e4e7; border-radius: 17px; color: #18181b; background: #fafafa; text-align: left; cursor: pointer; }
+.receivable-aging-grid span, .receivable-aging-grid small, .receivable-aging-grid strong { display: block; }
+.receivable-aging-grid span { color: #71717a; font-size: 9px; font-weight: 850; }
+.receivable-aging-grid strong { margin: 9px 0 4px; overflow: hidden; text-overflow: ellipsis; font-size: 15px; white-space: nowrap; }
+.receivable-aging-grid small { color: #8b9491; font-size: 8px; }
+.receivable-aging-grid i { height: 3px; max-width: 100%; margin-top: 10px; display: block; border-radius: 999px; background: #ff5a1f; }
+.receivable-toolbar { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.receivable-toolbar > input { width: min(360px, 100%); height: 40px; padding: 0 14px; border: 1px solid #d4d4d8; border-radius: 14px; background: #fff; font-size: 10px; }
+.receivable-invoice-list { padding: 8px 18px 18px; display: grid; }
+.receivable-invoice-list > button { min-height: 68px; padding: 10px 5px; display: grid; grid-template-columns: 78px minmax(0, 1fr) auto; gap: 12px; align-items: center; border: 0; border-top: 1px solid #ececee; color: #18181b; background: transparent; text-align: left; cursor: pointer; }
+.receivable-invoice-list > button.active { margin: 3px -8px; padding: 10px 13px; border: 0; border-radius: 16px; color: #fff; background: #18181b; }
+.receivable-invoice-list p { min-width: 0; margin: 0; }
+.receivable-invoice-list strong, .receivable-invoice-list small { display: block; }
+.receivable-invoice-list strong { overflow: hidden; text-overflow: ellipsis; font-size: 11px; white-space: nowrap; }
+.receivable-invoice-list small { margin-top: 5px; color: #8b9491; font-size: 9px; }
+.receivable-invoice-list button.active small { color: #d4d4d8; }
+.receivable-invoice-list b { font-size: 11px; white-space: nowrap; }
+.receivable-status.open, .receivable-status.in_progress { color: #52525b; background: #f4f4f5; }
+.receivable-status.promised, .receivable-status.partial { color: #1d4ed8; background: #dbeafe; }
+.receivable-status.disputed, .receivable-status.hold { color: #be123c; background: #ffe4e6; }
+.receivable-status.closed { color: #166534; background: #dcfce7; }
+.receivable-list-panel > .receivable-section-head { padding: 20px 22px 12px; }
+.receivable-source-card { padding: 17px; border-radius: 17px; color: #fff; background: #18181b; }
+.receivable-source-card > span { color: #a1a1aa; font-size: 8px; font-weight: 900; letter-spacing: .1em; }
+.receivable-source-card h3 { margin: 8px 0 3px; font-size: 18px; }
+.receivable-source-card > p { margin: 0; color: #d4d4d8; font-size: 9px; }
+.receivable-source-card dl { margin: 16px 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.receivable-source-card dl div { padding: 9px; border-radius: 12px; background: #27272a; }
+.receivable-source-card dt, .receivable-source-card dd { margin: 0; }
+.receivable-source-card dt { color: #a1a1aa; font-size: 8px; }
+.receivable-source-card dd { margin-top: 4px; font-size: 11px; font-weight: 900; }
+.receivable-case-form, .receivable-note-form { margin-top: 20px; padding-top: 18px; border-top: 1px solid #e4e4e7; }
+.receivable-case-form label { margin-top: 12px; display: grid; gap: 6px; color: #52525b; font-size: 10px; font-weight: 850; }
+.receivable-case-form input, .receivable-case-form select, .receivable-case-form textarea, .receivable-note-form input, .receivable-note-form select { width: 100%; padding: 11px 12px; border: 1px solid #d4d4d8; border-radius: 13px; color: #18181b; background: #fff; font: inherit; outline: none; }
+.receivable-note-form > div:last-child { margin-top: 12px; display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 8px; }
+.receivable-note-form button { min-width: 58px; border: 0; border-radius: 13px; color: #fff; background: #18181b; font-weight: 900; cursor: pointer; }
+.receivable-note-form button:disabled { opacity: .45; }
+.receivable-note-list { margin-top: 12px; display: grid; gap: 8px; }
+.receivable-note-list article { padding: 12px; border-radius: 14px; background: #f4f4f5; }
+.receivable-note-list article span { color: #ff5a1f; font-size: 8px; font-weight: 900; }
+.receivable-note-list article p { margin: 6px 0; font-size: 10px; line-height: 1.55; white-space: pre-wrap; }
+.receivable-note-list article small { color: #71717a; font-size: 8px; }
+.receivable-closed-message { margin-top: 16px; padding: 13px; border-radius: 14px; color: #166534; background: #dcfce7; font-size: 9px; font-weight: 800; }
+.receivable-legacy-panel { padding: 18px 22px; }
+.receivable-legacy-panel summary { cursor: pointer; font-size: 11px; font-weight: 900; }
+.receivable-legacy-panel > p { color: #71717a; font-size: 9px; }
+.receivable-legacy-panel > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.receivable-legacy-panel > div span { padding: 8px 10px; border-radius: 12px; background: #f4f4f5; font-size: 9px; }
+.receivable-legacy-panel strong { margin-right: 8px; }
+.receivable-risk-note { margin: 0; color: #71717a; font-size: 9px; line-height: 1.6; }
 .account-risk-grid { grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); }
 .account-risk-hero { padding: 24px; color: #fff; background: #18181b; }
 .account-risk-hero > p:first-child { margin: 0; color: #a1a1aa; font-size: 8px; font-weight: 900; letter-spacing: .15em; }
@@ -1457,6 +1518,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .finance-main { margin-left: 242px; }
   .finance-workspace-layout { padding-right: 20px; padding-left: 20px; }
   .finance-side-navigation { left: 16px; width: 210px; }
+  .receivable-aging-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (max-width: 900px) {

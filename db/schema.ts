@@ -145,6 +145,52 @@ export const erpUserAccess = sqliteTable("erp_user_access", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const erpApprovalPolicies = sqliteTable("erp_approval_policies", {
+  id: text("id").primaryKey(),
+  module: text("module").notNull(),
+  requestType: text("request_type").notNull(),
+  name: text("name").notNull(),
+  minAmount: integer("min_amount").notNull().default(0),
+  maxAmount: integer("max_amount"),
+  priority: integer("priority").notNull().default(0),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_erp_approval_policy_match").on(table.module, table.requestType, table.active, table.minAmount),
+]);
+
+export const erpApprovalPolicySteps = sqliteTable("erp_approval_policy_steps", {
+  id: text("id").primaryKey(),
+  policyId: text("policy_id").notNull(),
+  stepOrder: integer("step_order").notNull(),
+  stepName: text("step_name").notNull(),
+  approverRole: text("approver_role").notNull().default(""),
+  approverEmployeeId: text("approver_employee_id").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_erp_approval_policy_step_order").on(table.policyId, table.stepOrder),
+]);
+
+export const erpApprovalDelegations = sqliteTable("erp_approval_delegations", {
+  id: text("id").primaryKey(),
+  delegatorEmployeeId: text("delegator_employee_id").notNull(),
+  delegateEmployeeId: text("delegate_employee_id").notNull(),
+  module: text("module").notNull().default("all"),
+  startsOn: text("starts_on").notNull(),
+  endsOn: text("ends_on").notNull(),
+  reason: text("reason").notNull(),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_erp_approval_delegation_active_dates").on(table.delegatorEmployeeId, table.active, table.startsOn, table.endsOn),
+  index("idx_erp_approval_delegation_delegate").on(table.delegateEmployeeId, table.active, table.endsOn),
+]);
+
 export const erpAuditLogs = sqliteTable("erp_audit_logs", {
   id: text("id").primaryKey(),
   actorUserId: text("actor_user_id").notNull(),
@@ -220,6 +266,7 @@ export const erpApprovalSteps = sqliteTable("erp_approval_steps", {
   stepName: text("step_name").notNull(),
   approverRole: text("approver_role").notNull(),
   approverEmployeeId: text("approver_employee_id").notNull().default(""),
+  delegatedFromEmployeeId: text("delegated_from_employee_id").notNull().default(""),
   status: text("status").notNull().default("WAITING"),
   comment: text("comment").notNull().default(""),
   actedBy: text("acted_by").notNull().default(""),

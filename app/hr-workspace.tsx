@@ -2354,7 +2354,9 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
         ? "알림 설정"
         : section === "permissions"
           ? "사용자·권한"
-          : "데이터·백업";
+          : section === "approvals"
+            ? "전자결재 규칙"
+            : "데이터·백업";
 
   return <div className="page-wrap settings-page">
     <section className="module-hero">
@@ -2363,7 +2365,7 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
     </section>
     <div className="settings-layout">
       <aside className="panel settings-nav">
-        {[["company", "회사·조직 정보"], ["hr", "인사 기준정보"], ["notifications", "알림 설정"], ["permissions", "사용자·권한"], ["data", "데이터·백업"]].map(([id, label]) => <button type="button" className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)}>{label}<span>›</span></button>)}
+        {[["company", "회사·조직 정보"], ["hr", "인사 기준정보"], ["notifications", "알림 설정"], ["permissions", "사용자·권한"], ["approvals", "전자결재 규칙"], ["data", "데이터·백업"]].map(([id, label]) => <button type="button" className={section === id ? "active" : ""} key={id} onClick={() => setSection(id)}>{label}<span>›</span></button>)}
       </aside>
       <section className="panel settings-content">
         <div className="detail-card-heading"><div><p className="eyebrow">{section.toUpperCase()}</p><h2>{sectionTitle}</h2></div></div>
@@ -2392,9 +2394,114 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
             })}
           </div>
         </div>}
+        {section === "approvals" && <ApprovalSettings employees={employees} onNotify={onNotify} />}
         {section === "data" && <div className="data-settings"><div><strong>마지막 자동 백업</strong><span>오늘 03:00 · 정상 완료</span><button type="button" onClick={onSave}>지금 백업</button></div><div><strong>개인정보 보유기간</strong><span>퇴사 후 3년 · 관리자 확인 필요</span><button type="button">정책 관리</button></div><div><strong>엑셀 데이터 가져오기</strong><span>직원·급여·교육 표준양식 지원</span><button type="button">가져오기</button></div></div>}
       </section>
     </div>
+  </div>;
+}
+
+function ApprovalSettings({ employees, onNotify }: { employees: Employee[]; onNotify: (message: string) => void }) {
+  type Module = "finance" | "hr" | "recruitment" | "sales";
+  type Role = "SUPER_ADMIN" | "FINANCE_ADMIN" | "HR_ADMIN" | "SALES_ADMIN";
+  type PolicyStep = { stepOrder: number; stepName: string; approverRole: Role; approverEmployeeId: string };
+  type Policy = { id: string; module: Module; requestType: string; name: string; minAmount: number; maxAmount: number | null; priority: number; steps: PolicyStep[] };
+  type Delegation = { id: string; delegatorEmployeeId: string; delegateEmployeeId: string; module: string; startsOn: string; endsOn: string; reason: string };
+  type AccessUser = { employeeId: string; roles: string[] };
+  type DefaultRoute = { module: Module; requestType: string; label: string; steps: PolicyStep[] };
+  const moduleLabels: Record<Module, string> = { finance: "재무회계", hr: "HR", recruitment: "채용", sales: "영업" };
+  const moduleRoles: Record<Module, Role[]> = { finance: ["FINANCE_ADMIN", "SUPER_ADMIN"], hr: ["HR_ADMIN", "SUPER_ADMIN"], recruitment: ["HR_ADMIN", "SUPER_ADMIN"], sales: ["SALES_ADMIN", "SUPER_ADMIN"] };
+  const roleLabels: Record<Role, string> = { SUPER_ADMIN: "대표 승인", FINANCE_ADMIN: "재무 관리자", HR_ADMIN: "HR 관리자", SALES_ADMIN: "영업 관리자" };
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const nextWeek = new Date(Date.now() + (7 * 24 + 9) * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [loading, setLoading] = useState(true);
+  const [types, setTypes] = useState<Record<Module, Record<string, string>>>({ finance: {}, hr: {}, recruitment: {}, sales: {} });
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [defaults, setDefaults] = useState<DefaultRoute[]>([]);
+  const [delegations, setDelegations] = useState<Delegation[]>([]);
+  const [users, setUsers] = useState<AccessUser[]>([]);
+  const emptySteps = (module: Module): PolicyStep[] => [{ stepOrder: 1, stepName: `${moduleLabels[module]} 검토`, approverRole: moduleRoles[module][0], approverEmployeeId: "" }, { stepOrder: 2, stepName: "대표 승인", approverRole: "SUPER_ADMIN", approverEmployeeId: "" }];
+  const [policyDraft, setPolicyDraft] = useState({ id: "", module: "finance" as Module, requestType: "EXPENSE", name: "", minAmount: "0", maxAmount: "", priority: "0", steps: emptySteps("finance") });
+  const [delegationDraft, setDelegationDraft] = useState({ delegatorEmployeeId: "", delegateEmployeeId: "", module: "all", startsOn: today, endsOn: nextWeek, reason: "" });
+  const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id;
+  const formatAmount = (value: number | null) => value === null ? "제한 없음" : `${new Intl.NumberFormat("ko-KR").format(value)}원`;
+
+  async function loadSettings() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/approval-settings", { cache: "no-store" });
+      const payload = await response.json() as { policies?: Policy[]; defaults?: DefaultRoute[]; delegations?: Delegation[]; users?: AccessUser[]; types?: Record<Module, Record<string, string>>; error?: string };
+      if (!response.ok) throw new Error(payload.error || "전자결재 설정을 불러오지 못했습니다.");
+      setPolicies(payload.policies ?? []); setDefaults(payload.defaults ?? []); setDelegations(payload.delegations ?? []); setUsers(payload.users ?? []);
+      if (payload.types) setTypes(payload.types);
+    } catch (error) { onNotify(error instanceof Error ? error.message : "전자결재 설정을 불러오지 못했습니다."); }
+    finally { setLoading(false); }
+  }
+
+  useEffect(() => { void loadSettings(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function changePolicyModule(module: Module) {
+    setPolicyDraft({ id: "", module, requestType: Object.keys(types[module])[0] ?? "", name: "", minAmount: "0", maxAmount: "", priority: "0", steps: emptySteps(module) });
+  }
+
+  async function savePolicy(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const response = await fetch("/api/approval-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "policy", ...policyDraft }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "결재 규칙을 저장하지 못했습니다."); return; }
+    onNotify(policyDraft.id ? "결재 규칙을 수정했습니다." : "결재 규칙을 추가했습니다.");
+    changePolicyModule(policyDraft.module); await loadSettings();
+  }
+
+  function editPolicy(policy: Policy) {
+    setPolicyDraft({ id: policy.id, module: policy.module, requestType: policy.requestType, name: policy.name, minAmount: String(policy.minAmount), maxAmount: policy.maxAmount === null ? "" : String(policy.maxAmount), priority: String(policy.priority), steps: policy.steps });
+  }
+
+  async function disableSetting(resource: "policy" | "delegation", id: string) {
+    const response = await fetch("/api/approval-settings", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource, id, reason: "관리자 설정 변경" }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "설정을 비활성화하지 못했습니다."); return; }
+    onNotify(resource === "policy" ? "결재 규칙을 비활성화했습니다." : "대결 설정을 종료했습니다."); await loadSettings();
+  }
+
+  async function saveDelegation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const response = await fetch("/api/approval-settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "delegation", ...delegationDraft }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "대결 설정을 저장하지 못했습니다."); return; }
+    onNotify("대결 기간을 등록했습니다. 새로 제출되는 결재부터 적용됩니다.");
+    setDelegationDraft({ delegatorEmployeeId: "", delegateEmployeeId: "", module: "all", startsOn: today, endsOn: nextWeek, reason: "" }); await loadSettings();
+  }
+
+  const updateStep = (index: number, change: Partial<PolicyStep>) => setPolicyDraft((current) => ({ ...current, steps: current.steps.map((step, stepIndex) => stepIndex === index ? { ...step, ...change } : step) }));
+  return <div className="approval-settings">
+    <div className="approval-settings-intro"><strong>결재 규칙은 제출 시점에 확정됩니다.</strong><span>금액 구간에 맞는 사용자 정의 규칙이 없으면 안전한 기본 결재선을 사용합니다. 1단계 규칙은 전결로 처리됩니다.</span></div>
+    <section className="approval-setting-block"><div className="approval-setting-heading"><div><h3>금액·유형별 결재 규칙</h3><span>겹치지 않는 금액 구간으로 최대 3단계까지 설정합니다.</span></div></div>
+      <form className="approval-policy-form" onSubmit={savePolicy}>
+        <label><span>업무 영역</span><select value={policyDraft.module} onChange={(event) => changePolicyModule(event.target.value as Module)}>{Object.entries(moduleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label><span>결재 유형</span><select value={policyDraft.requestType} onChange={(event) => setPolicyDraft({ ...policyDraft, requestType: event.target.value })}>{Object.entries(types[policyDraft.module]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label><span>규칙명</span><input required value={policyDraft.name} onChange={(event) => setPolicyDraft({ ...policyDraft, name: event.target.value })} placeholder="예: 소액 견적 전결" /></label>
+        <label><span>최소 금액</span><input type="number" min="0" required value={policyDraft.minAmount} onChange={(event) => setPolicyDraft({ ...policyDraft, minAmount: event.target.value })} /></label>
+        <label><span>최대 금액</span><input type="number" min="0" value={policyDraft.maxAmount} onChange={(event) => setPolicyDraft({ ...policyDraft, maxAmount: event.target.value })} placeholder="비우면 제한 없음" /></label>
+        <label><span>우선순위</span><input type="number" min="0" max="999" value={policyDraft.priority} onChange={(event) => setPolicyDraft({ ...policyDraft, priority: event.target.value })} /></label>
+        <div className="approval-policy-steps"><span>결재 단계</span>{policyDraft.steps.map((step, index) => <div key={step.stepOrder}><b>{index + 1}</b><input aria-label={`${index + 1}단계 명칭`} required value={step.stepName} onChange={(event) => updateStep(index, { stepName: event.target.value })} /><select aria-label={`${index + 1}단계 역할`} value={step.approverRole} onChange={(event) => updateStep(index, { approverRole: event.target.value as Role, approverEmployeeId: "" })}>{moduleRoles[policyDraft.module].map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}</select><select aria-label={`${index + 1}단계 지정 결재자`} value={step.approverEmployeeId} onChange={(event) => updateStep(index, { approverEmployeeId: event.target.value })}><option value="">역할로 자동 배정</option>{users.filter((user) => user.roles.includes(step.approverRole) || user.roles.includes("SUPER_ADMIN")).map((user) => <option key={user.employeeId} value={user.employeeId}>{employeeName(user.employeeId)}</option>)}</select>{policyDraft.steps.length > 1 && <button type="button" onClick={() => setPolicyDraft((current) => ({ ...current, steps: current.steps.filter((_, stepIndex) => stepIndex !== index).map((item, stepIndex) => ({ ...item, stepOrder: stepIndex + 1 })) }))}>삭제</button>}</div>)}{policyDraft.steps.length < 3 && <button type="button" className="approval-add-step" onClick={() => setPolicyDraft((current) => ({ ...current, steps: [...current.steps, { stepOrder: current.steps.length + 1, stepName: "추가 승인", approverRole: "SUPER_ADMIN", approverEmployeeId: "" }] }))}>＋ 단계 추가</button>}</div>
+        <div className="approval-policy-actions">{policyDraft.id && <button type="button" onClick={() => changePolicyModule(policyDraft.module)}>수정 취소</button>}<button type="submit">{policyDraft.id ? "규칙 수정" : "규칙 추가"}</button></div>
+      </form>
+      <div className="approval-policy-list">{loading ? <p>불러오는 중입니다.</p> : policies.length ? policies.map((policy) => <article key={policy.id}><div><span>{moduleLabels[policy.module]} · {types[policy.module]?.[policy.requestType] ?? policy.requestType}</span><strong>{policy.name}</strong><small>{formatAmount(policy.minAmount)} ~ {formatAmount(policy.maxAmount)} · {policy.steps.length === 1 ? "전결" : `${policy.steps.length}단계`}</small></div><ol>{policy.steps.map((step) => <li key={step.stepOrder}>{step.stepName} · {step.approverEmployeeId ? employeeName(step.approverEmployeeId) : roleLabels[step.approverRole]}</li>)}</ol><div><button type="button" onClick={() => editPolicy(policy)}>수정</button><button type="button" onClick={() => void disableSetting("policy", policy.id)}>비활성화</button></div></article>) : <div className="approval-default-list"><strong>현재 사용자 정의 규칙 없음</strong><span>아래 기본 결재선이 적용됩니다.</span>{defaults.slice(0, 8).map((route) => <small key={`${route.module}:${route.requestType}`}>{moduleLabels[route.module]} · {route.label}: {route.steps.map((step) => step.stepName).join(" → ")}</small>)}</div>}</div>
+    </section>
+    <section className="approval-setting-block"><div className="approval-setting-heading"><div><h3>대결 설정</h3><span>휴가·출장 등 부재기간의 새 결재를 지정 사용자에게 배정합니다.</span></div></div>
+      <form className="approval-delegation-form" onSubmit={saveDelegation}>
+        <label><span>원 결재자</span><select required value={delegationDraft.delegatorEmployeeId} onChange={(event) => setDelegationDraft({ ...delegationDraft, delegatorEmployeeId: event.target.value })}><option value="">선택</option>{users.map((user) => <option key={user.employeeId} value={user.employeeId}>{employeeName(user.employeeId)}</option>)}</select></label>
+        <label><span>대결자</span><select required value={delegationDraft.delegateEmployeeId} onChange={(event) => setDelegationDraft({ ...delegationDraft, delegateEmployeeId: event.target.value })}><option value="">선택</option>{users.filter((user) => user.employeeId !== delegationDraft.delegatorEmployeeId).map((user) => <option key={user.employeeId} value={user.employeeId}>{employeeName(user.employeeId)}</option>)}</select></label>
+        <label><span>업무 범위</span><select value={delegationDraft.module} onChange={(event) => setDelegationDraft({ ...delegationDraft, module: event.target.value })}><option value="all">전체</option>{Object.entries(moduleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label><span>시작일</span><input required type="date" value={delegationDraft.startsOn} onChange={(event) => setDelegationDraft({ ...delegationDraft, startsOn: event.target.value })} /></label>
+        <label><span>종료일</span><input required type="date" value={delegationDraft.endsOn} onChange={(event) => setDelegationDraft({ ...delegationDraft, endsOn: event.target.value })} /></label>
+        <label className="wide"><span>대결 사유</span><input required value={delegationDraft.reason} onChange={(event) => setDelegationDraft({ ...delegationDraft, reason: event.target.value })} placeholder="부재 사유와 적용 범위를 기록하세요" /></label>
+        <button type="submit" disabled={users.length < 2}>대결 등록</button>
+      </form>
+      {users.length < 2 && <p className="approval-setting-warning">대결을 사용하려면 사용자·권한에서 ERP 사용자를 한 명 이상 추가해야 합니다.</p>}
+      <div className="approval-delegation-list">{delegations.map((delegation) => <article key={delegation.id}><span>{employeeName(delegation.delegatorEmployeeId)} → {employeeName(delegation.delegateEmployeeId)}</span><strong>{delegation.module === "all" ? "전체 업무" : moduleLabels[delegation.module as Module]} · {delegation.startsOn}~{delegation.endsOn}</strong><small>{delegation.reason}</small><button type="button" onClick={() => void disableSetting("delegation", delegation.id)}>종료</button></article>)}{!loading && !delegations.length && <p>현재 활성 대결 설정이 없습니다.</p>}</div>
+    </section>
   </div>;
 }
 

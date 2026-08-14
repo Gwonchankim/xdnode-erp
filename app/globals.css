@@ -1654,8 +1654,9 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .approval-form-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; }
 .approval-form-actions button { height: 40px; padding: 0 16px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font-weight: 800; cursor: pointer; }
 .approval-form-actions button:last-child { color: #fff; border-color: #18181b; background: #18181b; }
-.approval-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 15px 26px 0; }
+.approval-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 15px 26px 0; }
 .approval-summary article { display: flex; align-items: center; justify-content: space-between; padding: 14px 17px; border: 1px solid #dedee3; border-radius: 16px; background: #fff; }
+.approval-summary article.overdue { border-color: #fda29b; background: #fff1f0; }.approval-summary article.overdue strong { color: #b42318; }
 .approval-summary span { color: #71717a; font-size: 11px; font-weight: 700; }
 .approval-summary strong { font-size: 24px; }
 .approval-tabs { display: flex; gap: 5px; padding: 14px 26px 10px; }
@@ -1667,6 +1668,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .approval-request-list > button { width: 100%; display: grid; gap: 7px; padding: 14px; text-align: left; border: 1px solid transparent; border-radius: 13px; background: transparent; cursor: pointer; }
 .approval-request-list > button + button { margin-top: 4px; }
 .approval-request-list > button:hover, .approval-request-list > button.active { border-color: #d4d4d8; background: #f4f4f5; }
+.approval-request-list > button.overdue time { color: #b42318; font-weight: 800; }
 .approval-request-list > button > span { display: flex; justify-content: space-between; gap: 10px; }
 .approval-request-list em { color: #ef5b36; font-size: 9px; font-style: normal; font-weight: 900; letter-spacing: .06em; }
 .approval-request-list time, .approval-request-list small { color: #a1a1aa; font-size: 10px; }
@@ -1722,7 +1724,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .approval-center { inset: 0; border: 0; border-radius: 0; }
   .approval-center-header > div:first-child > span { display: none; }
   .approval-create-form { grid-template-columns: 1fr 1fr; }.approval-create-form label.wide { grid-column: 1 / -1; }
-  .approval-summary { grid-template-columns: 1fr 1fr 1fr; }.approval-summary article { display: grid; gap: 3px; padding: 10px; }
+  .approval-summary { grid-template-columns: 1fr 1fr; }.approval-summary article { display: grid; gap: 3px; padding: 10px; }
   .approval-layout { display: block; overflow: auto; }.approval-request-list { max-height: 220px; margin-bottom: 10px; }.approval-detail { min-height: 420px; }
   .approval-facts { grid-template-columns: 1fr 1fr; }
 }

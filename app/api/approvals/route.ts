@@ -14,7 +14,7 @@ type ApprovalRow = {
 };
 type StepRow = {
   id: string; request_id: string; step_order: number; step_name: string; approver_role: string;
-  approver_employee_id: string; status: string; comment: string; acted_by: string;
+  approver_employee_id: string; delegated_from_employee_id: string; status: string; comment: string; acted_by: string;
   acted_at: number | null; created_at: number; updated_at: number;
 };
 type EventRow = { id: string; request_id: string; step_order: number; action: string; actor_employee_id: string; comment: string; snapshot_json: string; created_at: number };
@@ -33,7 +33,7 @@ const toRequest = (row: ApprovalRow) => ({
   version: row.version, submittedAt: row.submitted_at, decidedAt: row.decided_at,
   createdAt: row.created_at, updatedAt: row.updated_at,
 });
-const toStep = (row: StepRow) => ({ id: row.id, requestId: row.request_id, stepOrder: row.step_order, stepName: row.step_name, approverRole: row.approver_role, approverEmployeeId: row.approver_employee_id, status: row.status, comment: row.comment, actedBy: row.acted_by, actedAt: row.acted_at });
+const toStep = (row: StepRow) => ({ id: row.id, requestId: row.request_id, stepOrder: row.step_order, stepName: row.step_name, approverRole: row.approver_role, approverEmployeeId: row.approver_employee_id, delegatedFromEmployeeId: row.delegated_from_employee_id, status: row.status, comment: row.comment, actedBy: row.acted_by, actedAt: row.acted_at });
 const toEvent = (row: EventRow) => ({ id: row.id, requestId: row.request_id, stepOrder: row.step_order, action: row.action, actorEmployeeId: row.actor_employee_id, comment: row.comment, snapshot: safeJson(row.snapshot_json, {}), createdAt: row.created_at });
 
 export async function GET() {
@@ -48,17 +48,20 @@ export async function GET() {
       CASE r.priority WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END,
       r.updated_at DESC LIMIT 200`).bind(canSeeAll ? 1 : 0, principal.employeeId, principal.employeeId).all<ApprovalRow>();
   const ids = requests.results.map((item) => item.id);
-  if (!ids.length) return Response.json({ principal, summary: { pendingMine: 0, requestedByMe: 0, active: 0 }, requests: [], steps: [], events: [], types: approvalTypeLabels });
+  if (!ids.length) return Response.json({ principal, summary: { pendingMine: 0, requestedByMe: 0, active: 0, overdueMine: 0 }, requests: [], steps: [], events: [], types: approvalTypeLabels });
   const placeholders = ids.map(() => "?").join(",");
   const [steps, events] = await Promise.all([
     db.prepare(`SELECT * FROM erp_approval_steps WHERE request_id IN (${placeholders}) ORDER BY request_id, step_order`).bind(...ids).all<StepRow>(),
     db.prepare(`SELECT * FROM erp_approval_events WHERE request_id IN (${placeholders}) ORDER BY created_at ASC`).bind(...ids).all<EventRow>(),
   ]);
   const mappedSteps = steps.results.map(toStep);
+  const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const pendingRequestIds = new Set(mappedSteps.filter((step) => step.approverEmployeeId === principal.employeeId && step.status === "PENDING").map((step) => step.requestId));
   return Response.json({
     principal,
     summary: {
       pendingMine: mappedSteps.filter((step) => step.approverEmployeeId === principal.employeeId && step.status === "PENDING").length,
+      overdueMine: requests.results.filter((item) => pendingRequestIds.has(item.id) && item.due_date && item.due_date < today).length,
       requestedByMe: requests.results.filter((item) => item.requester_employee_id === principal.employeeId && activeStatuses.includes(item.status)).length,
       active: requests.results.filter((item) => activeStatuses.includes(item.status)).length,
     },
@@ -160,11 +163,14 @@ export async function PUT(request: Request) {
     ]);
     if ((result[0].meta.changes ?? 0) === 0) return Response.json({ error: "다른 사용자가 먼저 처리했습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
   } else {
-    const approval = await authorizeErpRequest(db, before.module as ErpModule, "approve");
-    if (approval.response) return approval.response;
     const step = await db.prepare(`SELECT * FROM erp_approval_steps WHERE request_id = ? AND step_order = ? AND status = 'PENDING'`)
       .bind(id, before.current_step).first<StepRow>();
     if (!step) return Response.json({ error: "현재 처리할 결재 단계가 없습니다." }, { status: 409 });
+    const actingAsDelegate = step.approver_employee_id === principal.employeeId && Boolean(step.delegated_from_employee_id);
+    if (!actingAsDelegate) {
+      const approval = await authorizeErpRequest(db, before.module as ErpModule, "approve");
+      if (approval.response) return approval.response;
+    }
     if (step.approver_employee_id !== principal.employeeId && !principal.roles.includes("SUPER_ADMIN")) return Response.json({ error: "현재 단계의 결재자가 아닙니다." }, { status: 403 });
     const next = await db.prepare(`SELECT * FROM erp_approval_steps WHERE request_id = ? AND step_order = ?`).bind(id, before.current_step + 1).first<StepRow>();
     const finalApprove = action === "APPROVE" && !next;

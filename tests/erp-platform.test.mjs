@@ -169,3 +169,56 @@ test("approval center replaces fixed mock approvals with server-backed workflow 
   assert.match(center, /기안·검토·승인·반려/);
   assert.match(center, /보완 후 재제출/);
 });
+
+test("approval policies and delegations are durable, audited and server-authorized", async () => {
+  const [schema, platform, api, engine, migration, workspace] = await Promise.all([
+    read("db/schema.ts"), read("app/erp-platform.ts"), read("app/api/approval-settings/route.ts"),
+    read("app/approval-engine.ts"), read("drizzle/0013_fine_luke_cage.sql"), read("app/hr-workspace.tsx"),
+  ]);
+  for (const table of ["erp_approval_policies", "erp_approval_policy_steps", "erp_approval_delegations"]) {
+    assert.match(schema, new RegExp(table));
+    assert.match(platform, new RegExp(table));
+    assert.match(migration, new RegExp(table));
+  }
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /겹치는 금액 구간/);
+  assert.match(api, /기간과 업무 범위가 겹치는 대결 설정/);
+  assert.match(api, /writeErpAudit/);
+  assert.match(engine, /configuredRouteFor/);
+  assert.match(engine, /delegatedFromEmployeeId/);
+  assert.match(workspace, /전자결재 규칙/);
+  assert.match(workspace, /1단계 규칙은 전결/);
+});
+
+test("delegated approvals remain scoped to the assigned step and are visible in the route", async () => {
+  const [api, engine, center] = await Promise.all([
+    read("app/api/approvals/route.ts"), read("app/approval-engine.ts"), read("app/approval-center.tsx"),
+  ]);
+  assert.match(api, /actingAsDelegate/);
+  assert.match(api, /step\.approver_employee_id === principal\.employeeId/);
+  assert.match(api, /Boolean\(step\.delegated_from_employee_id\)/);
+  assert.match(engine, /starts_on <= \?/);
+  assert.match(engine, /ends_on >= \?/);
+  assert.match(center, /delegatedFromEmployeeId/);
+  assert.match(center, /대결/);
+});
+
+test("future personnel actions wait until their effective date and then apply once", async () => {
+  const [engine, activator, records] = await Promise.all([
+    read("app/approval-engine.ts"), read("app/hr-personnel-actions.ts"), read("app/api/hr/employee-records/route.ts"),
+  ]);
+  assert.match(engine, /effective_date FROM hr_personnel_actions/);
+  assert.match(engine, /effective_date <= \?/);
+  assert.match(activator, /WHERE status = 'APPROVED' AND effective_date <= \?/);
+  assert.match(activator, /status = 'EFFECTIVE'/);
+  assert.match(activator, /PERSONNEL_ACTION_EFFECTIVE/);
+  assert.match(records, /applyDuePersonnelActions\(db\)/);
+});
+
+test("approval center reports overdue work without manufacturing a second task", async () => {
+  const [api, center] = await Promise.all([read("app/api/approvals/route.ts"), read("app/approval-center.tsx")]);
+  assert.match(api, /overdueMine/);
+  assert.match(api, /item\.due_date < today/);
+  assert.match(center, /기한 경과/);
+  assert.match(center, /summary\.overdueMine/);
+});

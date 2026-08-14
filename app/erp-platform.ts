@@ -98,6 +98,29 @@ export async function ensureErpPlatformSchema(db: D1Database) {
       transition_token TEXT NOT NULL DEFAULT '',
       submitted_at INTEGER NOT NULL, decided_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_policies (
+      id TEXT PRIMARY KEY NOT NULL, module TEXT NOT NULL, request_type TEXT NOT NULL, name TEXT NOT NULL,
+      min_amount INTEGER NOT NULL DEFAULT 0, max_amount INTEGER, priority INTEGER NOT NULL DEFAULT 0,
+      active INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_policy_match
+      ON erp_approval_policies (module, request_type, active, min_amount)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_policy_steps (
+      id TEXT PRIMARY KEY NOT NULL, policy_id TEXT NOT NULL, step_order INTEGER NOT NULL,
+      step_name TEXT NOT NULL, approver_role TEXT NOT NULL DEFAULT '', approver_employee_id TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_approval_policy_step_order
+      ON erp_approval_policy_steps (policy_id, step_order)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_delegations (
+      id TEXT PRIMARY KEY NOT NULL, delegator_employee_id TEXT NOT NULL, delegate_employee_id TEXT NOT NULL,
+      module TEXT NOT NULL DEFAULT 'all', starts_on TEXT NOT NULL, ends_on TEXT NOT NULL, reason TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_delegation_active_dates
+      ON erp_approval_delegations (delegator_employee_id, active, starts_on, ends_on)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_delegation_delegate
+      ON erp_approval_delegations (delegate_employee_id, active, ends_on)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_requester_status
       ON erp_approval_requests (requester_employee_id, status, updated_at)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_module_status
@@ -107,6 +130,7 @@ export async function ensureErpPlatformSchema(db: D1Database) {
     db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_steps (
       id TEXT PRIMARY KEY NOT NULL, request_id TEXT NOT NULL, step_order INTEGER NOT NULL,
       step_name TEXT NOT NULL, approver_role TEXT NOT NULL, approver_employee_id TEXT NOT NULL DEFAULT '',
+      delegated_from_employee_id TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'WAITING', comment TEXT NOT NULL DEFAULT '', acted_by TEXT NOT NULL DEFAULT '',
       acted_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
@@ -146,6 +170,10 @@ export async function ensureErpPlatformSchema(db: D1Database) {
       .bind(administrator.id, administrator.email.toLowerCase(), JSON.stringify(["SUPER_ADMIN"]), now, now));
   }
   await db.batch(statements);
+  const approvalStepColumns = await db.prepare("PRAGMA table_info(erp_approval_steps)").all<{ name: string }>();
+  if (!approvalStepColumns.results.some((column) => column.name === "delegated_from_employee_id")) {
+    await db.prepare("ALTER TABLE erp_approval_steps ADD COLUMN delegated_from_employee_id TEXT NOT NULL DEFAULT ''").run();
+  }
 }
 
 function parseRoles(value: string): ErpRole[] {

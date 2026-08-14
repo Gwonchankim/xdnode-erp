@@ -17,8 +17,11 @@ export type ApprovalCreateInput = {
   metadata?: Record<string, unknown>;
 };
 
-type ApprovalRouteStep = { name: string; role: ErpRole };
+type ApprovalRouteStep = { name: string; role: ErpRole; employeeId?: string };
 type AccessRow = { employee_id: string; roles_json: string };
+type PolicyRow = { id: string };
+type PolicyStepRow = { step_name: string; approver_role: ErpRole; approver_employee_id: string };
+type DelegationRow = { delegator_employee_id: string; delegate_employee_id: string; module: string };
 
 export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> = {
   finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", PAYMENT: "지급 승인" },
@@ -31,7 +34,7 @@ export function isApprovalType(module: ApprovalModule, requestType: string) {
   return Object.prototype.hasOwnProperty.call(approvalTypeLabels[module], requestType);
 }
 
-function routeFor(input: ApprovalCreateInput): ApprovalRouteStep[] {
+function defaultRouteFor(input: ApprovalCreateInput): ApprovalRouteStep[] {
   if (input.module === "finance") {
     if (input.requestType === "CLOSE") return [{ name: "재무 검토", role: "FINANCE_ADMIN" }, { name: "대표 승인", role: "SUPER_ADMIN" }];
     return [{ name: "재무 검토", role: "FINANCE_ADMIN" }, { name: "대표 승인", role: "SUPER_ADMIN" }];
@@ -49,6 +52,10 @@ function routeFor(input: ApprovalCreateInput): ApprovalRouteStep[] {
   return [{ name: "영업 검토", role: "SALES_ADMIN" }, { name: "대표 승인", role: "SUPER_ADMIN" }];
 }
 
+export function defaultApprovalRoute(module: ApprovalModule, requestType: string, amount = 0) {
+  return defaultRouteFor({ module, requestType, title: "", amount });
+}
+
 function parseRoles(value: string): ErpRole[] {
   try {
     const parsed = JSON.parse(value);
@@ -58,20 +65,53 @@ function parseRoles(value: string): ErpRole[] {
   }
 }
 
-async function resolveApprovers(db: D1Database, steps: ApprovalRouteStep[], requesterEmployeeId: string) {
-  const access = await db.prepare(`SELECT employee_id, roles_json FROM erp_user_access
+async function configuredRouteFor(db: D1Database, input: ApprovalCreateInput) {
+  const amount = Math.max(0, Math.round(input.amount ?? 0));
+  const policy = await db.prepare(`SELECT id FROM erp_approval_policies
+    WHERE module = ? AND request_type = ? AND active = 1 AND min_amount <= ?
+      AND (max_amount IS NULL OR max_amount >= ?)
+    ORDER BY priority DESC, min_amount DESC, updated_at DESC LIMIT 1`)
+    .bind(input.module, input.requestType, amount, amount).first<PolicyRow>();
+  if (!policy) return { policyId: "", steps: defaultRouteFor(input) };
+  const result = await db.prepare(`SELECT step_name, approver_role, approver_employee_id
+    FROM erp_approval_policy_steps WHERE policy_id = ? ORDER BY step_order`).bind(policy.id).all<PolicyStepRow>();
+  if (!result.results.length) throw new Error("선택된 결재 규칙에 결재 단계가 없습니다.");
+  return {
+    policyId: policy.id,
+    steps: result.results.map((step) => ({ name: step.step_name, role: step.approver_role, employeeId: step.approver_employee_id || undefined })),
+  };
+}
+
+async function resolveApprovers(db: D1Database, steps: ApprovalRouteStep[], requesterEmployeeId: string, module: ApprovalModule) {
+  const today = new Date().toISOString().slice(0, 10);
+  const [access, delegationResult] = await Promise.all([
+    db.prepare(`SELECT employee_id, roles_json FROM erp_user_access
     WHERE active = 1 ORDER BY CASE WHEN employee_id = ? THEN 1 ELSE 0 END, created_at ASC`)
-    .bind(requesterEmployeeId).all<AccessRow>();
+      .bind(requesterEmployeeId).all<AccessRow>(),
+    db.prepare(`SELECT delegator_employee_id, delegate_employee_id, module FROM erp_approval_delegations
+      WHERE active = 1 AND starts_on <= ? AND ends_on >= ? AND (module = ? OR module = 'all')
+      ORDER BY CASE WHEN module = ? THEN 0 ELSE 1 END, updated_at DESC`)
+      .bind(today, today, module, module).all<DelegationRow>(),
+  ]);
+  const activeIds = new Set(access.results.map((row) => row.employee_id));
   return steps.map((step) => {
-    const exact = access.results.find((row) => parseRoles(row.roles_json).includes(step.role));
+    const explicit = step.employeeId ? access.results.find((row) => row.employee_id === step.employeeId) : undefined;
+    const exact = step.employeeId ? explicit : access.results.find((row) => parseRoles(row.roles_json).includes(step.role));
     const superAdmin = access.results.find((row) => parseRoles(row.roles_json).includes("SUPER_ADMIN"));
-    return { ...step, employeeId: exact?.employee_id ?? superAdmin?.employee_id ?? "" };
+    const originalEmployeeId = exact?.employee_id ?? (step.employeeId ? "" : superAdmin?.employee_id ?? "");
+    const delegation = delegationResult.results.find((item) => item.delegator_employee_id === originalEmployeeId && activeIds.has(item.delegate_employee_id));
+    return {
+      ...step,
+      employeeId: delegation?.delegate_employee_id ?? originalEmployeeId,
+      delegatedFromEmployeeId: delegation ? originalEmployeeId : "",
+    };
   });
 }
 
 export async function createApprovalRequest(db: D1Database, principal: ErpPrincipal, input: ApprovalCreateInput) {
   if (!isApprovalType(input.module, input.requestType)) throw new Error("지원하지 않는 결재 유형입니다.");
-  const route = await resolveApprovers(db, routeFor(input), principal.employeeId);
+  const configured = await configuredRouteFor(db, input);
+  const route = await resolveApprovers(db, configured.steps, principal.employeeId, input.module);
   if (route.some((step) => !step.employeeId)) throw new Error("결재선에 필요한 승인 권한 사용자가 없습니다.");
 
   const now = Date.now();
@@ -91,13 +131,13 @@ export async function createApprovalRequest(db: D1Database, principal: ErpPrinci
     db.prepare(`INSERT INTO erp_approval_events
       (id, request_id, step_order, action, actor_employee_id, comment, snapshot_json, created_at)
       VALUES (?, ?, 0, 'SUBMITTED', ?, '', ?, ?)`)
-      .bind(crypto.randomUUID(), id, principal.employeeId, JSON.stringify({ module: input.module, requestType: input.requestType, title: input.title, route }), now),
+      .bind(crypto.randomUUID(), id, principal.employeeId, JSON.stringify({ module: input.module, requestType: input.requestType, title: input.title, policyId: configured.policyId, route }), now),
   ];
   route.forEach((step, index) => statements.push(db.prepare(`INSERT INTO erp_approval_steps
-    (id, request_id, step_order, step_name, approver_role, approver_employee_id, status,
+    (id, request_id, step_order, step_name, approver_role, approver_employee_id, delegated_from_employee_id, status,
       comment, acted_by, acted_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, '', '', NULL, ?, ?)`)
-    .bind(crypto.randomUUID(), id, index + 1, step.name, step.role, step.employeeId, index === 0 ? "PENDING" : "WAITING", now, now)));
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', '', NULL, ?, ?)`)
+    .bind(crypto.randomUUID(), id, index + 1, step.name, step.role, step.employeeId, step.delegatedFromEmployeeId, index === 0 ? "PENDING" : "WAITING", now, now)));
   statements.push(db.prepare(`INSERT INTO erp_tasks
     (id, module, category, title, description, owner_employee_id, due_date, status, priority,
       destination, source_type, source_id, created_at, updated_at)
@@ -115,6 +155,7 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "REJECTED", actorEmployeeId, now, now, targetEntityId, requestId, transitionToken)];
   } else if (targetEntityType === "HR_PERSONNEL_ACTION") {
+    const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const statements = [db.prepare(`UPDATE hr_personnel_actions SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "REJECTED", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
@@ -127,8 +168,12 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
             FROM hr_personnel_actions WHERE id = ?))),
         updated_at = ?
         WHERE employee_id = (SELECT employee_id FROM hr_personnel_actions WHERE id = ?)
+          AND (SELECT effective_date FROM hr_personnel_actions WHERE id = ?) <= ?
           AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
-        .bind(targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken));
+        .bind(targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, targetEntityId, koreaDate, requestId, transitionToken),
+      db.prepare(`UPDATE hr_personnel_actions SET status = 'EFFECTIVE', updated_at = ? WHERE id = ? AND status = 'APPROVED'
+        AND effective_date <= ? AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, koreaDate, requestId, transitionToken));
     }
     return statements;
   } else if (targetEntityType === "PAYROLL_RUN") {

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { createApprovalRequest } from "../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
+import { ensureSalesPricingSchema, evaluateSalesDocumentPricing, getSalesPricingGate } from "../../sales-pricing";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -86,6 +87,7 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity_occurred ON sales_opportunity_activities(opportunity_id, occurred_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_stage_history_opportunity_changed ON sales_opportunity_stage_history(opportunity_id, changed_at)"),
   ]);
+  await ensureSalesPricingSchema(db);
 }
 
 const toAccount = (row: AccountRow) => ({ id: row.id, name: row.name, businessNumber: row.business_number, industry: row.industry, ownerEmployeeId: row.owner_employee_id, status: row.status, memo: row.memo });
@@ -306,6 +308,10 @@ export async function POST(request: Request) {
       if (sourceDocumentId && (!source || !sourceTypeRules[documentType].includes(source.document_type))) {
         return Response.json({ error: "같은 영업 건의 승인·완료된 올바른 상위 문서를 선택해 주세요." }, { status: 400 });
       }
+      if (documentType === "ORDER" && source?.document_type === "QUOTE") {
+        const pricingGate = await getSalesPricingGate(db, source.id);
+        if (!pricingGate.canProceed) return Response.json({ error: "가격 검토를 통과하거나 예외 승인을 받은 견적만 수주로 전환할 수 있습니다." }, { status: 409 });
+      }
       const catalogRows = await db.prepare("SELECT * FROM sales_catalog_items").all<CatalogItemRow>();
       const catalogById = new Map(catalogRows.results.map((item) => [item.id, item]));
       const sourceRows = sourceDocumentId ? await db.prepare("SELECT * FROM sales_document_lines WHERE document_id = ? ORDER BY line_number").bind(sourceDocumentId).all<DocumentLineRow>() : { results: [] as DocumentLineRow[] };
@@ -355,11 +361,13 @@ export async function POST(request: Request) {
         return Response.json({ error: "다른 문서가 먼저 저장되어 상위 문서의 잔여 수량이 변경되었습니다. 새로고침 후 다시 확인해 주세요." }, { status: 409 });
       }
     }
+    const pricingReview = ["QUOTE", "ORDER"].includes(documentType)
+      ? await evaluateSalesDocumentPricing(db, id, authorization.principal.employeeId) : null;
     const row = await db.prepare(`${documentSelect} WHERE d.id = ?`).bind(id).first<SalesDocumentRow>();
     const savedLines = documentType === "PAYMENT" ? [] : (await db.prepare(`${documentLineSelect} WHERE line.document_id = ? ORDER BY line.line_number`).bind(id).all<DocumentLineRow>()).results.map(toDocumentLine);
     const after = row ? { ...toSalesDocument({ ...row, opportunity_title: opportunity.title, account_name: opportunity.account_name }), lines: savedLines } : body;
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "SALES_DOCUMENT_CREATED", entityType: "salesDocument", entityId: id, after });
-    return Response.json({ item: after }, { status: 201 });
+    return Response.json({ item: after, pricingReview }, { status: 201 });
   }
 
   return Response.json({ error: "지원하지 않는 영업 항목입니다." }, { status: 400 });
@@ -410,6 +418,11 @@ export async function PUT(request: Request) {
     if (status === "CANCELLED" && ["QUOTE", "ORDER", "DELIVERY"].includes(before.document_type)) {
       const child = await db.prepare("SELECT id FROM sales_documents WHERE source_document_id = ? AND status <> 'CANCELLED' LIMIT 1").bind(id).first<{ id: string }>();
       if (child) return Response.json({ error: "이 문서를 근거로 작성된 미취소 하위 문서가 있어 취소할 수 없습니다." }, { status: 409 });
+    }
+    if (((before.document_type === "QUOTE" && ["ISSUED", "ACCEPTED"].includes(status))
+      || (before.document_type === "ORDER" && status === "ACCEPTED")) && !["ISSUED", "ACCEPTED"].includes(before.status)) {
+      const pricingGate = await getSalesPricingGate(db, id);
+      if (!pricingGate.canProceed) return Response.json({ error: "가격 검토를 통과하거나 가격 예외 승인을 완료한 뒤 문서를 발행·확정해 주세요." }, { status: 409 });
     }
     if (status === "ACCEPTED" && before.status !== "ACCEPTED") {
       const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests

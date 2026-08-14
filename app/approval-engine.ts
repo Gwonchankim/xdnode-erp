@@ -27,7 +27,7 @@ export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> 
   finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인", MASTER_DATA: "재무 마스터 승인" },
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인", WORKFORCE_PLAN: "인력계획 승인", PERFORMANCE_CYCLE: "성과평가 최종확정" },
   recruitment: { REQUISITION: "채용요청 승인", OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
-  sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "할인 승인" },
+  sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "가격·할인 예외 승인" },
 };
 
 export function isApprovalType(module: ApprovalModule, requestType: string) {
@@ -402,6 +402,11 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
     return [db.prepare(`UPDATE sales_documents SET status = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "ACCEPTED" : "DRAFT", now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "SALES_PRICING_REVIEW") {
+    return [db.prepare(`UPDATE sales_document_pricing_reviews SET outcome = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
+      WHERE document_id = ? AND outcome = 'APPROVAL_PENDING' AND approval_request_id = ?
+        AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(approved ? "APPROVED" : "REJECTED", actorEmployeeId, now, now, targetEntityId, requestId, requestId, transitionToken)];
   } else if (targetEntityType === "SALES_TARGET_PLAN") {
     if (!approved) return [db.prepare(`UPDATE sales_target_plans SET status = 'DRAFT', approved_by = '', approved_at = NULL, updated_at = ?
       WHERE id = ? AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)

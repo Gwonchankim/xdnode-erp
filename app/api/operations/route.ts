@@ -5,6 +5,7 @@ import { loadFinanceRiskPolicy } from "../../finance-risk-policy-server";
 import { hasClosedFinanceAlertCase } from "../../finance-alert-actions-server";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../erp-platform";
 import { companyEmployees, companyOrganizations } from "../../hr-company-data";
+import { ensureSalesPricingSchema } from "../../sales-pricing";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -753,6 +754,29 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const pricingRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM sales_price_lists WHERE status = 'ACTIVE' AND effective_from <= ?
+        AND (effective_to = '' OR effective_to >= ?)) AS active_price_list_count,
+      (SELECT COUNT(*) FROM sales_pricing_policies WHERE status = 'ACTIVE') AS active_policy_count,
+      (SELECT COUNT(*) FROM sales_document_pricing_reviews review JOIN sales_documents document ON document.id = review.document_id
+        WHERE document.status NOT IN ('COMPLETED','CANCELLED') AND review.outcome IN ('DATA_MISSING','EXCEPTION_REQUIRED','REJECTED')) AS blocked_count,
+      (SELECT COUNT(*) FROM sales_document_pricing_reviews review JOIN sales_documents document ON document.id = review.document_id
+        WHERE document.status NOT IN ('COMPLETED','CANCELLED') AND review.outcome = 'APPROVAL_PENDING') AS pending_count`)
+      .bind(today, today).first<{ active_price_list_count: number; active_policy_count: number; blocked_count: number; pending_count: number }>();
+    const missingConfiguration = Number(pricingRisk?.active_price_list_count ?? 0) !== 1 || Number(pricingRisk?.active_policy_count ?? 0) !== 1;
+    const blocked = Number(pricingRisk?.blocked_count ?? 0); const pending = Number(pricingRisk?.pending_count ?? 0);
+    if (missingConfiguration || blocked + pending > 0) await upsertRuleTask({
+      id: "sales-pricing-governance-risk", module: "sales", category: "가격·마진 통제",
+      title: missingConfiguration ? "활성 가격표·가격정책 설정 필요" : `가격 검토 ${blocked + pending}건 후속조치`,
+      description: `기준정보 미설정 ${missingConfiguration ? "있음" : "없음"} · 확정 차단 ${blocked}건 · 예외 결재 중 ${pending}건입니다. 가격표·정책과 문서별 검토 결과를 확인해 주세요.`,
+      dueDate: today, priority: missingConfiguration || blocked > 0 ? "HIGH" : "NORMAL", destination: "sales:pricing",
+      sourceId: `${today}:${missingConfiguration ? 1 : 0}:${blocked}:${pending}`,
+    }); else await closeRuleTask("sales-pricing-governance-risk");
+  } catch {
+    // 가격 통제 원장이 배포된 뒤부터 기준정보 누락·예외 결재를 평가합니다.
+  }
+
+  try {
     const targetYear = Number(today.slice(0, 4));
     const plan = await db.prepare("SELECT id, version FROM sales_target_plans WHERE year = ? AND status = 'APPROVED' LIMIT 1")
       .bind(targetYear).first<{ id: string; version: number }>();
@@ -963,6 +987,7 @@ async function seedStateDrivenOperations() {
 export async function GET() {
   const auth = await authorizeErpRequest(db, "operations", "read");
   if (auth.response) return auth.response;
+  await ensureSalesPricingSchema(db);
   await seedCurrentOperations();
   await seedStateDrivenOperations();
 

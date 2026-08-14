@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import IncentiveGovernance from "./incentive-governance";
 import SalesPlanningView from "./sales-planning-view";
 import SalesAccount360View from "./sales-account-360-view";
+import SalesPricingGovernance from "./sales-pricing-governance";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
@@ -274,6 +275,8 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       <form onSubmit={createCatalogItem}><label>품목 코드<input required value={catalogDraft.code} onChange={(event) => setCatalogDraft({ ...catalogDraft, code: event.target.value })} placeholder="예: SVC-AI-001" /></label><label>명칭<input required value={catalogDraft.name} onChange={(event) => setCatalogDraft({ ...catalogDraft, name: event.target.value })} /></label><label>유형<select value={catalogDraft.itemType} onChange={(event) => setCatalogDraft({ ...catalogDraft, itemType: event.target.value })}><option value="PRODUCT">상품</option><option value="SERVICE">서비스</option></select></label><label>단위<input required value={catalogDraft.unit} onChange={(event) => setCatalogDraft({ ...catalogDraft, unit: event.target.value })} /></label><label>기본단가<input required type="number" min="0" value={catalogDraft.defaultUnitPrice} onChange={(event) => setCatalogDraft({ ...catalogDraft, defaultUnitPrice: event.target.value })} /></label><button type="submit">+ 기준정보 등록</button></form>
       <div className="sales-catalog-list">{(data?.catalog ?? []).map((item) => <div className={item.status === "INACTIVE" ? "inactive" : ""} key={item.id}><b>{item.code}</b><strong>{item.name}</strong><span>{item.itemType === "PRODUCT" ? "상품" : "서비스"}</span><span>{item.unit}</span><em>{currency(item.defaultUnitPrice)}</em><button type="button" onClick={() => void toggleCatalogItem(item)}>{item.status === "ACTIVE" ? "비활성" : "활성"}</button></div>)}{!data?.catalog.length && <p>먼저 상품 또는 서비스를 등록한 뒤 영업 문서를 작성해 주세요.</p>}</div>
     </section>
+
+    <SalesPricingGovernance refreshKey={data?.documents.length ?? 0} />
 
     <section className="panel sales-document-flow">
       <header><div><p>QUOTE TO CASH</p><h2>견적·수주·납품·청구·수금</h2></div><span>{data?.documents.length ?? 0}개 문서</span></header>

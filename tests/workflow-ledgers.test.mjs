@@ -975,3 +975,40 @@ test("customer 360 implementation includes guarded merge, reassignment and opera
   assert.match(operations, /sales-account-governance-risk/);
   assert.match(operations, /30일 이상 미접촉 진행 건/);
 });
+
+test("sales pricing ledgers keep one active master version and one review snapshot per document", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertList = db.prepare(`INSERT INTO sales_price_lists
+    (id, name, version, currency, effective_from, effective_to, status, created_by, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, '국내 표준 가격표', ?, 'KRW', '2026-01-01', '', ?, 'gc.kim', '', NULL, ?, ?)`);
+  insertList.run("price-list-1", 1, "ACTIVE", now, now);
+  assert.throws(() => insertList.run("price-list-2-active", 2, "ACTIVE", now, now), /UNIQUE constraint failed/);
+  insertList.run("price-list-2", 2, "DRAFT", now, now);
+  assert.throws(() => insertList.run("price-list-2-duplicate", 2, "DRAFT", now, now), /UNIQUE constraint failed/);
+
+  db.prepare(`INSERT INTO sales_catalog_items
+    (id, code, name, item_type, unit, default_unit_price, status, created_by, created_at, updated_at)
+    VALUES ('pricing-catalog-1', 'SVC-PRICE', '가격검증 서비스', 'SERVICE', 'EA', 100000, 'ACTIVE', 'gc.kim', ?, ?)`).run(now, now);
+  const insertItem = db.prepare(`INSERT INTO sales_price_list_items
+    (id, price_list_id, catalog_item_id, list_unit_price, standard_unit_cost, min_unit_price, created_at, updated_at)
+    VALUES (?, 'price-list-1', 'pricing-catalog-1', 100000, 60000, 80000, ?, ?)`);
+  insertItem.run("price-item-1", now, now);
+  assert.throws(() => insertItem.run("price-item-duplicate", now, now), /UNIQUE constraint failed/);
+
+  const insertPolicy = db.prepare(`INSERT INTO sales_pricing_policies
+    (id, name, version, max_discount_bps, min_gross_margin_bps, status, created_by, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, '국내 가격정책', ?, 1000, 2000, ?, 'gc.kim', '', NULL, ?, ?)`);
+  insertPolicy.run("pricing-policy-1", 1, "ACTIVE", now, now);
+  assert.throws(() => insertPolicy.run("pricing-policy-2-active", 2, "ACTIVE", now, now), /UNIQUE constraint failed/);
+
+  const insertReview = db.prepare(`INSERT INTO sales_document_pricing_reviews
+    (document_id, document_type, price_list_id, policy_id, price_list_version, policy_version, list_amount, quoted_amount,
+      standard_cost_amount, minimum_amount, discount_bps, gross_margin_bps, outcome, reasons_json, evaluated_by,
+      approval_request_id, reviewed_by, reviewed_at, snapshot_json, created_at, updated_at)
+    VALUES ('pricing-document-1', 'QUOTE', 'price-list-1', 'pricing-policy-1', 1, 1, 100000, 90000,
+      60000, 80000, 1000, 3333, ?, '[]', 'gc.kim', '', '', NULL, '{}', ?, ?)`);
+  insertReview.run("PASS", now, now);
+  assert.throws(() => insertReview.run("EXCEPTION_REQUIRED", now, now), /UNIQUE constraint failed/);
+  assert.equal(db.prepare("SELECT outcome FROM sales_document_pricing_reviews WHERE document_id = 'pricing-document-1'").get().outcome, "PASS");
+  db.close();
+});

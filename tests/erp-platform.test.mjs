@@ -1205,3 +1205,44 @@ test("sales targets are versioned, approval-gated and forecast without double-co
   assert.match(migration, /WHERE `status` = 'APPROVED'/);
   assert.match(plan, /월 전망: 월 확정 청구 \+ 해당 월 마감 예정 미청구 가중 파이프라인/);
 });
+
+test("sales pricing uses versioned masters, immutable reviews and approval-gated quote to order", async () => {
+  const [pricing, api, helper, view, workspace, approval, approvalCenter, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/sales/pricing/route.ts"), read("app/api/sales/route.ts"), read("app/sales-pricing.ts"),
+    read("app/sales-pricing-governance.tsx"), read("app/sales-workspace.tsx"), read("app/approval-engine.ts"),
+    read("app/approval-center.tsx"), read("app/api/operations/route.ts"), read("db/schema.ts"),
+    read("drizzle/0048_sales_pricing_governance.sql"), read("docs/sales-pricing-governance-plan.md"),
+  ]);
+  assert.match(pricing, /action === "CREATE_PRICE_LIST"/);
+  assert.match(pricing, /action === "UPSERT_PRICE_ITEM"/);
+  assert.match(pricing, /action === "ACTIVATE_PRICE_LIST"/);
+  assert.match(pricing, /authorizeErpRequest\(db, "sales", "approve"\)/);
+  assert.match(pricing, /action === "CREATE_POLICY"/);
+  assert.match(pricing, /action === "ACTIVATE_POLICY"/);
+  assert.match(pricing, /action === "REQUEST_EXCEPTION"/);
+  assert.match(pricing, /requestType: "DISCOUNT"/);
+  assert.match(pricing, /targetEntityType: "SALES_PRICING_REVIEW"/);
+  assert.match(helper, /Math\.round\(\(listAmount - document\.amount\) \/ listAmount \* 10_000\)/);
+  assert.match(helper, /Math\.round\(\(document\.amount - standardCostAmount\) \/ document\.amount \* 10_000\)/);
+  assert.match(helper, /"DATA_MISSING"/);
+  assert.match(helper, /"EXCEPTION_REQUIRED"/);
+  assert.match(helper, /\["PASS", "APPROVED"\]/);
+  assert.match(api, /가격 검토를 통과하거나 예외 승인을 받은 견적만 수주로 전환/);
+  assert.match(api, /가격 검토를 통과하거나 가격 예외 승인을 완료한 뒤 문서를 발행·확정/);
+  assert.match(view, /가격표·할인·마진 통제/);
+  assert.match(view, /시스템은 기본 할인율이나 마진율을 임의로 제안하지 않습니다/);
+  assert.match(workspace, /<SalesPricingGovernance/);
+  assert.match(approval, /DISCOUNT: "가격·할인 예외 승인"/);
+  assert.match(approval, /targetEntityType === "SALES_PRICING_REVIEW"/);
+  assert.match(approvalCenter, /가격·할인 예외 승인/);
+  assert.match(operations, /sales-pricing-governance-risk/);
+  assert.match(operations, /destination: "sales:pricing"/);
+  assert.match(schema, /salesPriceLists/);
+  assert.match(schema, /salesPriceListItems/);
+  assert.match(schema, /salesPricingPolicies/);
+  assert.match(schema, /salesDocumentPricingReviews/);
+  assert.match(migration, /idx_sales_price_list_single_active/);
+  assert.match(migration, /idx_sales_pricing_policy_single_active/);
+  assert.match(migration, /sales_document_pricing_reviews/);
+  assert.match(plan, /데이터 누락은 예외 승인으로 우회할 수 없다/);
+});

@@ -1685,6 +1685,47 @@ export const salesDocumentLines = sqliteTable("sales_document_lines", {
   index("idx_sales_document_line_source").on(table.sourceLineId),
 ]);
 
+export const salesPriceLists = sqliteTable("sales_price_lists", {
+  id: text("id").primaryKey(), name: text("name").notNull(), version: integer("version").notNull(),
+  currency: text("currency").notNull().default("KRW"), effectiveFrom: text("effective_from").notNull(),
+  effectiveTo: text("effective_to").notNull().default(""), status: text("status").notNull().default("DRAFT"),
+  createdBy: text("created_by").notNull(), approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_price_list_name_version").on(table.name, table.version),
+  uniqueIndex("idx_sales_price_list_single_active").on(table.status).where(sql`${table.status} = 'ACTIVE'`),
+]);
+
+export const salesPriceListItems = sqliteTable("sales_price_list_items", {
+  id: text("id").primaryKey(), priceListId: text("price_list_id").notNull(), catalogItemId: text("catalog_item_id").notNull(),
+  listUnitPrice: integer("list_unit_price").notNull(), standardUnitCost: integer("standard_unit_cost").notNull(),
+  minUnitPrice: integer("min_unit_price").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_sales_price_item_list_catalog").on(table.priceListId, table.catalogItemId)]);
+
+export const salesPricingPolicies = sqliteTable("sales_pricing_policies", {
+  id: text("id").primaryKey(), name: text("name").notNull(), version: integer("version").notNull(),
+  maxDiscountBps: integer("max_discount_bps").notNull(), minGrossMarginBps: integer("min_gross_margin_bps").notNull(),
+  status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_pricing_policy_name_version").on(table.name, table.version),
+  uniqueIndex("idx_sales_pricing_policy_single_active").on(table.status).where(sql`${table.status} = 'ACTIVE'`),
+]);
+
+export const salesDocumentPricingReviews = sqliteTable("sales_document_pricing_reviews", {
+  documentId: text("document_id").primaryKey(), documentType: text("document_type").notNull(),
+  priceListId: text("price_list_id").notNull().default(""), policyId: text("policy_id").notNull().default(""),
+  priceListVersion: integer("price_list_version").notNull().default(0), policyVersion: integer("policy_version").notNull().default(0),
+  listAmount: integer("list_amount").notNull().default(0), quotedAmount: integer("quoted_amount").notNull().default(0),
+  standardCostAmount: integer("standard_cost_amount").notNull().default(0), minimumAmount: integer("minimum_amount").notNull().default(0),
+  discountBps: integer("discount_bps").notNull().default(0), grossMarginBps: integer("gross_margin_bps").notNull().default(0),
+  outcome: text("outcome").notNull(), reasonsJson: text("reasons_json").notNull().default("[]"),
+  evaluatedBy: text("evaluated_by").notNull(), approvalRequestId: text("approval_request_id").notNull().default(""),
+  reviewedBy: text("reviewed_by").notNull().default(""), reviewedAt: integer("reviewed_at"),
+  snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("idx_sales_pricing_review_outcome").on(table.outcome, table.updatedAt)]);
+
 export const salesTargetPlans = sqliteTable("sales_target_plans", {
   id: text("id").primaryKey(), year: integer("year").notNull(), version: integer("version").notNull(),
   name: text("name").notNull(), status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),

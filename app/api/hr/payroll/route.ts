@@ -94,7 +94,22 @@ async function ensureSchema() {
       prepared_by TEXT NOT NULL DEFAULT '', reviewed_by TEXT NOT NULL DEFAULT '', approved_by TEXT NOT NULL DEFAULT '',
       locked_at INTEGER, reopened_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS finance_expense_requests (
+      id TEXT PRIMARY KEY NOT NULL, request_kind TEXT NOT NULL DEFAULT 'EXPENSE', title TEXT NOT NULL,
+      vendor TEXT NOT NULL DEFAULT '', amount INTEGER NOT NULL, requested_date TEXT NOT NULL,
+      due_date TEXT NOT NULL DEFAULT '', account_code TEXT NOT NULL DEFAULT '', account_name TEXT NOT NULL DEFAULT '',
+      payment_method TEXT NOT NULL DEFAULT 'BANK_TRANSFER', memo TEXT NOT NULL DEFAULT '',
+      source_type TEXT NOT NULL DEFAULT 'MANUAL', source_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'DRAFT',
+      requester_employee_id TEXT NOT NULL, approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
+      paid_by TEXT NOT NULL DEFAULT '', paid_at INTEGER, journal_status TEXT NOT NULL DEFAULT 'UNPOSTED',
+      evidence_required INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
   ]);
+  const expenseColumns = await db.prepare("PRAGMA table_info(finance_expense_requests)").all<{ name: string }>();
+  const existing = new Set(expenseColumns.results.map((column) => column.name));
+  for (const [name, definition] of [
+    ["source_type", "TEXT NOT NULL DEFAULT 'MANUAL'"], ["source_id", "TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existing.has(name))) await db.prepare(`ALTER TABLE finance_expense_requests ADD COLUMN ${name} ${definition}`).run();
 }
 
 async function syncPayrollRuns() {
@@ -261,6 +276,17 @@ export async function PUT(request: Request) {
   await syncPayrollRuns();
   const before = await db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>();
   if (!before) return Response.json({ error: "급여월을 찾을 수 없습니다." }, { status: 404 });
+  const currentStatus = String(before.status ?? "DRAFT");
+  const allowedTransitions: Record<string, string[]> = {
+    DRAFT: ["DRAFT", "REVIEW"],
+    REVIEW: ["DRAFT", "REVIEW", "APPROVED"],
+    APPROVED: ["DRAFT", "APPROVED", "LOCKED"],
+    LOCKED: ["DRAFT", "LOCKED"],
+  };
+  if (!(allowedTransitions[currentStatus] ?? []).includes(status)) {
+    return Response.json({ error: `${currentStatus} 상태에서 ${status} 상태로 바로 변경할 수 없습니다.` }, { status: 409 });
+  }
+  if (status === currentStatus) return Response.json({ item: before });
   const now = Date.now();
   if (status === "APPROVED" && before.status !== "APPROVED") {
     if (before.status !== "REVIEW") return Response.json({ error: "검토 요청 상태의 급여월만 승인 결재를 요청할 수 있습니다." }, { status: 409 });
@@ -279,6 +305,66 @@ export async function PUT(request: Request) {
     return Response.json({ item: before, approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
   }
   if (status === "LOCKED" && before.status !== "APPROVED") return Response.json({ error: "승인 완료된 급여월만 마감 잠금할 수 있습니다." }, { status: 409 });
+  const payrollExpenseId = `payroll:${period}`;
+  if (status === "LOCKED") {
+    const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const financeBefore = await db.prepare("SELECT * FROM finance_expense_requests WHERE id = ?").bind(payrollExpenseId).first<Record<string, unknown>>();
+    const result = await db.batch([
+      db.prepare(`UPDATE hr_payroll_runs SET status = 'LOCKED', prepared_by = CASE WHEN prepared_by = '' THEN ? ELSE prepared_by END,
+        reviewed_by = CASE WHEN reviewed_by = '' THEN ? ELSE reviewed_by END, approved_by = ?, locked_at = ?, updated_at = ?
+        WHERE period = ? AND status = 'APPROVED'`)
+        .bind(authorization.principal.employeeId, authorization.principal.employeeId, authorization.principal.employeeId, now, now, period),
+      db.prepare(`INSERT INTO finance_expense_requests
+        (id, request_kind, title, vendor, amount, requested_date, due_date, account_code, account_name,
+          payment_method, memo, source_type, source_id, status, requester_employee_id, approved_by, approved_at,
+          paid_by, paid_at, journal_status, evidence_required, created_at, updated_at)
+        SELECT ?, 'PAYMENT', ?, '임직원 급여', net_pay, ?, '', '', '급여(계정 확인 필요)', 'BANK_TRANSFER', ?,
+          'PAYROLL_RUN', period, 'APPROVED', ?, ?, ?, '', NULL, 'UNPOSTED', 0, ?, ?
+        FROM hr_payroll_runs WHERE period = ? AND status = 'LOCKED' AND updated_at = ?
+        ON CONFLICT(id) DO UPDATE SET amount=excluded.amount, requested_date=excluded.requested_date,
+          memo=excluded.memo, status='APPROVED', requester_employee_id=excluded.requester_employee_id,
+          approved_by=excluded.approved_by, approved_at=excluded.approved_at, paid_by='', paid_at=NULL,
+          journal_status='UNPOSTED', updated_at=excluded.updated_at
+        WHERE finance_expense_requests.status = 'CANCELLED'`)
+        .bind(payrollExpenseId, `${period} 급여 지급`, koreaDate,
+          `${Number(before.employee_count ?? 0)}명 · 총지급 ${Number(before.gross_pay ?? 0).toLocaleString("ko-KR")}원 · 공제 ${Number(before.deductions ?? 0).toLocaleString("ko-KR")}원`,
+          authorization.principal.employeeId, authorization.principal.employeeId, now, now, now, period, now),
+    ]);
+    if ((result[0].meta.changes ?? 0) < 1 || (result[1].meta.changes ?? 0) < 1) return Response.json({ error: "급여월 또는 연결 지급 건의 상태가 변경되었습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    const [after, financeAfter] = await Promise.all([
+      db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>(),
+      db.prepare("SELECT * FROM finance_expense_requests WHERE id = ?").bind(payrollExpenseId).first<Record<string, unknown>>(),
+    ]);
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_RUN_LOCKED", entityType: "payrollRun", entityId: period, before, after });
+    await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: financeBefore ? "PAYROLL_PAYMENT_REACTIVATED" : "PAYROLL_PAYMENT_CREATED", entityType: "financeExpense", entityId: payrollExpenseId, before: financeBefore, after: financeAfter });
+    return Response.json({ item: after, financeExpenseId: payrollExpenseId });
+  }
+  if (status === "DRAFT" && ["APPROVED", "LOCKED"].includes(String(before.status ?? ""))) {
+    const approvalAuthorization = await authorizeErpRequest(db, "hr", "approve");
+    if (approvalAuthorization.response) return approvalAuthorization.response;
+    const reopenedReason = typeof body.reopenedReason === "string" ? body.reopenedReason.trim() : "";
+    if (!reopenedReason) return Response.json({ error: "승인·마감된 급여월을 다시 열려면 사유가 필요합니다." }, { status: 400 });
+    const financeBefore = await db.prepare("SELECT * FROM finance_expense_requests WHERE id = ?").bind(payrollExpenseId).first<Record<string, unknown>>();
+    if (financeBefore && (financeBefore.status === "PAID" || !["UNPOSTED", ""].includes(String(financeBefore.journal_status ?? "")))) {
+      return Response.json({ error: "이미 지급 또는 회계전표 처리가 시작되어 급여월을 다시 열 수 없습니다. 재무 취소·역분개 절차가 필요합니다." }, { status: 409 });
+    }
+    const result = await db.batch([
+      db.prepare(`UPDATE hr_payroll_runs SET status = 'DRAFT', approved_by = '', locked_at = NULL,
+        reopened_reason = ?, updated_at = ? WHERE period = ? AND status IN ('APPROVED','LOCKED')
+          AND (NOT EXISTS (SELECT 1 FROM finance_expense_requests WHERE id = ?)
+            OR EXISTS (SELECT 1 FROM finance_expense_requests WHERE id = ? AND status IN ('APPROVED','CANCELLED') AND journal_status = 'UNPOSTED'))`)
+        .bind(reopenedReason, now, period, payrollExpenseId, payrollExpenseId),
+      db.prepare(`UPDATE finance_expense_requests SET status = 'CANCELLED', updated_at = ?
+        WHERE id = ? AND status = 'APPROVED' AND journal_status = 'UNPOSTED'
+          AND EXISTS (SELECT 1 FROM hr_payroll_runs WHERE period = ? AND status = 'DRAFT' AND updated_at = ?)`)
+        .bind(now, payrollExpenseId, period, now),
+    ]);
+    if ((result[0].meta.changes ?? 0) < 1) return Response.json({ error: "지급 상태가 변경되어 급여월을 다시 열지 못했습니다." }, { status: 409 });
+    const after = await db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>();
+    await writeErpAudit(db, { principal: approvalAuthorization.principal, module: "hr", action: "PAYROLL_RUN_REOPENED", entityType: "payrollRun", entityId: period, before, after, reason: reopenedReason });
+    if (financeBefore) await writeErpAudit(db, { principal: approvalAuthorization.principal, module: "finance", action: "PAYROLL_PAYMENT_CANCELLED", entityType: "financeExpense", entityId: payrollExpenseId, before: financeBefore, after: { ...financeBefore, status: "CANCELLED" }, reason: reopenedReason });
+    return Response.json({ item: after });
+  }
   await db.prepare(`UPDATE hr_payroll_runs SET status = ?, prepared_by = CASE WHEN ? IN ('REVIEW','APPROVED','LOCKED') THEN ? ELSE prepared_by END,
     reviewed_by = CASE WHEN ? IN ('APPROVED','LOCKED') THEN ? ELSE reviewed_by END,
     approved_by = CASE WHEN ? IN ('APPROVED','LOCKED') THEN ? ELSE '' END,

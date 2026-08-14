@@ -412,6 +412,8 @@ export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   accountName: text("account_name").notNull().default(""),
   paymentMethod: text("payment_method").notNull().default("BANK_TRANSFER"),
   memo: text("memo").notNull().default(""),
+  sourceType: text("source_type").notNull().default("MANUAL"),
+  sourceId: text("source_id").notNull().default(""),
   status: text("status").notNull().default("DRAFT"),
   requesterEmployeeId: text("requester_employee_id").notNull(),
   approvedBy: text("approved_by").notNull().default(""),

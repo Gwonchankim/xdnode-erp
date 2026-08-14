@@ -21,6 +21,9 @@ test("new workflow ledgers migrate cleanly and enforce one payment per request",
     (id, request_kind, title, amount, requested_date, requester_employee_id, created_at, updated_at)
     VALUES (?, 'EXPENSE', ?, ?, ?, ?, ?, ?)`)
     .run("expense-1", "테스트 지출", 10000, "2026-08-14", "gc.kim", now, now);
+  const expense = db.prepare("SELECT source_type, source_id FROM finance_expense_requests WHERE id = ?").get("expense-1");
+  assert.equal(expense.source_type, "MANUAL");
+  assert.equal(expense.source_id, "");
   const insertPayment = db.prepare(`INSERT INTO finance_payment_ledger
     (id, request_id, payment_date, amount, payment_method, paid_by, created_at, updated_at)
     VALUES (?, ?, ?, ?, 'BANK_TRANSFER', 'gc.kim', ?, ?)`);
@@ -32,6 +35,25 @@ test("new workflow ledgers migrate cleanly and enforce one payment per request",
       amount, prepared_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
   insertJournal.run("journal-1", "expense-1", "2026-08-14", "테스트 지출", "소모품비", "보통예금", 10000, "gc.kim", now, now);
   assert.throws(() => insertJournal.run("journal-2", "expense-1", "2026-08-14", "중복", "소모품비", "보통예금", 10000, "gc.kim", now, now), /UNIQUE constraint failed/);
+});
+
+test("payroll close can identify its single downstream finance request", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO finance_expense_requests
+    (id, request_kind, title, amount, requested_date, account_name, source_type, source_id,
+      status, requester_employee_id, evidence_required, created_at, updated_at)
+    VALUES (?, 'PAYMENT', ?, ?, ?, ?, 'PAYROLL_RUN', ?, 'APPROVED', ?, 0, ?, ?)`)
+    .run("payroll:2026-08", "2026-08 급여 지급", 12345678, "2026-08-14", "급여(계정 확인 필요)", "2026-08", "gc.kim", now, now);
+  assert.throws(() => db.prepare(`INSERT INTO finance_expense_requests
+    (id, request_kind, title, amount, requested_date, source_type, source_id, requester_employee_id, created_at, updated_at)
+    VALUES (?, 'PAYMENT', ?, ?, ?, 'PAYROLL_RUN', ?, ?, ?, ?)`)
+    .run("payroll:2026-08", "중복 급여", 1, "2026-08-14", "2026-08", "gc.kim", now, now), /UNIQUE constraint failed/);
+  const linked = db.prepare("SELECT source_type, source_id, status, evidence_required FROM finance_expense_requests WHERE id = ?").get("payroll:2026-08");
+  assert.equal(linked.source_type, "PAYROLL_RUN");
+  assert.equal(linked.source_id, "2026-08");
+  assert.equal(linked.status, "APPROVED");
+  assert.equal(linked.evidence_required, 0);
 });
 
 test("retirement and recruitment offer ledgers preserve workflow state", async () => {

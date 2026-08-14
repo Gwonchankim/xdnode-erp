@@ -100,6 +100,24 @@ test("post-approval finance and HR workflows require explicit controls before co
   for (const table of ["finance_journal_entries", "hr_retirement_settlements"]) assert.match(migration, new RegExp(table));
 });
 
+test("payroll close creates one traceable finance payment and blocks unsafe reopen", async () => {
+  const [payroll, finance, view, schema, migration] = await Promise.all([
+    read("app/api/hr/payroll/route.ts"), read("app/api/finance/operations/route.ts"),
+    read("app/finance-operations-center.tsx"), read("db/schema.ts"),
+    read("drizzle/0016_wild_black_tarantula.sql"),
+  ]);
+  assert.match(payroll, /payroll:\$\{period\}/);
+  assert.match(payroll, /'PAYROLL_RUN', period, 'APPROVED'/);
+  assert.match(payroll, /급여\(계정 확인 필요\)/);
+  assert.match(payroll, /financeBefore\.status === "PAID"/);
+  assert.match(payroll, /재무 취소·역분개 절차가 필요합니다/);
+  assert.match(payroll, /allowedTransitions/);
+  assert.match(finance, /source_type/);
+  assert.match(view, /급여 마감 자동연결/);
+  for (const field of ["sourceType", "sourceId"]) assert.match(schema, new RegExp(field));
+  for (const column of ["source_type", "source_id"]) assert.match(migration, new RegExp(column));
+});
+
 test("employee documents are versioned, audited, downloadable and recoverably deleted", async () => {
   const api = await read("app/api/documents/route.ts");
   assert.match(api, /SELECT MAX\(version\) AS version/);

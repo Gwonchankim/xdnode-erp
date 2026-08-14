@@ -1984,11 +1984,20 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
 
   async function updatePayrollStatus(status: PayrollSummary["status"]) {
     setError(""); setNotice("");
-    const response = await fetch("/api/hr/payroll", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period: month, status }) });
-    const payload = await response.json() as { error?: string; approvalSubmitted?: boolean };
+    let reopenedReason = "";
+    if (status === "DRAFT" && summary && ["APPROVED", "LOCKED"].includes(summary.status)) {
+      reopenedReason = window.prompt("승인·마감된 급여월을 다시 여는 사유를 입력해 주세요.")?.trim() ?? "";
+      if (!reopenedReason) { setError("급여월 재개방 사유가 필요합니다."); return; }
+    }
+    const response = await fetch("/api/hr/payroll", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period: month, status, reopenedReason }) });
+    const payload = await response.json() as { error?: string; approvalSubmitted?: boolean; financeExpenseId?: string };
     if (!response.ok) { setError(payload.error || "급여 처리 상태를 변경하지 못했습니다."); return; }
     if (payload.approvalSubmitted) setNotice("전자결재를 제출했습니다. 최종 승인 후 급여 상태가 반영됩니다.");
-    else setSummary((current) => current ? { ...current, status } : current);
+    else {
+      setSummary((current) => current ? { ...current, status } : current);
+      if (payload.financeExpenseId) setNotice("급여월을 마감하고 재무회계 지급대기 원장에 연결했습니다.");
+      else if (status === "DRAFT" && reopenedReason) setNotice("급여월을 다시 열고 미지급 재무 요청을 취소했습니다.");
+    }
   }
 
   useEffect(() => {

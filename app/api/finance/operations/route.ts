@@ -29,7 +29,7 @@ type ReconciliationRow = {
 type ExpenseRow = {
   id: string; request_kind: string; title: string; vendor: string; amount: number; requested_date: string;
   due_date: string; account_code: string; account_name: string; payment_method: string; memo: string;
-  status: string; requester_employee_id: string; approved_by: string; approved_at: number | null;
+  source_type: string; source_id: string; status: string; requester_employee_id: string; approved_by: string; approved_at: number | null;
   paid_by: string; paid_at: number | null; journal_status: string; evidence_required: number;
   evidence_count: number; created_at: number; updated_at: number;
 };
@@ -75,7 +75,8 @@ async function ensureSchema() {
       id TEXT PRIMARY KEY NOT NULL, request_kind TEXT NOT NULL DEFAULT 'EXPENSE', title TEXT NOT NULL,
       vendor TEXT NOT NULL DEFAULT '', amount INTEGER NOT NULL, requested_date TEXT NOT NULL,
       due_date TEXT NOT NULL DEFAULT '', account_code TEXT NOT NULL DEFAULT '', account_name TEXT NOT NULL DEFAULT '',
-      payment_method TEXT NOT NULL DEFAULT 'BANK_TRANSFER', memo TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'DRAFT',
+      payment_method TEXT NOT NULL DEFAULT 'BANK_TRANSFER', memo TEXT NOT NULL DEFAULT '',
+      source_type TEXT NOT NULL DEFAULT 'MANUAL', source_id TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'DRAFT',
       requester_employee_id TEXT NOT NULL, approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
       paid_by TEXT NOT NULL DEFAULT '', paid_at INTEGER, journal_status TEXT NOT NULL DEFAULT 'UNPOSTED',
       evidence_required INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
@@ -107,6 +108,11 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_payment_date ON finance_payment_ledger(payment_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_journal_status_date ON finance_journal_entries(status, voucher_date)"),
   ]);
+  const expenseColumns = await db.prepare("PRAGMA table_info(finance_expense_requests)").all<{ name: string }>();
+  const existing = new Set(expenseColumns.results.map((column) => column.name));
+  for (const [name, definition] of [
+    ["source_type", "TEXT NOT NULL DEFAULT 'MANUAL'"], ["source_id", "TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existing.has(name))) await db.prepare(`ALTER TABLE finance_expense_requests ADD COLUMN ${name} ${definition}`).run();
 }
 
 const toForecast = (row: ForecastRow) => ({
@@ -134,7 +140,8 @@ const toReconciliation = (row: ReconciliationRow) => ({
 const toExpense = (row: ExpenseRow) => ({
   id: row.id, requestKind: row.request_kind, title: row.title, vendor: row.vendor, amount: row.amount,
   requestedDate: row.requested_date, dueDate: row.due_date, accountCode: row.account_code,
-  accountName: row.account_name, paymentMethod: row.payment_method, memo: row.memo, status: row.status,
+  accountName: row.account_name, paymentMethod: row.payment_method, memo: row.memo,
+  sourceType: row.source_type, sourceId: row.source_id, status: row.status,
   requesterEmployeeId: row.requester_employee_id, approvedBy: row.approved_by, approvedAt: row.approved_at,
   paidBy: row.paid_by, paidAt: row.paid_at, journalStatus: row.journal_status,
   evidenceRequired: Boolean(row.evidence_required), evidenceCount: Number(row.evidence_count ?? 0),

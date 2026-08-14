@@ -32,6 +32,11 @@ export type MasterImpactReport = {
   expiresAt: number;
 };
 
+export type MasterImpactSlaPolicy = {
+  id: string; defaultDueDays: number; managerEscalationDays: number; executiveEscalationDays: number;
+  version: number; updatedBy: string; updatedAt: number;
+};
+
 type AssessmentRow = {
   id: string; entity_type: string; entity_id: string; proposed_action: string; entity_version: string;
   entity_label: string; risk_level: string; blocking_count: number; warning_count: number;
@@ -78,6 +83,7 @@ export async function ensureMasterImpactCaseSchema(db: D1Database) {
       status TEXT NOT NULL DEFAULT 'OPEN', owner_employee_id TEXT NOT NULL DEFAULT '', due_date TEXT NOT NULL DEFAULT '',
       resolution_note TEXT NOT NULL DEFAULT '', evidence_ref TEXT NOT NULL DEFAULT '', last_rechecked_by TEXT NOT NULL DEFAULT '',
       last_rechecked_at INTEGER, created_by TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1,
+      escalation_level INTEGER NOT NULL DEFAULT 0, escalated_at INTEGER,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, closed_by TEXT NOT NULL DEFAULT '', closed_at INTEGER)`),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_master_impact_case_open ON erp_master_impact_cases(entity_type, entity_id, action, impact_code) WHERE status <> 'CLOSED'"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_case_status_due ON erp_master_impact_cases(status, due_date)"),
@@ -87,22 +93,49 @@ export async function ensureMasterImpactCaseSchema(db: D1Database) {
       from_status TEXT NOT NULL DEFAULT '', to_status TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
       snapshot_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL)`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_case_event_created ON erp_master_impact_case_events(case_id, created_at)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_sla_policies (
+      id TEXT PRIMARY KEY NOT NULL, default_due_days INTEGER NOT NULL DEFAULT 3,
+      manager_escalation_days INTEGER NOT NULL DEFAULT 1, executive_escalation_days INTEGER NOT NULL DEFAULT 3,
+      version INTEGER NOT NULL DEFAULT 1, updated_by TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_weekly_reports (
+      id TEXT PRIMARY KEY NOT NULL, week_start TEXT NOT NULL, week_end TEXT NOT NULL, version INTEGER NOT NULL,
+      active_count INTEGER NOT NULL, overdue_count INTEGER NOT NULL, manager_escalated_count INTEGER NOT NULL,
+      executive_escalated_count INTEGER NOT NULL, snapshot_json TEXT NOT NULL, checksum TEXT NOT NULL,
+      created_by TEXT NOT NULL, created_at INTEGER NOT NULL)`),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_report_version ON erp_master_impact_weekly_reports(week_start, version)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_report_created ON erp_master_impact_weekly_reports(created_at)"),
   ]);
+  const columns = await db.prepare("PRAGMA table_info(erp_master_impact_cases)").all<{ name: string }>();
+  const existing = new Set(columns.results.map((column) => column.name));
+  if (!existing.has("escalation_level")) await db.prepare("ALTER TABLE erp_master_impact_cases ADD COLUMN escalation_level INTEGER NOT NULL DEFAULT 0").run();
+  if (!existing.has("escalated_at")) await db.prepare("ALTER TABLE erp_master_impact_cases ADD COLUMN escalated_at INTEGER").run();
+  await db.prepare(`INSERT OR IGNORE INTO erp_master_impact_sla_policies
+    (id, default_due_days, manager_escalation_days, executive_escalation_days, version, updated_by, updated_at)
+    VALUES ('default', 3, 1, 3, 1, 'SYSTEM', 0)`).run();
+}
+
+export async function getMasterImpactSlaPolicy(db: D1Database): Promise<MasterImpactSlaPolicy> {
+  await ensureMasterImpactCaseSchema(db);
+  const row = await db.prepare("SELECT * FROM erp_master_impact_sla_policies WHERE id = 'default'")
+    .first<{ id: string; default_due_days: number; manager_escalation_days: number; executive_escalation_days: number; version: number; updated_by: string; updated_at: number }>();
+  if (!row) throw new MasterImpactError("기준정보 영향 SLA 정책을 불러오지 못했습니다.", 500);
+  return { id: row.id, defaultDueDays: row.default_due_days, managerEscalationDays: row.manager_escalation_days,
+    executiveEscalationDays: row.executive_escalation_days, version: row.version, updatedBy: row.updated_by, updatedAt: row.updated_at };
 }
 
 function caseModule(entityType: MasterImpactEntityType) {
   return entityType.startsWith("FINANCE_") ? "finance" : entityType === "SALES_ACCOUNT" ? "sales" : "hr";
 }
 
-function defaultCaseDueDate() {
-  return new Date(Date.now() + (3 * 24 + 9) * 60 * 60 * 1000).toISOString().slice(0, 10);
+function defaultCaseDueDate(days: number) {
+  return new Date(Date.now() + (days * 24 + 9) * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 async function materializeBlockingCases(db: D1Database, assessmentId: string, principal: ErpPrincipal, calculated: Awaited<ReturnType<typeof calculate>>) {
   const blockers = calculated.entries.filter((entry) => entry.severity === "BLOCKER" && entry.count > 0);
   if (!blockers.length) return;
   await ensureMasterImpactCaseSchema(db);
-  const now = Date.now();
+  const policy = await getMasterImpactSlaPolicy(db); const now = Date.now(); const dueDate = defaultCaseDueDate(policy.defaultDueDays);
   for (const entry of blockers) {
     const existing = await db.prepare(`SELECT id, status FROM erp_master_impact_cases
       WHERE entity_type = ? AND entity_id = ? AND action = ? AND impact_code = ? AND status <> 'CLOSED' LIMIT 1`)
@@ -124,7 +157,7 @@ async function materializeBlockingCases(db: D1Database, assessmentId: string, pr
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'BLOCKER', ?, ?, ?, ?, 'OPEN', ?, ?, ?, 1, ?, ?)`)
         .bind(caseId, assessmentId, calculated.entityType, calculated.entityId, calculated.action, entry.code, entry.label,
           entry.detail, entry.count, entry.count, entry.amount ?? 0, entry.amount ?? 0, principal.employeeId,
-          defaultCaseDueDate(), principal.employeeId, now, now));
+          dueDate, principal.employeeId, now, now));
     }
     statements.push(
       db.prepare(`INSERT INTO erp_master_impact_case_events
@@ -141,7 +174,7 @@ async function materializeBlockingCases(db: D1Database, assessmentId: string, pr
           completed_at = CASE WHEN erp_tasks.status = 'DONE' THEN NULL ELSE erp_tasks.completed_at END, updated_at = excluded.updated_at`)
         .bind(`master-impact:${caseId}`, caseModule(calculated.entityType), `[기준정보] ${calculated.entityLabel} · ${entry.label}`,
           `${entry.count}건의 차단 연결 원장을 정리하고 영향도를 재검증해 주세요.`, principal.employeeId,
-          defaultCaseDueDate(), caseId, now, now),
+          dueDate, caseId, now, now),
     );
     await db.batch(statements);
   }

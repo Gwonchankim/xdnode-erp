@@ -1155,6 +1155,7 @@ export const erpMasterImpactCases = sqliteTable("erp_master_impact_cases", {
   dueDate: text("due_date").notNull().default(""), resolutionNote: text("resolution_note").notNull().default(""),
   evidenceRef: text("evidence_ref").notNull().default(""), lastRecheckedBy: text("last_rechecked_by").notNull().default(""),
   lastRecheckedAt: integer("last_rechecked_at"), createdBy: text("created_by").notNull(), version: integer("version").notNull().default(1),
+  escalationLevel: integer("escalation_level").notNull().default(0), escalatedAt: integer("escalated_at"),
   createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(), closedBy: text("closed_by").notNull().default(""),
   closedAt: integer("closed_at"),
 }, (table) => [
@@ -1169,6 +1170,23 @@ export const erpMasterImpactCaseEvents = sqliteTable("erp_master_impact_case_eve
   toStatus: text("to_status").notNull().default(""), note: text("note").notNull().default(""),
   snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("idx_erp_master_impact_case_event_created").on(table.caseId, table.createdAt)]);
+
+export const erpMasterImpactSlaPolicies = sqliteTable("erp_master_impact_sla_policies", {
+  id: text("id").primaryKey(), defaultDueDays: integer("default_due_days").notNull().default(3),
+  managerEscalationDays: integer("manager_escalation_days").notNull().default(1),
+  executiveEscalationDays: integer("executive_escalation_days").notNull().default(3),
+  version: integer("version").notNull().default(1), updatedBy: text("updated_by").notNull().default(""), updatedAt: integer("updated_at").notNull(),
+});
+
+export const erpMasterImpactWeeklyReports = sqliteTable("erp_master_impact_weekly_reports", {
+  id: text("id").primaryKey(), weekStart: text("week_start").notNull(), weekEnd: text("week_end").notNull(),
+  version: integer("version").notNull(), activeCount: integer("active_count").notNull(), overdueCount: integer("overdue_count").notNull(),
+  managerEscalatedCount: integer("manager_escalated_count").notNull(), executiveEscalatedCount: integer("executive_escalated_count").notNull(),
+  snapshotJson: text("snapshot_json").notNull(), checksum: text("checksum").notNull(), createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_erp_master_impact_weekly_report_version").on(table.weekStart, table.version),
+  index("idx_erp_master_impact_weekly_report_created").on(table.createdAt),
+]);
 
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),

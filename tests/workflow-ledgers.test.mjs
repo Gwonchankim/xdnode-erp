@@ -83,6 +83,35 @@ test("master impact resolution cases prevent duplicate active work and preserve 
   assert.match(queryPlan.map((item) => item.detail).join(" "), /idx_erp_master_impact_case_status_due/); db.close();
 });
 
+test("master impact SLA policy versions and weekly snapshots remain durable and non-duplicating", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const policy = db.prepare("SELECT default_due_days,manager_escalation_days,executive_escalation_days,version FROM erp_master_impact_sla_policies WHERE id='default'").get();
+  assert.deepEqual({ ...policy }, { default_due_days: 3, manager_escalation_days: 1, executive_escalation_days: 3, version: 1 });
+  const updated = db.prepare("UPDATE erp_master_impact_sla_policies SET default_due_days=5,version=version+1,updated_by='gc.kim',updated_at=? WHERE id='default' AND version=1").run(now);
+  const stale = db.prepare("UPDATE erp_master_impact_sla_policies SET default_due_days=7,version=version+1 WHERE id='default' AND version=1").run();
+  assert.equal(updated.changes, 1); assert.equal(stale.changes, 0);
+
+  db.prepare(`INSERT INTO erp_master_impact_assessments
+    (id,entity_type,entity_id,proposed_action,entity_version,entity_label,risk_level,blocking_count,warning_count,impacted_record_count,impact_json,checksum,requested_by,created_at,expires_at)
+    VALUES ('sla-assessment','FINANCE_ACCOUNT','account-sla','DEACTIVATE','1','10100 · 현금','HIGH',1,0,1,'[]','sla-hash','gc.kim',?,?)`).run(now, now + 900000);
+  db.prepare(`INSERT INTO erp_master_impact_cases
+    (id,assessment_id,entity_type,entity_id,action,impact_code,impact_label,impact_detail,severity,initial_count,current_count,status,owner_employee_id,due_date,created_by,created_at,updated_at)
+    VALUES ('sla-case','sla-assessment','FINANCE_ACCOUNT','account-sla','DEACTIVATE','OPEN_ITEM','미결 원장','미결 1건','BLOCKER',1,1,'OPEN','gc.kim','2026-08-10','gc.kim',?,?)`).run(now, now);
+  const escalated = db.prepare("UPDATE erp_master_impact_cases SET escalation_level=1,escalated_at=? WHERE id='sla-case' AND escalation_level<1").run(now);
+  const duplicateEscalation = db.prepare("UPDATE erp_master_impact_cases SET escalation_level=1,escalated_at=? WHERE id='sla-case' AND escalation_level<1").run(now + 1);
+  assert.equal(escalated.changes, 1); assert.equal(duplicateEscalation.changes, 0);
+
+  const insertReport = db.prepare(`INSERT INTO erp_master_impact_weekly_reports
+    (id,week_start,week_end,version,active_count,overdue_count,manager_escalated_count,executive_escalated_count,snapshot_json,checksum,created_by,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insertReport.run('weekly-1','2026-08-10','2026-08-16',1,1,1,1,0,'{"active":1}','weekly-hash-1','gc.kim',now);
+  insertReport.run('weekly-2','2026-08-10','2026-08-16',2,1,1,1,0,'{"active":1}','weekly-hash-2','gc.kim',now + 1);
+  assert.throws(() => insertReport.run('weekly-duplicate','2026-08-10','2026-08-16',2,1,1,1,0,'{}','duplicate','gc.kim',now + 2), /UNIQUE constraint failed/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_master_impact_weekly_reports WHERE week_start='2026-08-10'").get().count, 2);
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM erp_master_impact_weekly_reports ORDER BY created_at DESC").all();
+  assert.match(plan.map((item) => item.detail).join(" "), /idx_erp_master_impact_weekly_report_created/); db.close();
+});
+
 test("finance risk policy extends the single cash-policy record with safe defaults", async () => {
   const db = await migratedDatabase();
   const columns = db.prepare("PRAGMA table_info(finance_cash_forecast_settings)").all().map((column) => column.name);

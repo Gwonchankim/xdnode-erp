@@ -53,6 +53,23 @@ test("master impact blockers become controlled resolution cases with recheck and
   assert.match(plan, /자동 해결, 자동 계정 치환, 자동 병합, 자동 종결은 하지 않는다/);
 });
 
+test("master impact SLA escalations preserve ownership and freeze versioned weekly risk reports", async () => {
+  const [server, api, workspace, schema, migration, plan] = await Promise.all([
+    read("app/master-impact.ts"), read("app/api/master-impact-cases/route.ts"), read("app/master-impact-case-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0063_master_impact_sla_reporting.sql"), read("docs/master-impact-sla-reporting-plan.md"),
+  ]);
+  for (const source of [server, api, schema, migration]) for (const table of ["erp_master_impact_sla_policies", "erp_master_impact_weekly_reports"]) assert.match(source, new RegExp(table));
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /target <= row\.escalation_level/); assert.match(api, /WHERE id = \? AND escalation_level < \?/);
+  assert.match(api, /SLA_ESCALATED/); assert.match(api, /SYSTEM:SLA/); assert.match(api, /MASTER_IMPACT_SLA_ESCALATION/);
+  assert.match(api, /expectedVersion !== before\.version/); assert.match(api, /expectedPolicyVersion/);
+  assert.match(api, /executiveEscalationDays <= managerEscalationDays/); assert.match(api, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(api, /SELECT COALESCE\(MAX\(version\), 0\) \+ 1 FROM erp_master_impact_weekly_reports/);
+  assert.doesNotMatch(api, /UPDATE erp_master_impact_weekly_reports|DELETE FROM erp_master_impact_weekly_reports/);
+  assert.match(workspace, /자동 재배정 없음/); assert.match(workspace, /기존 기한은 변경하지 않았습니다/); assert.match(workspace, /관리자별 현재 위험/); assert.match(workspace, /현재 상태 주간 보고 저장/);
+  assert.match(server, /policy\.defaultDueDays/); assert.match(plan, /기존 업무의 담당자·기한을 소급 변경하지 않는다/); assert.match(plan, /새 버전을 추가한다/);
+});
+
 test("finance assistant answers become traceable decision drafts without bypassing review and approval", async () => {
   const [api, page, workspace, schema, migration, plan] = await Promise.all([
     read("app/api/finance/management-report/route.ts"), read("app/page.tsx"),

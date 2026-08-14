@@ -697,6 +697,34 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const documentRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM sales_documents document
+        WHERE document.document_type <> 'PAYMENT' AND document.status NOT IN ('COMPLETED','CANCELLED')
+          AND document.due_date <> '' AND document.due_date < ?) AS overdue_count,
+      (SELECT COUNT(*) FROM sales_documents document
+        WHERE EXISTS (SELECT 1 FROM sales_document_lines line WHERE line.document_id = document.id)
+          AND document.amount <> (SELECT COALESCE(SUM(line.amount), 0) FROM sales_document_lines line WHERE line.document_id = document.id)) AS amount_mismatch_count,
+      (SELECT COUNT(*) FROM sales_document_lines source_line WHERE source_line.quantity < COALESCE((
+        SELECT SUM(child_line.quantity) FROM sales_document_lines child_line JOIN sales_documents child ON child.id = child_line.document_id
+        WHERE child_line.source_line_id = source_line.id AND child.status <> 'CANCELLED'), 0)) AS overallocated_line_count,
+      (SELECT COUNT(*) FROM sales_documents document WHERE document.document_type IN ('DELIVERY','INVOICE')
+        AND document.source_document_id = '' AND EXISTS (SELECT 1 FROM sales_document_lines line WHERE line.document_id = document.id)) AS missing_source_count`)
+      .bind(today).first<{ overdue_count: number; amount_mismatch_count: number; overallocated_line_count: number; missing_source_count: number }>();
+    const overdue = Number(documentRisk?.overdue_count ?? 0); const mismatch = Number(documentRisk?.amount_mismatch_count ?? 0);
+    const overallocated = Number(documentRisk?.overallocated_line_count ?? 0); const missingSource = Number(documentRisk?.missing_source_count ?? 0);
+    const riskCount = overdue + mismatch + overallocated + missingSource;
+    if (riskCount > 0) await upsertRuleTask({
+      id: "sales-document-control-risk", module: "sales", category: "영업 문서 통제",
+      title: `영업 문서·품목 ${riskCount}건 확인`,
+      description: `처리기한 경과 ${overdue}건 · 라인합계 불일치 ${mismatch}건 · 상위수량 초과 ${overallocated}건 · 근거문서 누락 ${missingSource}건입니다.`,
+      dueDate: today, priority: mismatch + overallocated + missingSource > 0 ? "HIGH" : "NORMAL",
+      destination: "sales:document", sourceId: `${today}:${overdue}:${mismatch}:${overallocated}:${missingSource}`,
+    }); else await closeRuleTask("sales-document-control-risk");
+  } catch {
+    // 영업 문서 라인 원장이 배포된 뒤부터 금액·수량·기한 정합성을 평가합니다.
+  }
+
+  try {
     const [facilities, debtRisk] = await Promise.all([
       db.prepare("SELECT source_account_id, maturity_date, next_covenant_review_date, status FROM finance_debt_facilities WHERE status IN ('DRAFT','ACTIVE')")
         .all<{ source_account_id: string; maturity_date: string; next_covenant_review_date: string; status: string }>(),

@@ -5,8 +5,10 @@ import IncentiveGovernance from "./incentive-governance";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
-type SalesDocument = { id: string; opportunityId: string; opportunityTitle: string; accountName: string; documentType: string; documentNumber: string; version: number; amount: number; status: string; issuedDate: string; dueDate: string; reservedAmount: number; collectedAmount: number; outstandingAmount: number; linkedInvoiceId: string; linkedInvoiceNumber: string };
-type SalesData = { dataStatus: { crm: string; incentive: string }; accounts: Account[]; opportunities: Opportunity[]; documents: SalesDocument[]; incentiveRules: Array<{ id: string; name: string; version: number; status: string }> };
+type CatalogItem = { id: string; code: string; name: string; itemType: string; unit: string; defaultUnitPrice: number; status: string };
+type DocumentLine = { id: string; documentId: string; lineNumber: number; catalogItemId: string; catalogCode: string; catalogName: string; description: string; quantity: number; unit: string; unitPrice: number; amount: number; sourceLineId: string; orderedQuantity: number; deliveredQuantity: number; invoicedQuantity: number };
+type SalesDocument = { id: string; opportunityId: string; opportunityTitle: string; accountName: string; documentType: string; documentNumber: string; version: number; amount: number; status: string; issuedDate: string; dueDate: string; sourceDocumentId: string; sourceDocumentNumber: string; reservedAmount: number; collectedAmount: number; outstandingAmount: number; linkedInvoiceId: string; linkedInvoiceNumber: string; lines: DocumentLine[] };
+type SalesData = { dataStatus: { crm: string; incentive: string }; accounts: Account[]; opportunities: Opportunity[]; documents: SalesDocument[]; catalog: CatalogItem[]; incentiveRules: Array<{ id: string; name: string; version: number; status: string }> };
 type Contact = { id: string; accountId: string; name: string; title: string; email: string; phone: string; isPrimary: boolean; status: string; createdBy: string; createdAt: number };
 type Activity = { id: string; opportunityId: string; contactId: string; contactName: string; activityType: string; occurredAt: string; summary: string; nextAction: string; nextActionDate: string; createdBy: string; createdAt: number };
 type StageHistory = { id: string; opportunityId: string; fromStage: string; toStage: string; reason: string; changedBy: string; changedAt: number };
@@ -18,6 +20,7 @@ const salesDocumentLabels: Record<string, string> = { QUOTE: "견적", ORDER: "�
 const salesDocumentStatusLabels: Record<string, string> = { DRAFT: "작성 중", ISSUED: "발행", ACCEPTED: "확정", COMPLETED: "완료", CANCELLED: "취소" };
 const activityLabels: Record<string, string> = { CALL: "전화", EMAIL: "이메일", MEETING: "회의", NOTE: "메모" };
 const nextStage: Record<string, string> = { LEAD: "DISCOVERY", DISCOVERY: "PROPOSAL", PROPOSAL: "CONTRACT", CONTRACT: "WON" };
+const sourceTypes: Record<string, string[]> = { QUOTE: [], ORDER: ["QUOTE"], DELIVERY: ["ORDER"], INVOICE: ["ORDER", "DELIVERY"], PAYMENT: [] };
 const currency = (value: number) => `₩${value.toLocaleString("ko-KR")}`;
 const localDateTime = () => { const date = new Date(); date.setMinutes(date.getMinutes() - date.getTimezoneOffset()); return date.toISOString().slice(0, 16); };
 const availableDocumentStatuses = (document: SalesDocument) => document.documentType === "PAYMENT" && document.status === "ACCEPTED"
@@ -31,7 +34,9 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   const [message, setMessage] = useState("");
   const [accountDraft, setAccountDraft] = useState({ name: "", businessNumber: "", industry: "", memo: "" });
   const [opportunityDraft, setOpportunityDraft] = useState({ accountId: "", title: "", leadType: "OUTBOUND", stage: "LEAD", expectedRevenue: "", expectedCost: "", probability: "10", expectedCloseDate: "", nextAction: "", nextActionDate: "" });
-  const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
+  const [catalogDraft, setCatalogDraft] = useState({ code: "", name: "", itemType: "PRODUCT", unit: "EA", defaultUnitPrice: "" });
+  const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", sourceDocumentId: "", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
+  const [documentLines, setDocumentLines] = useState<Array<{ catalogItemId: string; quantity: string; unitPrice: string; sourceLineId: string; maxQuantity: number | null }>>([{ catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }]);
   const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
   const [crm, setCrm] = useState<CrmData | null>(null);
   const [contactDraft, setContactDraft] = useState({ name: "", title: "", email: "", phone: "", isPrimary: false });
@@ -77,6 +82,9 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   const expectedMargin = open.reduce((sum, item) => sum + item.expectedRevenue - item.expectedCost, 0);
   const invoices = (data?.documents ?? []).filter((item) => item.documentType === "INVOICE" && ["ACCEPTED", "COMPLETED"].includes(item.status));
   const selectableInvoices = invoices.filter((item) => item.opportunityId === documentDraft.opportunityId && item.amount - item.reservedAmount > 0);
+  const sourceDocuments = (data?.documents ?? []).filter((item) => item.opportunityId === documentDraft.opportunityId
+    && sourceTypes[documentDraft.documentType]?.includes(item.documentType) && ["ACCEPTED", "COMPLETED"].includes(item.status));
+  const documentLineTotal = documentLines.reduce((sum, line) => sum + Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0)), 0);
   const acceptedInvoiceTotal = invoices.reduce((sum, item) => sum + item.amount, 0);
   const collectedTotal = invoices.reduce((sum, item) => sum + item.collectedAmount, 0);
 
@@ -125,13 +133,61 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
     await Promise.all([load(), loadCrm(selectedOpportunityId)]);
   }
 
+  async function createCatalogItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setMessage("");
+    const response = await fetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "catalog", ...catalogDraft, defaultUnitPrice: Number(catalogDraft.defaultUnitPrice) }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "상품·서비스를 저장하지 못했습니다."); return; }
+    setCatalogDraft({ code: "", name: "", itemType: "PRODUCT", unit: "EA", defaultUnitPrice: "" });
+    setMessage("상품·서비스 기준정보를 등록했습니다."); await load();
+  }
+
+  async function toggleCatalogItem(item: CatalogItem) {
+    const nextStatus = item.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    const response = await fetch("/api/sales", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "catalog", id: item.id, ...item, status: nextStatus, reason: nextStatus === "INACTIVE" ? "신규 영업 문서 사용 중지" : "신규 영업 문서 사용 재개" }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "기준정보 상태를 변경하지 못했습니다."); return; }
+    setMessage(nextStatus === "ACTIVE" ? "상품·서비스를 다시 활성화했습니다." : "상품·서비스를 비활성화했습니다. 과거 문서에는 영향이 없습니다.");
+    await load();
+  }
+
+  function changeDocumentType(documentType: string) {
+    setDocumentDraft((current) => ({ ...current, documentType, sourceDocumentId: "", invoiceDocumentId: "", amount: "" }));
+    setDocumentLines([{ catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }]);
+  }
+
+  function selectSourceDocument(sourceDocumentId: string) {
+    setDocumentDraft((current) => ({ ...current, sourceDocumentId }));
+    const source = (data?.documents ?? []).find((item) => item.id === sourceDocumentId);
+    if (!source) { setDocumentLines([{ catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }]); return; }
+    const usageKey = documentDraft.documentType === "ORDER" ? "orderedQuantity" : documentDraft.documentType === "DELIVERY" ? "deliveredQuantity" : "invoicedQuantity";
+    setDocumentLines(source.lines.map((line) => {
+      const remaining = Math.max(0, line.quantity - line[usageKey]);
+      return { catalogItemId: line.catalogItemId, quantity: String(remaining), unitPrice: String(line.unitPrice), sourceLineId: line.id, maxQuantity: remaining };
+    }).filter((line) => line.maxQuantity > 0));
+  }
+
+  function updateDocumentLine(index: number, patch: Partial<(typeof documentLines)[number]>) {
+    setDocumentLines((current) => current.map((line, lineIndex) => {
+      if (lineIndex !== index) return line;
+      const next = { ...line, ...patch };
+      if (patch.catalogItemId !== undefined) {
+        const item = data?.catalog.find((catalog) => catalog.id === patch.catalogItemId);
+        if (item) next.unitPrice = String(item.defaultUnitPrice);
+      }
+      return next;
+    }));
+  }
+
   async function createDocument(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setMessage("");
-    const response = await fetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "document", ...documentDraft, amount: Number(documentDraft.amount) }) });
+    const lines = documentDraft.documentType === "PAYMENT" ? [] : documentLines.map((line) => ({ catalogItemId: line.catalogItemId, quantity: Number(line.quantity), unitPrice: Number(line.unitPrice), sourceLineId: line.sourceLineId }));
+    const response = await fetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "document", ...documentDraft, amount: Number(documentDraft.amount), lines }) });
     const result = await response.json() as { error?: string };
     if (!response.ok) { setMessage(result.error || "영업 문서를 저장하지 못했습니다."); return; }
     setMessage(`${salesDocumentLabels[documentDraft.documentType]} 문서를 저장했습니다.`);
-    setDocumentDraft((current) => ({ ...current, invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" }));
+    setDocumentDraft((current) => ({ ...current, sourceDocumentId: "", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" }));
+    setDocumentLines([{ catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }]);
     await load();
   }
 
@@ -205,21 +261,39 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       </div>
     </section>}
 
+    <section className="panel sales-catalog-panel">
+      <header><div><p>PRODUCT & SERVICE MASTER</p><h2>상품·서비스 기준정보</h2><span>영업 문서의 품목명·단위·기본단가를 통일합니다.</span></div><strong>{data?.catalog.length ?? 0}개</strong></header>
+      <form onSubmit={createCatalogItem}><label>품목 코드<input required value={catalogDraft.code} onChange={(event) => setCatalogDraft({ ...catalogDraft, code: event.target.value })} placeholder="예: SVC-AI-001" /></label><label>명칭<input required value={catalogDraft.name} onChange={(event) => setCatalogDraft({ ...catalogDraft, name: event.target.value })} /></label><label>유형<select value={catalogDraft.itemType} onChange={(event) => setCatalogDraft({ ...catalogDraft, itemType: event.target.value })}><option value="PRODUCT">상품</option><option value="SERVICE">서비스</option></select></label><label>단위<input required value={catalogDraft.unit} onChange={(event) => setCatalogDraft({ ...catalogDraft, unit: event.target.value })} /></label><label>기본단가<input required type="number" min="0" value={catalogDraft.defaultUnitPrice} onChange={(event) => setCatalogDraft({ ...catalogDraft, defaultUnitPrice: event.target.value })} /></label><button type="submit">+ 기준정보 등록</button></form>
+      <div className="sales-catalog-list">{(data?.catalog ?? []).map((item) => <div className={item.status === "INACTIVE" ? "inactive" : ""} key={item.id}><b>{item.code}</b><strong>{item.name}</strong><span>{item.itemType === "PRODUCT" ? "상품" : "서비스"}</span><span>{item.unit}</span><em>{currency(item.defaultUnitPrice)}</em><button type="button" onClick={() => void toggleCatalogItem(item)}>{item.status === "ACTIVE" ? "비활성" : "활성"}</button></div>)}{!data?.catalog.length && <p>먼저 상품 또는 서비스를 등록한 뒤 영업 문서를 작성해 주세요.</p>}</div>
+    </section>
+
     <section className="panel sales-document-flow">
       <header><div><p>QUOTE TO CASH</p><h2>견적·수주·납품·청구·수금</h2></div><span>{data?.documents.length ?? 0}개 문서</span></header>
       <div className="sales-live-metrics"><article><small>확정 청구</small><strong>{currency(acceptedInvoiceTotal)}</strong><span>{invoices.length}건</span></article><article><small>확정 수금</small><strong>{currency(collectedTotal)}</strong><span>승인·완료 수금</span></article><article><small>현재 미수금</small><strong>{currency(Math.max(0, acceptedInvoiceTotal - collectedTotal))}</strong><span>청구 - 확정 수금</span></article><article><small>수금 예약</small><strong>{currency(invoices.reduce((sum, item) => sum + Math.max(0, item.reservedAmount - item.collectedAmount), 0))}</strong><span>작성·결재 중 수금</span></article></div>
-      <form className="sales-document-form" onSubmit={createDocument}>
-        <label>영업 건<select required value={documentDraft.opportunityId} onChange={(event) => setDocumentDraft({ ...documentDraft, opportunityId: event.target.value, invoiceDocumentId: "" })}><option value="">선택</option>{(data?.opportunities ?? []).map((item) => <option key={item.id} value={item.id}>{item.accountName} · {item.title}</option>)}</select></label>
-        <label>문서 종류<select value={documentDraft.documentType} onChange={(event) => setDocumentDraft({ ...documentDraft, documentType: event.target.value, invoiceDocumentId: "" })}>{Object.entries(salesDocumentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-        {documentDraft.documentType === "PAYMENT" && <label>대상 청구서<select required value={documentDraft.invoiceDocumentId} onChange={(event) => setDocumentDraft({ ...documentDraft, invoiceDocumentId: event.target.value })}><option value="">확정 청구서 선택</option>{selectableInvoices.map((item) => <option key={item.id} value={item.id}>{item.documentNumber} · 잔액 {currency(item.amount - item.reservedAmount)}</option>)}</select></label>}
-        <label>문서번호<input required value={documentDraft.documentNumber} onChange={(event) => setDocumentDraft({ ...documentDraft, documentNumber: event.target.value })} placeholder="견적·발주·세금계산서 번호" /></label>
-        <label>금액<input required type="number" min="0" value={documentDraft.amount} onChange={(event) => setDocumentDraft({ ...documentDraft, amount: event.target.value })} /></label>
-        <label>발행일<input type="date" value={documentDraft.issuedDate} onChange={(event) => setDocumentDraft({ ...documentDraft, issuedDate: event.target.value })} /></label>
-        <label>예정일<input type="date" value={documentDraft.dueDate} onChange={(event) => setDocumentDraft({ ...documentDraft, dueDate: event.target.value })} /></label>
-        <button type="submit">+ 문서 저장</button>
+      <form className="sales-document-form sales-document-line-form" onSubmit={createDocument}>
+        <div className="sales-document-fields">
+          <label>영업 건<select required value={documentDraft.opportunityId} onChange={(event) => { setDocumentDraft({ ...documentDraft, opportunityId: event.target.value, sourceDocumentId: "", invoiceDocumentId: "" }); setDocumentLines([{ catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }]); }}><option value="">선택</option>{(data?.opportunities ?? []).map((item) => <option key={item.id} value={item.id}>{item.accountName} · {item.title}</option>)}</select></label>
+          <label>문서 종류<select value={documentDraft.documentType} onChange={(event) => changeDocumentType(event.target.value)}>{Object.entries(salesDocumentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          {documentDraft.documentType === "PAYMENT" && <label>대상 청구서<select required value={documentDraft.invoiceDocumentId} onChange={(event) => setDocumentDraft({ ...documentDraft, invoiceDocumentId: event.target.value })}><option value="">확정 청구서 선택</option>{selectableInvoices.map((item) => <option key={item.id} value={item.id}>{item.documentNumber} · 잔액 {currency(item.amount - item.reservedAmount)}</option>)}</select></label>}
+          {["ORDER", "DELIVERY", "INVOICE"].includes(documentDraft.documentType) && <label>상위 문서<select required={["DELIVERY", "INVOICE"].includes(documentDraft.documentType)} value={documentDraft.sourceDocumentId} onChange={(event) => selectSourceDocument(event.target.value)}><option value="">{documentDraft.documentType === "ORDER" ? "신규 수주(견적 연결 없음)" : "승인 문서 선택"}</option>{sourceDocuments.map((item) => <option disabled={!item.lines.length} key={item.id} value={item.id}>{salesDocumentLabels[item.documentType]} {item.documentNumber}{item.lines.length ? ` · ${item.lines.length}개 품목` : " · 기존 총액 문서"}</option>)}</select></label>}
+          <label>문서번호<input required value={documentDraft.documentNumber} onChange={(event) => setDocumentDraft({ ...documentDraft, documentNumber: event.target.value })} placeholder="견적·발주·세금계산서 번호" /></label>
+          {documentDraft.documentType === "PAYMENT" ? <label>수금액<input required type="number" min="1" value={documentDraft.amount} onChange={(event) => setDocumentDraft({ ...documentDraft, amount: event.target.value })} /></label> : <label>품목 합계<input readOnly value={currency(documentLineTotal)} /></label>}
+          <label>발행일<input type="date" value={documentDraft.issuedDate} onChange={(event) => setDocumentDraft({ ...documentDraft, issuedDate: event.target.value })} /></label>
+          <label>예정일<input type="date" value={documentDraft.dueDate} onChange={(event) => setDocumentDraft({ ...documentDraft, dueDate: event.target.value })} /></label>
+        </div>
+        {documentDraft.documentType !== "PAYMENT" && <div className="sales-document-lines-editor">
+          <div className="head"><span>품목</span><span>수량</span><span>단위</span><span>단가</span><span>금액</span><span>관리</span></div>
+          {documentLines.map((line, index) => {
+            const item = data?.catalog.find((catalog) => catalog.id === line.catalogItemId);
+            return <div key={`${line.sourceLineId || "new"}-${index}`}><select required disabled={Boolean(documentDraft.sourceDocumentId)} value={line.catalogItemId} onChange={(event) => updateDocumentLine(index, { catalogItemId: event.target.value })}><option value="">품목 선택</option>{(data?.catalog ?? []).filter((catalog) => catalog.status === "ACTIVE").map((catalog) => <option key={catalog.id} value={catalog.id}>{catalog.code} · {catalog.name}</option>)}</select><input aria-label={`${index + 1}번 라인 수량`} required type="number" min="0.0001" step="any" max={line.maxQuantity ?? undefined} value={line.quantity} onChange={(event) => updateDocumentLine(index, { quantity: event.target.value })} /><span>{item?.unit || "-"}</span><input aria-label={`${index + 1}번 라인 단가`} required readOnly={Boolean(documentDraft.sourceDocumentId)} type="number" min="0" value={line.unitPrice} onChange={(event) => updateDocumentLine(index, { unitPrice: event.target.value })} /><strong>{currency(Math.round(Number(line.quantity || 0) * Number(line.unitPrice || 0)))}</strong><button type="button" onClick={() => setDocumentLines((current) => current.filter((_, lineIndex) => lineIndex !== index))}>삭제</button></div>;
+          })}
+          {!documentDraft.sourceDocumentId && <button type="button" className="add-line" onClick={() => setDocumentLines((current) => [...current, { catalogItemId: "", quantity: "1", unitPrice: "", sourceLineId: "", maxQuantity: null }])}>+ 품목 라인 추가</button>}
+          {documentDraft.sourceDocumentId && !documentLines.length && <p>선택한 상위 문서에 처리 가능한 잔여 수량이 없습니다.</p>}
+        </div>}
+        <button type="submit" className="sales-document-submit" disabled={documentDraft.documentType !== "PAYMENT" && !documentLines.length}>+ 문서 저장</button>
       </form>
       <div className="sales-document-row head"><span>거래처 / 영업 건</span><span>종류</span><span>문서번호</span><span>버전</span><span>금액</span><span>발행·예정일</span><span>상태</span></div>
-      {(data?.documents ?? []).map((document) => <div className="sales-document-row" key={document.id}><p><strong>{document.accountName}</strong><small>{document.opportunityTitle}{document.linkedInvoiceNumber ? ` · 청구 ${document.linkedInvoiceNumber}` : ""}</small></p><span>{salesDocumentLabels[document.documentType] ?? document.documentType}</span><b>{document.documentNumber}</b><span>v{document.version}</span><strong>{currency(document.amount)}{document.documentType === "INVOICE" && <small>{document.outstandingAmount === 0 ? "완납" : `미수 ${currency(document.outstandingAmount)}`}</small>}</strong><time>{document.issuedDate || "미발행"}<small>{document.dueDate ? ` → ${document.dueDate}` : ""}</small></time><select aria-label={`${document.documentNumber} 상태`} value={document.status} onChange={(event) => void updateDocumentStatus(document.id, event.target.value)}>{availableDocumentStatuses(document).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>)}
+      {(data?.documents ?? []).map((document) => <div className="sales-document-row" key={document.id}><p><strong>{document.accountName}</strong><small>{document.opportunityTitle}{document.linkedInvoiceNumber ? ` · 청구 ${document.linkedInvoiceNumber}` : ""}</small><small>{document.lines.length ? `${document.lines[0].description}${document.lines.length > 1 ? ` 외 ${document.lines.length - 1}건` : ""}` : document.documentType === "PAYMENT" ? "수금 문서" : "기존 총액 문서"}{document.sourceDocumentNumber ? ` · 근거 ${document.sourceDocumentNumber}` : ""}</small></p><span>{salesDocumentLabels[document.documentType] ?? document.documentType}</span><b>{document.documentNumber}</b><span>v{document.version}</span><strong>{currency(document.amount)}{document.documentType === "INVOICE" && <small>{document.outstandingAmount === 0 ? "완납" : `미수 ${currency(document.outstandingAmount)}`}</small>}</strong><time>{document.issuedDate || "미발행"}<small>{document.dueDate ? ` → ${document.dueDate}` : ""}</small></time><select aria-label={`${document.documentNumber} 상태`} value={document.status} onChange={(event) => void updateDocumentStatus(document.id, event.target.value)}>{availableDocumentStatuses(document).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>)}
       {!data?.documents.length && <div className="finance-empty">영업 문서를 등록하면 견적부터 수금까지 한 흐름으로 확인할 수 있습니다.</div>}
     </section>
 

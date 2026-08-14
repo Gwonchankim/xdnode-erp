@@ -1144,3 +1144,32 @@ test("sales CRM preserves customer activities and governs stage transitions", as
   assert.match(migration, /idx_sales_contact_account_key/);
   assert.match(plan, /리드 → 요구 확인 → 제안 → 계약 협의 → 수주/);
 });
+
+test("sales document lines derive totals and prevent downstream quantity over-allocation", async () => {
+  const [api, view, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/sales/route.ts"), read("app/sales-workspace.tsx"), read("app/api/operations/route.ts"),
+    read("db/schema.ts"), read("drizzle/0045_sales_document_lines.sql"), read("docs/sales-document-line-governance-plan.md"),
+  ]);
+  assert.match(api, /resource === "catalog"/);
+  assert.match(api, /SALES_CATALOG_ITEM_CREATED/);
+  assert.match(api, /SALES_CATALOG_ITEM_UPDATED/);
+  assert.match(api, /견적·수주·납품·청구 문서에는 품목 라인이 한 개 이상 필요합니다/);
+  assert.match(api, /const amount = lines\.reduce\(\(sum, line\) => sum \+ line\.amount, 0\)/);
+  assert.match(api, /json_each\(\?\) request/);
+  assert.match(api, /source_line\.quantity - COALESCE/);
+  assert.match(api, /child\.status <> 'CANCELLED'/);
+  assert.match(api, /미취소 하위 문서가 있어 취소할 수 없습니다/);
+  assert.match(view, /상품·서비스 기준정보/);
+  assert.match(view, /과거 문서에는 영향이 없습니다/);
+  assert.match(view, /품목 합계/);
+  assert.match(view, /기존 총액 문서/);
+  assert.match(view, /처리 가능한 잔여 수량/);
+  assert.match(operations, /sales-document-control-risk/);
+  assert.match(operations, /라인합계 불일치/);
+  assert.match(schema, /salesCatalogItems/);
+  assert.match(schema, /salesDocumentLines/);
+  assert.match(migration, /ALTER TABLE `sales_documents` ADD `source_document_id`/);
+  assert.match(migration, /idx_sales_document_line_number/);
+  assert.match(migration, /PRAGMA optimize/);
+  assert.match(plan, /문서 금액은 `수량 × 단가`의 라인별 반올림 합계/);
+});

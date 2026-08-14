@@ -1931,6 +1931,21 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .sales-crm-ledgers strong { font-size: 10px; }
 .sales-crm-ledgers p { grid-column: 2; margin: 0; font-size: 10px; line-height: 1.5; }
 .sales-crm-ledgers small { grid-column: 2; }
+.sales-catalog-panel { overflow: hidden; }
+.sales-catalog-panel > header { min-height: 76px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e4e4e7; }
+.sales-catalog-panel header p { margin: 0 0 6px; color: #f97316; letter-spacing: .12em; font-size: 9px; font-weight: 900; }
+.sales-catalog-panel header h2 { margin: 0 0 4px; font-size: 18px; }
+.sales-catalog-panel header span { color: #71717a; font-size: 9px; }
+.sales-catalog-panel header > strong { font-size: 12px; }
+.sales-catalog-panel > form { padding: 15px 18px; display: grid; grid-template-columns: .8fr 1.3fr .65fr .5fr .8fr auto; gap: 9px; background: #fafafa; border-bottom: 1px solid #e4e4e7; }
+.sales-catalog-panel label { display: grid; gap: 5px; color: #71717a; font-size: 9px; font-weight: 800; }
+.sales-catalog-panel input, .sales-catalog-panel select { min-width: 0; height: 38px; padding: 0 10px; background: #fff; border: 1px solid #d4d4d8; border-radius: 12px; font: inherit; }
+.sales-catalog-panel form button { align-self: end; height: 38px; padding: 0 13px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 9px; font-weight: 900; }
+.sales-catalog-list > div { min-height: 45px; padding: 0 18px; display: grid; grid-template-columns: .8fr 1.6fr .5fr .4fr .8fr 58px; gap: 12px; align-items: center; border-top: 1px solid #ececee; font-size: 9px; }
+.sales-catalog-list > div.inactive { color: #a1a1aa; background: #fafafa; }
+.sales-catalog-list em { font-style: normal; font-weight: 900; text-align: right; }
+.sales-catalog-list button { height: 29px; color: #18181b; background: #fff; border: 1px solid #d4d4d8; border-radius: 10px; font-size: 9px; font-weight: 800; }
+.sales-catalog-list > p { padding: 18px; margin: 0; color: #71717a; font-size: 10px; }
 .incentive-governance { grid-template-columns: 1.3fr .7fr; }
 .incentive-warning { margin: 16px 18px 0; padding: 12px 14px; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px; font-size: 10px; line-height: 1.45; }
 .incentive-sandbox-body { padding: 16px 18px 20px; display: grid; grid-template-columns: repeat(3, 1fr) minmax(150px, .8fr); gap: 10px; align-items: end; }
@@ -1946,6 +1961,17 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .sales-document-form label { min-width: 0; display: grid; gap: 5px; color: #71717a; font-size: 9px; font-weight: 800; }
 .sales-document-form input, .sales-document-form select, .sales-document-row select { min-width: 0; height: 38px; padding: 0 10px; background: #fff; border: 1px solid #d4d4d8; border-radius: 12px; font: inherit; }
 .sales-document-form button { align-self: end; height: 38px; padding: 0 13px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 9px; font-weight: 900; }
+.sales-document-line-form { display: block; padding: 0; }
+.sales-document-fields { padding: 16px 18px; display: grid; grid-template-columns: 1.3fr .65fr 1fr .8fr .8fr .8fr .8fr; gap: 10px; }
+.sales-document-lines-editor { padding: 0 18px 15px; }
+.sales-document-lines-editor > div { min-height: 42px; display: grid; grid-template-columns: minmax(180px, 1.5fr) .55fr .35fr .7fr .75fr 50px; gap: 9px; align-items: center; border-top: 1px solid #e4e4e7; font-size: 9px; }
+.sales-document-lines-editor > div.head { min-height: 30px; color: #71717a; border-top: 0; font-weight: 800; }
+.sales-document-lines-editor select, .sales-document-lines-editor input { min-width: 0; height: 34px; padding: 0 9px; background: #fff; border: 1px solid #d4d4d8; border-radius: 10px; font: inherit; }
+.sales-document-lines-editor > div > button { height: 30px; padding: 0 8px; color: #b91c1c; background: #fff; border: 1px solid #fecaca; border-radius: 10px; }
+.sales-document-lines-editor .add-line { margin-top: 9px; color: #18181b; background: #fff; border: 1px solid #d4d4d8; }
+.sales-document-lines-editor > p { margin: 10px 0 0; color: #b45309; font-size: 10px; font-weight: 800; }
+.sales-document-line-form > .sales-document-submit { margin: 0 18px 16px auto; display: block; min-width: 140px; }
+.sales-document-line-form > .sales-document-submit:disabled { cursor: not-allowed; opacity: .45; }
 .sales-document-row { min-height: 58px; padding: 0 18px; display: grid; grid-template-columns: minmax(180px, 1.4fr) .55fr .8fr .35fr .8fr .9fr .8fr; gap: 12px; align-items: center; border-top: 1px solid #ececee; font-size: 10px; }
 .sales-document-row.head { min-height: 40px; color: #71717a; background: #f4f4f5; font-size: 9px; font-weight: 800; }
 .sales-document-row p, .sales-document-row time { margin: 0; }
@@ -1959,6 +1985,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .sales-crm-grid, .sales-crm-ledgers { grid-template-columns: 1fr; }
   .sales-crm-grid > article + article, .sales-crm-ledgers > article + article { border-left: 0; border-top: 1px solid #e4e4e7; }
   .sales-document-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sales-catalog-panel > form, .sales-document-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .sales-live-heading { display: grid; }
@@ -1968,6 +1995,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .sales-pipeline-row { min-width: 760px; }
   .sales-document-flow { overflow-x: auto; }
   .sales-document-form { min-width: 720px; }
+  .sales-document-line-form { min-width: 850px; }
   .sales-document-row { min-width: 860px; }
 }
 

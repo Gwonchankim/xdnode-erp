@@ -1635,11 +1635,33 @@ export const salesDocuments = sqliteTable("sales_documents", {
   status: text("status").notNull().default("DRAFT"),
   issuedDate: text("issued_date").notNull().default(""),
   dueDate: text("due_date").notNull().default(""),
+  sourceDocumentId: text("source_document_id").notNull().default(""),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
   index("idx_sales_documents_opportunity_type").on(table.opportunityId, table.documentType),
   index("idx_sales_documents_status_due").on(table.status, table.dueDate),
+  index("idx_sales_documents_source").on(table.sourceDocumentId),
+]);
+
+export const salesCatalogItems = sqliteTable("sales_catalog_items", {
+  id: text("id").primaryKey(), code: text("code").notNull(), name: text("name").notNull(),
+  itemType: text("item_type").notNull(), unit: text("unit").notNull().default("EA"),
+  defaultUnitPrice: integer("default_unit_price").notNull().default(0), status: text("status").notNull().default("ACTIVE"),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_catalog_code").on(table.code),
+  index("idx_sales_catalog_status_name").on(table.status, table.name),
+]);
+
+export const salesDocumentLines = sqliteTable("sales_document_lines", {
+  id: text("id").primaryKey(), documentId: text("document_id").notNull(), lineNumber: integer("line_number").notNull(),
+  catalogItemId: text("catalog_item_id").notNull(), description: text("description").notNull(), quantity: real("quantity").notNull(),
+  unit: text("unit").notNull(), unitPrice: integer("unit_price").notNull(), amount: integer("amount").notNull(),
+  sourceLineId: text("source_line_id").notNull().default(""), createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_document_line_number").on(table.documentId, table.lineNumber),
+  index("idx_sales_document_line_source").on(table.sourceLineId),
 ]);
 
 export const salesPaymentAllocations = sqliteTable("sales_payment_allocations", {

@@ -839,3 +839,50 @@ test("sales CRM keeps contacts unique and activities and stage changes append-on
   assert.ok(indexes.some((row) => row.name === "idx_sales_contact_account_key" && row.unique === 1));
   db.close();
 });
+
+test("sales catalog and document lines preserve codes, line numbers and source lineage", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertCatalog = db.prepare(`INSERT INTO sales_catalog_items
+    (id, code, name, item_type, unit, default_unit_price, status, created_by, created_at, updated_at)
+    VALUES (?, 'SVC-AI-001', 'AI 분석 서비스', 'SERVICE', 'MONTH', 1000000, 'ACTIVE', 'gc.kim', ?, ?)`);
+  insertCatalog.run("catalog-1", now, now);
+  assert.throws(() => insertCatalog.run("catalog-duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO sales_documents
+    (id, opportunity_id, document_type, document_number, version, amount, status, issued_date, due_date, source_document_id, created_at, updated_at)
+    VALUES ('order-1', 'opportunity-1', 'ORDER', 'ORD-001', 1, 10000000, 'ACCEPTED', '2026-08-14', '2026-08-31', '', ?, ?)`)
+    .run(now, now);
+  const insertLine = db.prepare(`INSERT INTO sales_document_lines
+    (id, document_id, line_number, catalog_item_id, description, quantity, unit, unit_price, amount, source_line_id, created_at)
+    VALUES (?, 'order-1', 1, 'catalog-1', 'AI 분석 서비스', 10, 'MONTH', 1000000, 10000000, '', ?)`);
+  insertLine.run("order-line-1", now);
+  assert.throws(() => insertLine.run("order-line-duplicate", now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO sales_documents
+    (id, opportunity_id, document_type, document_number, version, amount, status, issued_date, due_date, source_document_id, created_at, updated_at)
+    VALUES ('delivery-1', 'opportunity-1', 'DELIVERY', 'DEL-001', 1, 8000000, 'DRAFT', '2026-08-15', '', 'order-1', ?, ?)`)
+    .run(now, now);
+  db.prepare(`INSERT INTO sales_document_lines
+    (id, document_id, line_number, catalog_item_id, description, quantity, unit, unit_price, amount, source_line_id, created_at)
+    VALUES ('delivery-line-1', 'delivery-1', 1, 'catalog-1', 'AI 분석 서비스', 8, 'MONTH', 1000000, 8000000, 'order-line-1', ?)`)
+    .run(now);
+  const remaining = db.prepare(`SELECT source.quantity - COALESCE(SUM(child.quantity), 0) AS quantity
+    FROM sales_document_lines source LEFT JOIN sales_document_lines child ON child.source_line_id = source.id
+    LEFT JOIN sales_documents document ON document.id = child.document_id AND document.status <> 'CANCELLED'
+    WHERE source.id = 'order-line-1' GROUP BY source.id`).get().quantity;
+  assert.equal(remaining, 2);
+  const overAllocation = db.prepare(`INSERT INTO sales_documents
+    (id, opportunity_id, document_type, document_number, version, amount, status, issued_date, due_date, source_document_id, created_at, updated_at)
+    SELECT 'delivery-over', 'opportunity-1', 'DELIVERY', 'DEL-OVER', 1, 3000000, 'DRAFT', '2026-08-16', '', 'order-1', ?, ?
+    WHERE NOT EXISTS (SELECT 1 FROM json_each(?) request JOIN sales_document_lines source_line
+      ON source_line.id = json_extract(request.value, '$.sourceLineId')
+      WHERE CAST(json_extract(request.value, '$.quantity') AS REAL) > source_line.quantity - COALESCE((
+        SELECT SUM(child_line.quantity) FROM sales_document_lines child_line JOIN sales_documents child ON child.id = child_line.document_id
+        WHERE child_line.source_line_id = source_line.id AND child.document_type = 'DELIVERY' AND child.status <> 'CANCELLED'), 0))`)
+    .run(now, now, JSON.stringify([{ sourceLineId: "order-line-1", quantity: 3 }]));
+  assert.equal(overAllocation.changes, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sales_documents WHERE id = 'delivery-over'").get().count, 0);
+  const lineIndexes = db.prepare("PRAGMA index_list(sales_document_lines)").all();
+  assert.ok(lineIndexes.some((row) => row.name === "idx_sales_document_line_number" && row.unique === 1));
+  const sourcePlan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM sales_document_lines WHERE source_line_id = 'order-line-1'").all();
+  assert.ok(sourcePlan.some((row) => String(row.detail).includes("idx_sales_document_line_source")));
+  db.close();
+});

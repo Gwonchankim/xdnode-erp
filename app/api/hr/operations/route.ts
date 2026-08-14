@@ -19,18 +19,18 @@ async function ensureSchema() {
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_personnel_actions (
       id TEXT PRIMARY KEY NOT NULL, employee_id TEXT NOT NULL, action_type TEXT NOT NULL, effective_date TEXT NOT NULL,
-      from_department TEXT NOT NULL DEFAULT '', to_department TEXT NOT NULL DEFAULT '', from_position TEXT NOT NULL DEFAULT '',
-      to_position TEXT NOT NULL DEFAULT '', reason TEXT NOT NULL DEFAULT '', evidence_document_id TEXT NOT NULL DEFAULT '',
-      status TEXT NOT NULL DEFAULT 'EFFECTIVE', approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
+      order_number TEXT NOT NULL DEFAULT '', before_json TEXT NOT NULL DEFAULT '{}', after_json TEXT NOT NULL DEFAULT '{}',
+      reason TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'DRAFT', approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_lifecycle_tasks (
-      id TEXT PRIMARY KEY NOT NULL, employee_id TEXT NOT NULL, lifecycle_type TEXT NOT NULL, event_date TEXT NOT NULL,
-      owner_type TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN', completed_at INTEGER,
-      evidence_document_id TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+      id TEXT PRIMARY KEY NOT NULL, employee_id TEXT NOT NULL, lifecycle_type TEXT NOT NULL, task_group TEXT NOT NULL,
+      title TEXT NOT NULL, owner_employee_id TEXT NOT NULL DEFAULT '', due_date TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'OPEN', completed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_personnel_employee_effective ON hr_personnel_actions(employee_id, effective_date)"),
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_employee_type_status ON hr_lifecycle_tasks(employee_id, lifecycle_type, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_employee_type ON hr_lifecycle_tasks(employee_id, lifecycle_type)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_lifecycle_status_due ON hr_lifecycle_tasks(status, due_date)"),
   ]);
 }
 
@@ -67,12 +67,14 @@ export async function POST(request: Request) {
     if (!employeeId || !["인사이동(전보)", "승진", "강등"].includes(actionType) || !/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || (actionType === "강등" && !reason)) {
       return Response.json({ error: "발령 대상·구분·시행일을 확인하고 강등 시 정당한 사유를 입력해 주세요." }, { status: 400 });
     }
+    const beforeState = { department: String(body.fromDepartment ?? ""), position: String(body.fromPosition ?? "") };
+    const afterState = { department: String(body.toDepartment ?? ""), position: String(body.toPosition ?? "") };
     await db.prepare(`INSERT INTO hr_personnel_actions
-      (id, employee_id, action_type, effective_date, from_department, to_department, from_position, to_position,
-        reason, evidence_document_id, status, approved_by, approved_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', 'EFFECTIVE', ?, ?, ?, ?)`)
-      .bind(id, employeeId, actionType, effectiveDate, String(body.fromDepartment ?? ""), String(body.toDepartment ?? ""),
-        String(body.fromPosition ?? ""), String(body.toPosition ?? ""), reason, authorization.principal.employeeId, now, now, now).run();
+      (id, employee_id, action_type, effective_date, order_number, before_json, after_json,
+        reason, status, approved_by, approved_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'EFFECTIVE', ?, ?, ?, ?)`)
+      .bind(id, employeeId, actionType, effectiveDate, String(body.orderNumber ?? ""), JSON.stringify(beforeState),
+        JSON.stringify(afterState), reason, authorization.principal.employeeId, now, now, now).run();
     const after = { id, employeeId, actionType, effectiveDate, fromDepartment: body.fromDepartment, toDepartment: body.toDepartment, fromPosition: body.fromPosition, toPosition: body.toPosition, reason, status: "EFFECTIVE" };
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PERSONNEL_ACTION_CREATED", entityType: "personnelAction", entityId: id, after });
     return Response.json({ item: after }, { status: 201 });
@@ -89,10 +91,11 @@ export async function POST(request: Request) {
       const taskId = `${employeeId}:${eventDate}:${String(item.id ?? crypto.randomUUID())}`;
       const completed = Boolean(item.completed);
       return db.prepare(`INSERT INTO hr_lifecycle_tasks
-        (id, employee_id, lifecycle_type, event_date, owner_type, title, status, completed_at, evidence_document_id, created_at, updated_at)
-        VALUES (?, ?, 'RETIREMENT', ?, ?, ?, ?, ?, '', ?, ?)
+        (id, employee_id, lifecycle_type, task_group, title, owner_employee_id, due_date, status, completed_at, created_at, updated_at)
+        VALUES (?, ?, 'RETIREMENT', ?, ?, '', ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, updated_at = excluded.updated_at`)
-        .bind(taskId, employeeId, eventDate, String(item.ownerType ?? "HR"), String(item.title ?? ""), completed ? "DONE" : "OPEN", completed ? now : null, now, now);
+        .bind(taskId, employeeId, String(item.ownerType ?? "HR"), String(item.title ?? ""), eventDate,
+          completed ? "DONE" : "OPEN", completed ? now : null, now, now);
     });
     await db.batch(statements);
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_CHECKLIST_SAVED", entityType: "employeeRetirement", entityId: `${employeeId}:${eventDate}`, after: { employeeId, eventDate, reason, tasks } });

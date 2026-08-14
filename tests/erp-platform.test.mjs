@@ -48,3 +48,18 @@ test("sales incentive remains unverified until an approved active rule exists", 
   assert.match(view, /SIMULATION ONLY/);
   assert.match(view, /급여 미반영/);
 });
+
+test("runtime API column names stay aligned with the Drizzle production schema", async () => {
+  const [schema, hrOperations, salesApi] = await Promise.all([
+    read("db/schema.ts"),
+    read("app/api/hr/operations/route.ts"),
+    read("app/api/sales/route.ts"),
+  ]);
+  for (const column of ["before_json", "after_json", "task_group", "owner_employee_id", "due_date"]) {
+    assert.match(hrOperations, new RegExp(column));
+  }
+  assert.doesNotMatch(hrOperations, /from_department|event_date|owner_type|evidence_document_id/);
+  assert.match(schema, /rulesJson: text\("rules_json"\)/);
+  assert.match(salesApi, /rules_json/);
+  assert.doesNotMatch(salesApi, /\brule_json\b/);
+});

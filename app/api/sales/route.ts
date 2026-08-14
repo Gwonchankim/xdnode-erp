@@ -6,7 +6,7 @@ const db = (env as unknown as Bindings).DB;
 
 type AccountRow = { id: string; name: string; business_number: string; industry: string; owner_employee_id: string; status: string; memo: string; created_at: number; updated_at: number; deleted_at: number | null };
 type OpportunityRow = { id: string; account_id: string; title: string; owner_employee_id: string; stage: string; lead_type: string; expected_revenue: number; expected_cost: number; probability: number; expected_close_date: string; next_action: string; next_action_date: string; status: string; created_at: number; updated_at: number; deleted_at: number | null };
-type RuleRow = { id: string; name: string; version: number; status: string; effective_from: string; effective_to: string; rule_json: string; approved_by: string; approved_at: number | null; created_at: number; updated_at: number };
+type RuleRow = { id: string; name: string; version: number; status: string; effective_from: string; effective_to: string; rules_json: string; approved_by: string; approved_at: number | null; created_at: number; updated_at: number };
 
 async function ensureSchema() {
   await db.batch([
@@ -24,7 +24,7 @@ async function ensureSchema() {
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS sales_incentive_rules (
       id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'DRAFT',
-      effective_from TEXT NOT NULL DEFAULT '', effective_to TEXT NOT NULL DEFAULT '', rule_json TEXT NOT NULL DEFAULT '{}',
+      effective_from TEXT NOT NULL DEFAULT '', effective_to TEXT NOT NULL DEFAULT '', rules_json TEXT NOT NULL DEFAULT '{}',
       approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_accounts_owner_status ON sales_accounts(owner_employee_id, status)"),
@@ -34,7 +34,7 @@ async function ensureSchema() {
 
 const toAccount = (row: AccountRow) => ({ id: row.id, name: row.name, businessNumber: row.business_number, industry: row.industry, ownerEmployeeId: row.owner_employee_id, status: row.status, memo: row.memo });
 const toOpportunity = (row: OpportunityRow, accountName = "") => ({ id: row.id, accountId: row.account_id, accountName, title: row.title, ownerEmployeeId: row.owner_employee_id, stage: row.stage, leadType: row.lead_type, expectedRevenue: row.expected_revenue, expectedCost: row.expected_cost, probability: row.probability, expectedCloseDate: row.expected_close_date, nextAction: row.next_action, nextActionDate: row.next_action_date, status: row.status });
-const toRule = (row: RuleRow) => ({ id: row.id, name: row.name, version: row.version, status: row.status, effectiveFrom: row.effective_from, effectiveTo: row.effective_to, rule: JSON.parse(row.rule_json || "{}"), approvedBy: row.approved_by, approvedAt: row.approved_at });
+const toRule = (row: RuleRow) => ({ id: row.id, name: row.name, version: row.version, status: row.status, effectiveFrom: row.effective_from, effectiveTo: row.effective_to, rule: JSON.parse(row.rules_json || "{}"), approvedBy: row.approved_by, approvedAt: row.approved_at });
 
 export async function GET() {
   await ensureSchema();

@@ -288,3 +288,39 @@ test("budget plans preserve approved versions, source mappings and one variance 
   assert.ok(planIndexes.some((row) => row.name === "idx_finance_budget_plan_year_version"));
   assert.ok(actionIndexes.some((row) => row.name === "idx_finance_budget_variance_line_unique"));
 });
+
+test("management reports freeze approved snapshots, preserve versions and track accountable actions", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const frozen = JSON.stringify({ period: "2026-07", asOf: "2026-08-14", sections: { commerce: { sales: 7843458347 } }, quality: { warningCount: 2 } });
+  const insertReport = db.prepare(`INSERT INTO finance_management_reports
+    (id, period, version, status, as_of, snapshot_json, auto_analysis_json, highlights, risks, decisions,
+      quality_acknowledged, revision_reason, created_by, submitted_at, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, '2026-07', ?, ?, '2026-08-14', ?, '{}', '성과', '위험', '의사결정', 1, ?, 'gc.kim', ?, ?, ?, ?, ?)`);
+  insertReport.run("report-v1", 1, "APPROVED", frozen, "", now, "gc.kim", now, now, now);
+  assert.throws(() => insertReport.run("report-v1-duplicate", 1, "DRAFT", frozen, "", null, "", null, now, now), /UNIQUE constraint failed/);
+
+  db.prepare(`INSERT INTO finance_management_report_actions
+    (id, report_id, source_section, title, owner_employee_id, due_date, status, memo, created_by, created_at, updated_at)
+    VALUES ('action-v1', 'report-v1', 'CASH', '유동성 계획 확인', 'gc.kim', '2026-08-20', 'OPEN', '', 'gc.kim', ?, ?)`)
+    .run(now, now);
+  insertReport.run("report-v2", 2, "SUBMITTED", frozen, "원천 정정", now + 1, "", null, now + 1, now + 1);
+  db.prepare("UPDATE finance_management_reports SET status = 'SUPERSEDED', updated_at = ? WHERE id = 'report-v1' AND status = 'APPROVED'").run(now + 2);
+  db.prepare("UPDATE finance_management_reports SET status = 'APPROVED', approved_by = 'gc.kim', approved_at = ?, updated_at = ? WHERE id = 'report-v2' AND status = 'SUBMITTED'").run(now + 2, now + 2);
+  db.prepare("UPDATE finance_management_report_actions SET status = 'DONE', completed_at = ?, updated_at = ? WHERE id = 'action-v1'").run(now + 3, now + 3);
+
+  const v1 = db.prepare("SELECT status, snapshot_json FROM finance_management_reports WHERE id = 'report-v1'").get();
+  const v2 = db.prepare("SELECT status, snapshot_json, revision_reason FROM finance_management_reports WHERE id = 'report-v2'").get();
+  const action = db.prepare("SELECT status, completed_at FROM finance_management_report_actions WHERE id = 'action-v1'").get();
+  assert.equal(v1.status, "SUPERSEDED");
+  assert.equal(v1.snapshot_json, frozen);
+  assert.equal(v2.status, "APPROVED");
+  assert.equal(v2.snapshot_json, frozen);
+  assert.equal(v2.revision_reason, "원천 정정");
+  assert.equal(action.status, "DONE");
+  assert.equal(action.completed_at, now + 3);
+  const reportIndexes = db.prepare("PRAGMA index_list(finance_management_reports)").all();
+  const actionIndexes = db.prepare("PRAGMA index_list(finance_management_report_actions)").all();
+  assert.ok(reportIndexes.some((row) => row.name === "idx_finance_management_report_period_version"));
+  assert.ok(actionIndexes.some((row) => row.name === "idx_finance_management_report_action_status_due"));
+});

@@ -319,6 +319,42 @@ async function seedStateDrivenOperations() {
   } catch {
     // 예산실적 화면을 처음 열기 전에는 계획 원장이 없을 수 있으므로 다음 조회로 미룹니다.
   }
+
+  try {
+    const asOf = new Date(`${financeCurrentData.asOf}T00:00:00Z`);
+    asOf.setUTCDate(1); asOf.setUTCDate(0);
+    const reportPeriod = asOf.toISOString().slice(0, 7);
+    const report = await db.prepare(`SELECT id, status, version FROM finance_management_reports
+      WHERE period = ? ORDER BY version DESC LIMIT 1`).bind(reportPeriod).first<{ id: string; status: string; version: number }>();
+    if (!report || report.status === "DRAFT") await upsertRuleTask({
+      id: "management-report-due", module: "finance", category: "경영보고",
+      title: `${reportPeriod} 월간 경영보고 ${report ? "결재 제출" : "초안 작성"} 필요`,
+      description: report ? `v${report.version} 초안의 원천·품질경고·경영진 문안을 확인하고 결재를 제출해 주세요.`
+        : "매출·매입·자금·미수·급여·예산·월마감 원천을 동결한 월간 보고서를 생성해 주세요.",
+      dueDate: `${financeCurrentData.asOf.slice(0, 8)}10`, priority: "HIGH", destination: "finance:report",
+      sourceId: `${reportPeriod}:${report?.status ?? "MISSING"}:${report?.version ?? 0}`,
+    });
+    else await closeRuleTask("management-report-due");
+
+    const openActions = await db.prepare(`SELECT COUNT(*) AS count,
+      COALESCE(SUM(CASE WHEN action.due_date < ? THEN 1 ELSE 0 END), 0) AS overdue,
+      MIN(CASE WHEN action.status <> 'DONE' THEN action.due_date END) AS nearest_due
+      FROM finance_management_report_actions action
+      JOIN finance_management_reports report ON report.id = action.report_id
+      WHERE action.status <> 'DONE' AND report.status IN ('DRAFT','SUBMITTED','APPROVED')
+        AND report.version = (SELECT MAX(peer.version) FROM finance_management_reports peer WHERE peer.period = report.period)`)
+      .bind(today).first<{ count: number; overdue: number; nearest_due: string | null }>();
+    if ((openActions?.count ?? 0) > 0) await upsertRuleTask({
+      id: "management-report-actions", module: "finance", category: "경영보고 조치",
+      title: `경영보고 후속조치 ${openActions?.count ?? 0}건 진행 필요`,
+      description: `기한 경과 ${openActions?.overdue ?? 0}건을 포함합니다. 보고서에서 담당자·기한·진행상태를 확인해 주세요.`,
+      dueDate: openActions?.nearest_due ?? today, priority: (openActions?.overdue ?? 0) > 0 ? "HIGH" : "NORMAL",
+      destination: "finance:report", sourceId: `${openActions?.count ?? 0}:${openActions?.overdue ?? 0}:${openActions?.nearest_due ?? ""}`,
+    });
+    else await closeRuleTask("management-report-actions");
+  } catch {
+    // 경영보고 원장이 배포된 뒤부터 기한·후속조치 규칙을 평가합니다.
+  }
 }
 
 export async function GET() {

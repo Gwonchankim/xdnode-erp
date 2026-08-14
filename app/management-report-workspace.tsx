@@ -1,0 +1,246 @@
+"use client";
+
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { companyEmployees } from "./hr-company-data";
+
+type SourceStatus = "CONFIRMED" | "PARTIAL" | "MISSING" | "REVIEW";
+type ReportStatus = "DRAFT" | "SUBMITTED" | "APPROVED" | "SUPERSEDED";
+type ReportActionStatus = "OPEN" | "IN_PROGRESS" | "WAITING" | "DONE";
+type Snapshot = {
+  period: string; asOf: string; generatedAt: string;
+  sections: {
+    commerce: { status: SourceStatus; sales: { amount: number; documentCount: number; partnerCount: number }; purchases: { amount: number; documentCount: number; partnerCount: number }; netSupplyDifference: number };
+    cash: { status: SourceStatus; balanceDate: string | null; bankBalanceKrw: number | null; checkingBalanceKrw: number | null; fxBalanceKrw: number | null; loanBalanceKrw: number | null; trend: Array<{ date: string; balance: number }> };
+    receivables: { status: SourceStatus; scope: string; recordCount: number; outstandingAmount: number | null; overdueAmount: number | null; missingPlanCount: number | null; updatedAt: number | null };
+    payroll: { status: SourceStatus; runStatus: string | null; employeeCount: number | null; grossPay: number | null; deductions: number | null; netPay: number | null; updatedAt: number | null };
+    budget: { status: SourceStatus; plan: { id: string; name: string; version: number } | null; lines: number; budget: number; actual: number; variance: number; alertCount: number; unmappedCount: number; mappedCount?: number };
+    close: { status: SourceStatus; runStatus: string | null; periodEnd?: string; controlPassCount?: number; controlFailCount?: number; manualCompletedCount?: number; manualTotalCount?: number; evidenceCount?: number; version?: number };
+    quality: { status: SourceStatus; warningCount: number; journal: { scope: string; lineCount: number; debitAmountKrw: number; creditAmountKrw: number; differenceKrw: number }; warnings: QualityWarning[] };
+  };
+  sources: Array<{ key: string; label: string; status: SourceStatus; statusLabel: string; asOf: string; destination: string; note: string }>;
+  quality: { warningCount: number; requiresAcknowledgement: boolean; warnings: QualityWarning[] };
+  autoAnalysis: { highlights: string; risks: string; decisions: string };
+};
+type QualityWarning = { code: string; section: string; message: string; destination: string };
+type Report = {
+  id: string; period: string; version: number; status: ReportStatus; asOf: string; snapshot: Snapshot;
+  highlights: string; risks: string; decisions: string; qualityAcknowledged: boolean; revisionReason: string;
+  createdBy: string; submittedAt: number | null; approvedBy: string; approvedAt: number | null; createdAt: number; updatedAt: number;
+};
+type ReportAction = {
+  id: string; reportId: string; sourceSection: string; title: string; ownerEmployeeId: string;
+  dueDate: string; status: ReportActionStatus; memo: string; createdBy: string; completedAt: number | null;
+};
+type ApiState = { period: string; currentPeriod: string; periods: string[]; preview: Snapshot; reports: Report[]; selected: Report | null; actions: ReportAction[]; error?: string };
+
+const statusLabels: Record<string, string> = {
+  DRAFT: "작성 중", SUBMITTED: "결재 중", APPROVED: "승인", SUPERSEDED: "대체됨",
+  CONFIRMED: "확정", PARTIAL: "부분 연결", MISSING: "미연결", REVIEW: "검토 필요",
+  OPEN: "대기", IN_PROGRESS: "진행", WAITING: "외부대기", DONE: "완료",
+};
+const sectionLabels: Record<string, string> = { COMMERCE: "매출·매입", CASH: "자금", RECEIVABLES: "미수", PAYROLL: "급여", BUDGET: "예산", CLOSE: "월마감", QUALITY: "데이터 품질", GENERAL: "공통" };
+
+function won(value: number | null | undefined) {
+  return value === null || value === undefined ? "미연결" : `${value.toLocaleString("ko-KR")}원`;
+}
+
+function periodLabel(period: string) {
+  return `${Number(period.slice(5, 7))}월`;
+}
+
+async function fetchReportState(period: string, reportId: string) {
+  const response = await fetch(`/api/finance/management-report?period=${encodeURIComponent(period)}${reportId ? `&reportId=${encodeURIComponent(reportId)}` : ""}`);
+  const data = await response.json() as ApiState;
+  if (!response.ok) throw new Error(data.error || "경영보고 원장을 불러오지 못했습니다.");
+  return data;
+}
+
+export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: (view: string) => void }) {
+  const [period, setPeriod] = useState("2026-08");
+  const [reportId, setReportId] = useState("");
+  const [state, setState] = useState<ApiState | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [qualityAcknowledged, setQualityAcknowledged] = useState(false);
+  const [draft, setDraft] = useState({ highlights: "", risks: "", decisions: "" });
+  const [actionDraft, setActionDraft] = useState({ sourceSection: "GENERAL", title: "", ownerEmployeeId: "gc.kim", dueDate: "2026-08-31", memo: "" });
+
+  async function load(nextPeriod = period, nextReportId = reportId) {
+    setLoading(true); setMessage("");
+    try {
+      const data = await fetchReportState(nextPeriod, nextReportId);
+      setState(data);
+      setReportId(data.selected?.id ?? "");
+      if (data.selected) {
+        setDraft({ highlights: data.selected.highlights, risks: data.selected.risks, decisions: data.selected.decisions });
+        setQualityAcknowledged(data.selected.qualityAcknowledged);
+      } else {
+        setDraft(data.preview.autoAnalysis);
+        setQualityAcknowledged(false);
+      }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "경영보고 원장을 불러오지 못했습니다.");
+    } finally { setLoading(false); }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchReportState(period, reportId).then((data) => {
+      if (cancelled) return;
+      setState(data);
+      setReportId(data.selected?.id ?? "");
+      if (data.selected) {
+        setDraft({ highlights: data.selected.highlights, risks: data.selected.risks, decisions: data.selected.decisions });
+        setQualityAcknowledged(data.selected.qualityAcknowledged);
+      } else {
+        setDraft(data.preview.autoAnalysis);
+        setQualityAcknowledged(false);
+      }
+      setMessage("");
+    }).catch((error: unknown) => {
+      if (!cancelled) setMessage(error instanceof Error ? error.message : "경영보고 원장을 불러오지 못했습니다.");
+    }).finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [period, reportId]);
+
+  async function run(action: string, payload: Record<string, unknown> = {}) {
+    if (busy) return null;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/finance/management-report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, ...payload }) });
+      const data = await response.json() as { error?: string; id?: string };
+      if (!response.ok) throw new Error(data.error || "경영보고 작업을 완료하지 못했습니다.");
+      setMessage("변경내용을 원장에 저장했습니다.");
+      if (data.id) setReportId(data.id); else await load(period, reportId);
+      return data;
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "경영보고 작업을 완료하지 못했습니다.");
+      return null;
+    } finally { setBusy(false); }
+  }
+
+  const selected = state?.selected ?? null;
+  const snapshot = selected?.snapshot ?? state?.preview ?? null;
+  const editable = selected?.status === "DRAFT";
+  const maxCash = useMemo(() => Math.max(1, ...(snapshot?.sections.cash.trend.map((item) => item.balance) ?? [1])), [snapshot]);
+
+  function changePeriod(next: string) {
+    setLoading(true); setReportId(""); setPeriod(next);
+    const end = new Date(`${next}-01T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1); end.setUTCDate(0);
+    setActionDraft((current) => ({ ...current, dueDate: end.toISOString().slice(0, 10) }));
+  }
+
+  async function saveDraft(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selected) return;
+    await run("SAVE_DRAFT", { reportId: selected.id, ...draft });
+  }
+
+  async function addAction(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); if (!selected) return;
+    const done = await run("ADD_ACTION", { reportId: selected.id, ...actionDraft });
+    if (done) setActionDraft((current) => ({ ...current, title: "", memo: "" }));
+  }
+
+  async function createRevision() {
+    if (!selected) return;
+    const reason = window.prompt("승인본을 개정하는 사유를 입력해 주세요. 기존 승인본은 보존됩니다.", "원천자료 또는 경영진 의견 반영");
+    if (reason === null) return;
+    await run("CREATE_REVISION", { reportId: selected.id, revisionReason: reason });
+  }
+
+  if (loading && !state) return <div className="management-report-loading">월간 경영보고 원장과 원천 데이터를 대사하는 중입니다.</div>;
+  if (!snapshot) return <div className="management-report-loading">{message || "경영보고 원천을 불러오지 못했습니다."}</div>;
+
+  const { commerce, cash, receivables, payroll, budget, close, quality } = snapshot.sections;
+  return (
+    <div className="management-report-workspace">
+      <section className="management-report-hero">
+        <div><p>MANAGEMENT REPORTING</p><h1>월간 경영보고</h1><span>숫자·원천·품질·후속조치·승인을 한 버전으로 동결합니다.</span></div>
+        <div className="management-report-hero-actions">
+          <label>보고월<select value={period} onChange={(event) => changePeriod(event.target.value)}>{(state?.periods ?? [period]).map((item) => <option key={item} value={item}>{item.replace("-", "년 ")}월</option>)}</select></label>
+          <button type="button" onClick={() => window.print()}>인쇄</button>
+          {!selected && <button type="button" className="primary" disabled={busy} onClick={() => void run("CREATE_REPORT", { period })}>초안 생성</button>}
+          {editable && <button type="button" disabled={busy} onClick={() => void run("REFRESH_DRAFT", { reportId: selected.id })}>원천 새로 반영</button>}
+          {selected && ["APPROVED", "SUPERSEDED"].includes(selected.status) && <button type="button" className="primary" disabled={busy} onClick={createRevision}>새 버전</button>}
+        </div>
+      </section>
+
+      {message && <p className="management-report-message" role="status">{message}</p>}
+
+      <section className="management-report-version-strip">
+        <div>{(state?.reports ?? []).map((report) => <button type="button" className={selected?.id === report.id ? "active" : ""} key={report.id} onClick={() => { setLoading(true); setReportId(report.id); }}><strong>v{report.version}</strong><span className={report.status.toLowerCase()}>{statusLabels[report.status]}</span></button>)}</div>
+        <p><strong>{selected ? `${selected.period} v${selected.version}` : `${period} 실시간 미리보기`}</strong><span>{selected ? `기준일 ${selected.asOf} · ${statusLabels[selected.status]}` : "아직 원장에 동결되지 않은 값입니다."}</span></p>
+      </section>
+
+      <section className="management-report-cover panel">
+        <div><p>XD NODE · MONTHLY MANAGEMENT REPORT</p><h2>2026년 {periodLabel(period)} 경영 현황</h2><span>기준일 {selected?.asOf ?? snapshot.asOf} · 생성 {new Date(snapshot.generatedAt).toLocaleString("ko-KR")}</span></div>
+        <div><span className={`source-status ${selected?.status.toLowerCase() ?? "preview"}`}>{selected ? statusLabels[selected.status] : "미리보기"}</span><strong>{snapshot.quality.warningCount}개 품질경고</strong></div>
+      </section>
+
+      <section className="management-report-metrics">
+        <article><span>연동 매출 공급가액</span><strong>{won(commerce.sales.amount)}</strong><small>세금계산서 {commerce.sales.documentCount}건 · {commerce.sales.partnerCount}개 거래처</small></article>
+        <article><span>연동 매입 공급가액</span><strong>{won(commerce.purchases.amount)}</strong><small>세금계산서 {commerce.purchases.documentCount}건 · {commerce.purchases.partnerCount}개 거래처</small></article>
+        <article className={commerce.netSupplyDifference < 0 ? "alert" : ""}><span>공급가액 순차이</span><strong>{won(commerce.netSupplyDifference)}</strong><small>회계상 매출총이익이 아닌 공급가액 단순 차이</small></article>
+        <article className={cash.status !== "CONFIRMED" ? "warn" : ""}><span>은행 잔액 추이 기준값</span><strong>{won(cash.bankBalanceKrw)}</strong><small>{cash.balanceDate || "기준일 없음"} · {statusLabels[cash.status]}</small></article>
+        <article className={receivables.status !== "CONFIRMED" ? "warn" : ""}><span>미수 관리잔액</span><strong>{won(receivables.outstandingAmount)}</strong><small>연체 {won(receivables.overdueAmount)} · {receivables.scope}</small></article>
+        <article className={payroll.status !== "CONFIRMED" ? "warn" : ""}><span>급여 지급총액</span><strong>{won(payroll.grossPay)}</strong><small>{payroll.employeeCount ?? "-"}명 · 실지급 {won(payroll.netPay)} · {payroll.runStatus ?? "미연결"}</small></article>
+        <article className={budget.status !== "CONFIRMED" ? "warn" : ""}><span>예산 대비 실적</span><strong>{won(budget.variance)}</strong><small>비교예산 {won(budget.budget)} · 실적 {won(budget.actual)}</small></article>
+        <article className={close.status !== "CONFIRMED" ? "warn" : ""}><span>월마감 상태</span><strong>{close.runStatus ? statusLabels[close.runStatus] ?? close.runStatus : "미연결"}</strong><small>자동통제 {close.controlPassCount ?? 0} 통과 · {close.controlFailCount ?? 0} 실패 · 증빙 {close.evidenceCount ?? 0}건</small></article>
+      </section>
+
+      <section className="management-report-grid">
+        <article className="panel management-cash-panel">
+          <header><div><p>CASH TRACE</p><h2>월내 자금 잔액 추이</h2></div><span>{cash.trend.length}개 기준점</span></header>
+          {cash.trend.length ? <div className="management-cash-bars">{cash.trend.map((item) => <div key={item.date}><i style={{ height: `${Math.max(6, item.balance / maxCash * 100)}%` }} /><span>{item.date.slice(8)}</span><b>{Math.round(item.balance / 100_000_000)}억</b></div>)}</div> : <div className="management-report-empty">해당 월 자금 잔액 추이가 연결되지 않았습니다.</div>}
+          <footer><span>원화 입출금 {won(cash.checkingBalanceKrw)}</span><span>외화 환산 {won(cash.fxBalanceKrw)}</span><span>대출 {won(cash.loanBalanceKrw)}</span></footer>
+        </article>
+        <article className="panel management-quality-panel">
+          <header><div><p>CONTROL &amp; QUALITY</p><h2>제출 전 확인사항</h2></div><span>{quality.warningCount}건</span></header>
+          {quality.warnings.length ? <div>{quality.warnings.map((warning) => <button type="button" key={warning.code} onClick={() => onNavigate(warning.destination)}><em>{sectionLabels[warning.section] ?? warning.section}</em><p>{warning.message}</p><span>확인 →</span></button>)}</div> : <div className="management-report-empty">현재 연결 원천에서 추가 품질경고가 없습니다.</div>}
+          <footer><span>최신 누적 분개 {quality.journal.lineCount.toLocaleString("ko-KR")}행</span><strong>차대변 차이 {won(quality.journal.differenceKrw)}</strong></footer>
+        </article>
+      </section>
+
+      <section className="panel management-source-ledger">
+        <header><div><p>SOURCE LINEAGE</p><h2>보고 수치 원천 등록부</h2></div><span>제출 시 함께 동결</span></header>
+        <div className="management-source-row head"><span>원천</span><span>상태</span><span>기준일</span><span>보고 범위</span><span>추적</span></div>
+        {snapshot.sources.map((source) => <div className="management-source-row" key={source.key}><strong>{source.label}</strong><em className={source.status.toLowerCase()}>{source.statusLabel}</em><span>{source.asOf || "미확인"}</span><span>{source.note}</span><button type="button" disabled={source.destination.startsWith("hr:")} onClick={() => onNavigate(source.destination)}>{source.destination.startsWith("hr:") ? "HR 급여관리" : "원천 보기 →"}</button></div>)}
+      </section>
+
+      <form className="panel management-narrative" onSubmit={saveDraft}>
+        <header><div><p>MANAGEMENT COMMENTARY</p><h2>경영진 보고 문안</h2></div><span>{editable ? "자동 분석 초안을 편집할 수 있습니다." : "제출된 문안은 읽기 전용입니다."}</span></header>
+        <div>
+          <label><span>핵심 성과</span><textarea value={draft.highlights} readOnly={!editable} onChange={(event) => setDraft((current) => ({ ...current, highlights: event.target.value }))} /></label>
+          <label><span>위험 및 확인사항</span><textarea value={draft.risks} readOnly={!editable} onChange={(event) => setDraft((current) => ({ ...current, risks: event.target.value }))} /></label>
+          <label><span>의사결정 요청</span><textarea value={draft.decisions} readOnly={!editable} onChange={(event) => setDraft((current) => ({ ...current, decisions: event.target.value }))} /></label>
+        </div>
+        {editable && <button type="submit" disabled={busy}>보고 문안 저장</button>}
+      </form>
+
+      {selected && <section className="panel management-actions">
+        <header><div><p>FOLLOW-UP ACTIONS</p><h2>경영회의 후속조치</h2></div><span>{state?.actions.filter((item) => item.status !== "DONE").length ?? 0}개 진행 중</span></header>
+        <div className="management-action-row head"><span>구간</span><span>조치</span><span>담당자</span><span>기한</span><span>상태</span><span>메모</span></div>
+        {(state?.actions ?? []).map((item) => <div className="management-action-row" key={item.id}><em>{sectionLabels[item.sourceSection] ?? item.sourceSection}</em><strong>{item.title}</strong><span>{companyEmployees.find((employee) => employee.id === item.ownerEmployeeId)?.name ?? item.ownerEmployeeId}</span><time>{item.dueDate}</time><select value={item.status} disabled={busy || selected.status === "SUPERSEDED"} onChange={(event) => void run("UPDATE_ACTION", { reportId: selected.id, actionId: item.id, status: event.target.value })}>{(["OPEN", "IN_PROGRESS", "WAITING", "DONE"] as const).map((value) => <option key={value} value={value}>{statusLabels[value]}</option>)}</select><span>{item.memo || "-"}</span></div>)}
+        {(state?.actions.length ?? 0) === 0 && <div className="management-report-empty">등록된 후속조치가 없습니다.</div>}
+        {editable && <form className="management-action-form" onSubmit={addAction}>
+          <label>구간<select value={actionDraft.sourceSection} onChange={(event) => setActionDraft((current) => ({ ...current, sourceSection: event.target.value }))}>{Object.entries(sectionLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label className="wide">조치 제목<input required value={actionDraft.title} onChange={(event) => setActionDraft((current) => ({ ...current, title: event.target.value }))} /></label>
+          <label>담당자<select value={actionDraft.ownerEmployeeId} onChange={(event) => setActionDraft((current) => ({ ...current, ownerEmployeeId: event.target.value }))}>{companyEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></label>
+          <label>기한<input type="date" required value={actionDraft.dueDate} onChange={(event) => setActionDraft((current) => ({ ...current, dueDate: event.target.value }))} /></label>
+          <label className="wide">실행 메모<input value={actionDraft.memo} onChange={(event) => setActionDraft((current) => ({ ...current, memo: event.target.value }))} /></label>
+          <button type="submit" disabled={busy}>조치 추가</button>
+        </form>}
+      </section>}
+
+      {selected && <section className="management-report-submit">
+        <div><p>APPROVAL GATE</p><h2>{selected.status === "DRAFT" ? "경영보고 결재 제출" : `현재 상태 · ${statusLabels[selected.status]}`}</h2><span>제출하면 수치·원천·문안은 변경되지 않습니다. 수정이 필요하면 승인본에서 새 버전을 만드세요.</span></div>
+        {selected.status === "DRAFT" && <div>
+          {snapshot.quality.requiresAcknowledgement && <label><input type="checkbox" checked={qualityAcknowledged} onChange={(event) => setQualityAcknowledged(event.target.checked)} /> 품질경고 {snapshot.quality.warningCount}건과 원천 제한을 확인했습니다.</label>}
+          <button type="button" disabled={busy || (snapshot.quality.requiresAcknowledgement && !qualityAcknowledged)} onClick={() => void run("SUBMIT_REPORT", { reportId: selected.id, qualityAcknowledged })}>재무 검토·대표 승인 요청</button>
+        </div>}
+        {selected.status === "APPROVED" && <div className="approved-stamp"><strong>APPROVED</strong><span>{selected.approvedBy} · {selected.approvedAt ? new Date(selected.approvedAt).toLocaleString("ko-KR") : "승인 완료"}</span></div>}
+      </section>}
+    </div>
+  );
+}

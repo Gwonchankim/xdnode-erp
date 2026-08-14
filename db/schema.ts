@@ -563,6 +563,47 @@ export const financeBudgetVarianceActions = sqliteTable("finance_budget_variance
   index("idx_finance_budget_variance_plan_status_due").on(table.planId, table.status, table.dueDate),
 ]);
 
+export const financeManagementReports = sqliteTable("finance_management_reports", {
+  id: text("id").primaryKey(),
+  period: text("period").notNull(),
+  version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("DRAFT"),
+  asOf: text("as_of").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  autoAnalysisJson: text("auto_analysis_json").notNull().default("{}"),
+  highlights: text("highlights").notNull().default(""),
+  risks: text("risks").notNull().default(""),
+  decisions: text("decisions").notNull().default(""),
+  qualityAcknowledged: integer("quality_acknowledged", { mode: "boolean" }).notNull().default(false),
+  revisionReason: text("revision_reason").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  submittedAt: integer("submitted_at"),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_management_report_period_version").on(table.period, table.version),
+  index("idx_finance_management_report_period_status").on(table.period, table.status),
+]);
+
+export const financeManagementReportActions = sqliteTable("finance_management_report_actions", {
+  id: text("id").primaryKey(),
+  reportId: text("report_id").notNull(),
+  sourceSection: text("source_section").notNull().default("GENERAL"),
+  title: text("title").notNull(),
+  ownerEmployeeId: text("owner_employee_id").notNull(),
+  dueDate: text("due_date").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  memo: text("memo").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  completedAt: integer("completed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_management_report_action_status_due").on(table.reportId, table.status, table.dueDate),
+]);
+
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),
   requestKind: text("request_kind").notNull().default("EXPENSE"),

@@ -83,3 +83,17 @@ test("2026 Clobe snapshot date, balance trend, and journal summary stay reconcil
     data.journalSummary.checkingAccount.netChangeKrw,
   );
 });
+
+test("August management-report commerce inputs reconcile without treating supply difference as profit", async () => {
+  const data = await loadCurrentFinanceData();
+  const period = "2026-08";
+  const sales = data.salesMonthly2026.find((row) => row.month === period).amount;
+  const purchases = data.purchaseMonthly2026.find((row) => row.month === period).amount;
+  const salesDaily = data.salesDaily2026.filter((row) => row.date.startsWith(period));
+  const purchaseDaily = data.purchaseDaily2026.filter((row) => row.date.startsWith(period));
+  assert.equal(salesDaily.reduce((sum, row) => sum + row.amount, 0), sales);
+  assert.equal(purchaseDaily.reduce((sum, row) => sum + row.amount, 0), purchases);
+  assert.equal(sales - purchases, 3953653861);
+  assert.ok(salesDaily.reduce((sum, row) => sum + row.count, 0) > 0);
+  assert.ok(purchaseDaily.reduce((sum, row) => sum + row.count, 0) > 0);
+});

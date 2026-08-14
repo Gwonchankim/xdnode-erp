@@ -335,7 +335,7 @@ test("final approvals update linked HR, finance and sales records in the guarded
     read("app/api/hr/operations/route.ts"), read("app/api/hr/payroll/route.ts"),
     read("app/api/finance/operations/route.ts"), read("app/api/finance/close/route.ts"), read("app/api/sales/route.ts"),
   ]);
-  for (const entity of ["HR_LEAVE", "HR_PERSONNEL_ACTION", "PAYROLL_RUN", "FINANCE_BUDGET", "FINANCE_BUDGET_PLAN", "FINANCE_CLOSE", "FINANCE_CLOSE_RUN", "FINANCE_CLOSE_REOPEN", "SALES_DOCUMENT"]) assert.match(engine, new RegExp(entity));
+  for (const entity of ["HR_LEAVE", "HR_PERSONNEL_ACTION", "PAYROLL_RUN", "FINANCE_BUDGET", "FINANCE_BUDGET_PLAN", "FINANCE_CLOSE", "FINANCE_CLOSE_RUN", "FINANCE_CLOSE_REOPEN", "FINANCE_MANAGEMENT_REPORT", "SALES_DOCUMENT"]) assert.match(engine, new RegExp(entity));
   assert.match(approvalApi, /buildApprovalOutcomeStatements/);
   assert.match(engine, /transition_token = \?/);
   assert.match(hr, /requestType: "LEAVE_REQUEST"/);
@@ -409,6 +409,38 @@ test("approval center reports overdue work without manufacturing a second task",
   assert.match(api, /item\.due_date < today/);
   assert.match(center, /기한 경과/);
   assert.match(center, /summary\.overdueMine/);
+});
+
+test("monthly management reporting freezes source lineage, quality gates, revisions and follow-up actions", async () => {
+  const [api, workspace, schema, migration, page, engine, operations, plan] = await Promise.all([
+    read("app/api/finance/management-report/route.ts"), read("app/management-report-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0023_management_reporting.sql"), read("app/page.tsx"),
+    read("app/approval-engine.ts"), read("app/api/operations/route.ts"), read("docs/finance-management-report-plan.md"),
+  ]);
+  for (const table of ["finance_management_reports", "finance_management_report_actions"]) {
+    assert.match(migration, new RegExp(table));
+    assert.match(api, new RegExp(table));
+  }
+  for (const model of ["financeManagementReports", "financeManagementReportActions"]) assert.match(schema, new RegExp(model));
+  assert.match(api, /monthInvoiceSummary/);
+  assert.match(api, /qualityWarnings/);
+  assert.match(api, /requiresAcknowledgement/);
+  assert.match(api, /report\.highlights === oldAuto\.highlights/);
+  assert.match(api, /status IN \('DRAFT','SUBMITTED'\)/);
+  assert.match(api, /CREATE_REVISION/);
+  assert.match(api, /status <> 'DONE'/);
+  assert.match(api, /requestType: "REPORT"/);
+  assert.match(engine, /FINANCE_MANAGEMENT_REPORT/);
+  assert.match(engine, /status = 'SUPERSEDED'/);
+  assert.match(workspace, /공급가액 순차이/);
+  assert.match(workspace, /보고 수치 원천 등록부/);
+  assert.match(workspace, /품질경고/);
+  assert.match(workspace, /window\.print/);
+  assert.match(page, /"report", "월간 경영보고"/);
+  assert.match(operations, /management-report-due/);
+  assert.match(operations, /management-report-actions/);
+  assert.match(plan, /제출 이후에는 수정하지 않는다/);
+  assert.match(plan, /미연결/);
 });
 
 test("expense requests require evidence, approval and a unique payment ledger entry", async () => {

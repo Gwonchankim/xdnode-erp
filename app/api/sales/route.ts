@@ -4,6 +4,7 @@ import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
+const partnerKey = (name: string, businessNumber: string) => businessNumber.replace(/\D/g, "") || name.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 
 type AccountRow = { id: string; name: string; business_number: string; industry: string; owner_employee_id: string; status: string; memo: string; created_at: number; updated_at: number; deleted_at: number | null };
 type OpportunityRow = { id: string; account_id: string; title: string; owner_employee_id: string; stage: string; lead_type: string; expected_revenue: number; expected_cost: number; probability: number; expected_close_date: string; next_action: string; next_action_date: string; status: string; created_at: number; updated_at: number; deleted_at: number | null };
@@ -106,10 +107,25 @@ export async function POST(request: Request) {
 
   if (resource === "account") {
     const name = String(body.name ?? "").trim();
+    const businessNumber = String(body.businessNumber ?? "").trim();
     if (!name) return Response.json({ error: "거래처명이 필요합니다." }, { status: 400 });
     await db.prepare(`INSERT INTO sales_accounts (id, name, business_number, industry, owner_employee_id, status, memo, created_at, updated_at, deleted_at)
       VALUES (?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, NULL)`)
-      .bind(id, name, String(body.businessNumber ?? "").trim(), String(body.industry ?? "").trim(), authorization.principal.employeeId, String(body.memo ?? "").trim(), now, now).run();
+      .bind(id, name, businessNumber, String(body.industry ?? "").trim(), authorization.principal.employeeId, String(body.memo ?? "").trim(), now, now).run();
+    const normalizedKey = partnerKey(name, businessNumber);
+    const masterId = `partner:${normalizedKey}`;
+    await db.batch([
+      db.prepare(`INSERT OR IGNORE INTO finance_master_partners
+        (id, canonical_name, normalized_key, business_number, partner_type, payment_terms_days, status, source, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'CUSTOMER', 30, 'ACTIVE', 'SALES', ?, ?, ?)`)
+        .bind(masterId, name, normalizedKey, businessNumber, authorization.principal.employeeId, now, now),
+      db.prepare(`INSERT OR IGNORE INTO finance_master_partner_aliases
+        (id, mapping_key, source_system, source_entity_id, source_name, partner_id, created_at, updated_at)
+        SELECT ?, ?, 'SALES', ?, ?, id, ?, ? FROM finance_master_partners WHERE normalized_key = ?`)
+        .bind(`alias:SALES:${id}`, `SALES:${id}`, id, name, now, now, normalizedKey),
+      db.prepare("UPDATE finance_master_partners SET partner_type = CASE WHEN partner_type = 'VENDOR' THEN 'BOTH' ELSE partner_type END, updated_at = ? WHERE normalized_key = ?")
+        .bind(now, normalizedKey),
+    ]);
     const row = await db.prepare("SELECT * FROM sales_accounts WHERE id = ?").bind(id).first<AccountRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "ACCOUNT_CREATED", entityType: "salesAccount", entityId: id, after: row ? toAccount(row) : body });
     return Response.json({ item: row ? toAccount(row) : null }, { status: 201 });

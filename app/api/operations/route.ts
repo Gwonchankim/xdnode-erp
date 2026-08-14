@@ -321,6 +321,33 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const [partners, aliases, bankSummary, taxSummary, pendingSummary] = await Promise.all([
+      db.prepare("SELECT normalized_key, canonical_name FROM finance_master_partners WHERE status = 'ACTIVE'").all<{ normalized_key: string; canonical_name: string }>(),
+      db.prepare("SELECT source_name FROM finance_master_partner_aliases").all<{ source_name: string }>(),
+      db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN gl_account_code = '' THEN 1 ELSE 0 END), 0) AS unmapped FROM finance_master_bank_accounts WHERE status = 'ACTIVE'").first<{ total: number; unmapped: number }>(),
+      db.prepare("SELECT COUNT(*) AS count FROM finance_master_tax_codes WHERE status = 'ACTIVE'").first<{ count: number }>(),
+      db.prepare("SELECT COUNT(*) AS count FROM finance_master_change_requests WHERE status = 'SUBMITTED'").first<{ count: number }>(),
+    ]);
+    const normalize = (value: string) => value.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
+    const keys = new Set([...partners.results.flatMap((row) => [row.normalized_key, normalize(row.canonical_name)]), ...aliases.results.map((row) => normalize(row.source_name))]);
+    const externalNames = new Set([...financeCurrentData.salesDaily2026.map((row) => row.partner), ...financeCurrentData.purchaseDaily2026.map((row) => row.partner)]);
+    const unmappedPartners = [...externalNames].filter((name) => !keys.has(normalize(name))).length;
+    const unmappedBanks = bankSummary?.unmapped ?? 0;
+    const pending = pendingSummary?.count ?? 0;
+    const missingTax = (taxSummary?.count ?? 0) === 0;
+    if (unmappedPartners > 0 || unmappedBanks > 0 || missingTax || pending > 0) await upsertRuleTask({
+      id: "finance-master-quality", module: "finance", category: "재무 마스터",
+      title: `재무 마스터 보완 ${unmappedPartners + unmappedBanks + (missingTax ? 1 : 0)}건 확인`,
+      description: `Clobe 거래처 미연결 ${unmappedPartners}곳 · 계좌 GL 미연결 ${unmappedBanks}개 · 세금코드 ${missingTax ? "미등록" : "등록"} · 변경 결재 중 ${pending}건입니다.`,
+      dueDate: today, priority: unmappedBanks > 0 || missingTax ? "HIGH" : "NORMAL", destination: "finance:master",
+      sourceId: `${financeCurrentData.asOf}:${unmappedPartners}:${unmappedBanks}:${missingTax ? 1 : 0}:${pending}`,
+    });
+    else await closeRuleTask("finance-master-quality");
+  } catch {
+    // 통합 재무 마스터를 처음 열기 전에는 테이블이 없을 수 있으므로 다음 조회로 미룹니다.
+  }
+
+  try {
     const asOf = new Date(`${financeCurrentData.asOf}T00:00:00Z`);
     asOf.setUTCDate(1); asOf.setUTCDate(0);
     const reportPeriod = asOf.toISOString().slice(0, 7);

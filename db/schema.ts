@@ -604,6 +604,110 @@ export const financeManagementReportActions = sqliteTable("finance_management_re
   index("idx_finance_management_report_action_status_due").on(table.reportId, table.status, table.dueDate),
 ]);
 
+export const financeMasterAccounts = sqliteTable("finance_master_accounts", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  normalBalance: text("normal_balance").notNull(),
+  status: text("status").notNull().default("ACTIVE"),
+  source: text("source").notNull().default("MANUAL"),
+  validFrom: text("valid_from").notNull().default(""),
+  validTo: text("valid_to").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_master_account_code").on(table.code),
+  index("idx_finance_master_account_status_category").on(table.status, table.category),
+]);
+
+export const financeMasterPartners = sqliteTable("finance_master_partners", {
+  id: text("id").primaryKey(),
+  canonicalName: text("canonical_name").notNull(),
+  normalizedKey: text("normalized_key").notNull(),
+  businessNumber: text("business_number").notNull().default(""),
+  partnerType: text("partner_type").notNull().default("BOTH"),
+  paymentTermsDays: integer("payment_terms_days").notNull().default(30),
+  status: text("status").notNull().default("ACTIVE"),
+  source: text("source").notNull().default("MANUAL"),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_master_partner_key").on(table.normalizedKey),
+  index("idx_finance_master_partner_status_type").on(table.status, table.partnerType),
+]);
+
+export const financeMasterPartnerAliases = sqliteTable("finance_master_partner_aliases", {
+  id: text("id").primaryKey(),
+  mappingKey: text("mapping_key").notNull(),
+  sourceSystem: text("source_system").notNull(),
+  sourceEntityId: text("source_entity_id").notNull().default(""),
+  sourceName: text("source_name").notNull(),
+  partnerId: text("partner_id").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_master_partner_alias_key").on(table.mappingKey),
+  index("idx_finance_master_partner_alias_partner").on(table.partnerId),
+]);
+
+export const financeMasterBankAccounts = sqliteTable("finance_master_bank_accounts", {
+  id: text("id").primaryKey(),
+  sourceSystem: text("source_system").notNull(),
+  sourceAccountId: text("source_account_id").notNull(),
+  bankCode: text("bank_code").notNull().default(""),
+  accountName: text("account_name").notNull(),
+  last4: text("last4").notNull().default(""),
+  accountType: text("account_type").notNull(),
+  currency: text("currency").notNull().default("KRW"),
+  glAccountCode: text("gl_account_code").notNull().default(""),
+  status: text("status").notNull().default("ACTIVE"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_master_bank_source").on(table.sourceSystem, table.sourceAccountId),
+  index("idx_finance_master_bank_status_type").on(table.status, table.accountType),
+]);
+
+export const financeMasterTaxCodes = sqliteTable("finance_master_tax_codes", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  direction: text("direction").notNull().default("BOTH"),
+  rateBasisPoints: integer("rate_basis_points").notNull().default(0),
+  status: text("status").notNull().default("ACTIVE"),
+  effectiveFrom: text("effective_from").notNull().default(""),
+  effectiveTo: text("effective_to").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_master_tax_code").on(table.code),
+  index("idx_finance_master_tax_status_direction").on(table.status, table.direction),
+]);
+
+export const financeMasterChangeRequests = sqliteTable("finance_master_change_requests", {
+  id: text("id").primaryKey(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  changeType: text("change_type").notNull(),
+  beforeJson: text("before_json").notNull().default("{}"),
+  afterJson: text("after_json").notNull().default("{}"),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("SUBMITTED"),
+  approvalId: text("approval_id").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_master_change_status_created").on(table.status, table.createdAt),
+  index("idx_finance_master_change_target").on(table.targetType, table.targetId),
+]);
+
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),
   requestKind: text("request_kind").notNull().default("EXPENSE"),

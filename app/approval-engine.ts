@@ -24,7 +24,7 @@ type PolicyStepRow = { step_name: string; approver_role: ErpRole; approver_emplo
 type DelegationRow = { delegator_employee_id: string; delegate_employee_id: string; module: string };
 
 export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> = {
-  finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인" },
+  finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인", MASTER_DATA: "재무 마스터 승인" },
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인" },
   recruitment: { OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
   sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "할인 승인" },
@@ -234,6 +234,74 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
       db.prepare(`UPDATE finance_management_reports SET status = 'APPROVED', approved_by = ?, approved_at = ?,
         updated_at = ? WHERE id = ? AND status = 'SUBMITTED'
           AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken),
+    ];
+  } else if (targetEntityType === "FINANCE_MASTER_CHANGE") {
+    if (!approved) return [db.prepare(`UPDATE finance_master_change_requests SET status = 'REJECTED',
+      approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ? AND status = 'SUBMITTED'
+      AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken)];
+    return [
+      db.prepare(`INSERT OR IGNORE INTO finance_master_accounts
+        (id, code, name, category, normal_balance, status, source, valid_from, valid_to, created_by, created_at, updated_at)
+        SELECT target_id, json_extract(after_json, '$.code'), json_extract(after_json, '$.name'),
+          json_extract(after_json, '$.category'), json_extract(after_json, '$.normalBalance'), 'ACTIVE', 'MANUAL',
+          COALESCE(json_extract(after_json, '$.validFrom'), ''), COALESCE(json_extract(after_json, '$.validTo'), ''),
+          created_by, ?, ? FROM finance_master_change_requests WHERE id = ? AND target_type = 'ACCOUNT' AND change_type = 'CREATE'
+          AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_master_accounts SET
+          code = COALESCE((SELECT json_extract(after_json, '$.code') FROM finance_master_change_requests WHERE id = ?), code),
+          name = COALESCE((SELECT json_extract(after_json, '$.name') FROM finance_master_change_requests WHERE id = ?), name),
+          category = COALESCE((SELECT json_extract(after_json, '$.category') FROM finance_master_change_requests WHERE id = ?), category),
+          normal_balance = COALESCE((SELECT json_extract(after_json, '$.normalBalance') FROM finance_master_change_requests WHERE id = ?), normal_balance),
+          status = COALESCE((SELECT json_extract(after_json, '$.status') FROM finance_master_change_requests WHERE id = ?), status), updated_at = ?
+        WHERE id = (SELECT target_id FROM finance_master_change_requests WHERE id = ? AND target_type = 'ACCOUNT' AND change_type <> 'CREATE')
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`INSERT OR IGNORE INTO finance_master_partners
+        (id, canonical_name, normalized_key, business_number, partner_type, payment_terms_days, status, source, created_by, created_at, updated_at)
+        SELECT target_id, json_extract(after_json, '$.canonicalName'), json_extract(after_json, '$.normalizedKey'),
+          COALESCE(json_extract(after_json, '$.businessNumber'), ''), json_extract(after_json, '$.partnerType'),
+          COALESCE(json_extract(after_json, '$.paymentTermsDays'), 30), 'ACTIVE', 'MANUAL', created_by, ?, ?
+        FROM finance_master_change_requests WHERE id = ? AND target_type = 'PARTNER' AND change_type = 'CREATE'
+          AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_master_partners SET
+          canonical_name = COALESCE((SELECT json_extract(after_json, '$.canonicalName') FROM finance_master_change_requests WHERE id = ?), canonical_name),
+          normalized_key = COALESCE((SELECT json_extract(after_json, '$.normalizedKey') FROM finance_master_change_requests WHERE id = ?), normalized_key),
+          business_number = COALESCE((SELECT json_extract(after_json, '$.businessNumber') FROM finance_master_change_requests WHERE id = ?), business_number),
+          partner_type = COALESCE((SELECT json_extract(after_json, '$.partnerType') FROM finance_master_change_requests WHERE id = ?), partner_type),
+          payment_terms_days = COALESCE((SELECT json_extract(after_json, '$.paymentTermsDays') FROM finance_master_change_requests WHERE id = ?), payment_terms_days),
+          status = COALESCE((SELECT json_extract(after_json, '$.status') FROM finance_master_change_requests WHERE id = ?), status), updated_at = ?
+        WHERE id = (SELECT target_id FROM finance_master_change_requests WHERE id = ? AND target_type = 'PARTNER' AND change_type <> 'CREATE')
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`INSERT OR IGNORE INTO finance_master_tax_codes
+        (id, code, name, direction, rate_basis_points, status, effective_from, effective_to, created_by, created_at, updated_at)
+        SELECT target_id, json_extract(after_json, '$.code'), json_extract(after_json, '$.name'),
+          json_extract(after_json, '$.direction'), COALESCE(json_extract(after_json, '$.rateBasisPoints'), 0), 'ACTIVE',
+          COALESCE(json_extract(after_json, '$.effectiveFrom'), ''), COALESCE(json_extract(after_json, '$.effectiveTo'), ''), created_by, ?, ?
+        FROM finance_master_change_requests WHERE id = ? AND target_type = 'TAX' AND change_type = 'CREATE'
+          AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_master_tax_codes SET
+          code = COALESCE((SELECT json_extract(after_json, '$.code') FROM finance_master_change_requests WHERE id = ?), code),
+          name = COALESCE((SELECT json_extract(after_json, '$.name') FROM finance_master_change_requests WHERE id = ?), name),
+          direction = COALESCE((SELECT json_extract(after_json, '$.direction') FROM finance_master_change_requests WHERE id = ?), direction),
+          rate_basis_points = COALESCE((SELECT json_extract(after_json, '$.rateBasisPoints') FROM finance_master_change_requests WHERE id = ?), rate_basis_points),
+          status = COALESCE((SELECT json_extract(after_json, '$.status') FROM finance_master_change_requests WHERE id = ?), status), updated_at = ?
+        WHERE id = (SELECT target_id FROM finance_master_change_requests WHERE id = ? AND target_type = 'TAX' AND change_type <> 'CREATE')
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_master_bank_accounts SET
+          gl_account_code = COALESCE((SELECT json_extract(after_json, '$.glAccountCode') FROM finance_master_change_requests WHERE id = ?), gl_account_code),
+          status = COALESCE((SELECT json_extract(after_json, '$.status') FROM finance_master_change_requests WHERE id = ?), status), updated_at = ?
+        WHERE id = (SELECT target_id FROM finance_master_change_requests WHERE id = ? AND target_type = 'BANK')
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE finance_master_change_requests SET status = 'APPROVED', approved_by = ?, approved_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
         .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken),
     ];
   } else if (targetEntityType === "FINANCE_EXPENSE") {

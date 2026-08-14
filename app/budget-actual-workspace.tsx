@@ -20,6 +20,7 @@ type BudgetData = {
     directionSummary: DirectionSummary[];
   };
 };
+type MasterAccount = { id: string; code: string; name: string; category: string; status: string };
 
 const statusLabel: Record<string, string> = {
   DRAFT: "작성 중", SUBMITTED: "결재 진행", APPROVED: "승인 예산", SUPERSEDED: "이전 버전",
@@ -41,6 +42,7 @@ export default function BudgetActualWorkspace() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [message, setMessage] = useState("");
+  const [masterAccounts, setMasterAccounts] = useState<MasterAccount[]>([]);
   const [planName, setPlanName] = useState(`${currentYear}년 경영예산`);
   const [lineDraft, setLineDraft] = useState({ month: String(Number(financeCurrentData.asOf.slice(5, 7))), department: "전사", accountCode: "", accountName: "매출", direction: "REVENUE", actualSource: "SALES_INVOICE", amount: "", thresholdPct: "10", notes: "" });
   const [selectedLineId, setSelectedLineId] = useState("");
@@ -64,6 +66,12 @@ export default function BudgetActualWorkspace() {
   // The first load intentionally uses the initial year and empty plan selection.
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    fetch("/api/finance/master-data").then(async (response) => {
+      const result = await response.json() as { accounts?: MasterAccount[] };
+      if (response.ok) setMasterAccounts((result.accounts ?? []).filter((item) => item.status === "ACTIVE"));
+    }).catch(() => undefined);
+  }, []);
 
   async function mutate(payload: Record<string, unknown>, success: string, method = "POST") {
     setWorking(true); setMessage("");
@@ -159,8 +167,7 @@ export default function BudgetActualWorkspace() {
           <label>월<select value={lineDraft.month} onChange={(event) => setLineDraft({ ...lineDraft, month: event.target.value })}>{Array.from({ length: 12 }, (_, index) => index + 1).map((month) => <option key={month} value={month}>{month}월</option>)}</select></label>
           <label>부서<input required value={lineDraft.department} onChange={(event) => setLineDraft({ ...lineDraft, department: event.target.value })} /></label>
           <label>구분<select value={lineDraft.direction} onChange={(event) => setLineDraft({ ...lineDraft, direction: event.target.value })}><option value="REVENUE">수익</option><option value="EXPENSE">비용</option></select></label>
-          <label>계정명<input required value={lineDraft.accountName} onChange={(event) => setLineDraft({ ...lineDraft, accountName: event.target.value })} /></label>
-          <label>계정코드<input value={lineDraft.accountCode} onChange={(event) => setLineDraft({ ...lineDraft, accountCode: event.target.value })} placeholder="분개 연결 시 권장" /></label>
+          <label>계정과목<select value={lineDraft.accountCode} onChange={(event) => { const account = masterAccounts.find((item) => item.code === event.target.value); setLineDraft({ ...lineDraft, accountCode: account?.code ?? "", accountName: account?.name ?? "" }); }}><option value="">원천 합계만 사용</option>{masterAccounts.map((item) => <option key={item.id} value={item.code}>{item.code} · {item.name}</option>)}</select></label>
           <label>실적 원천<select value={lineDraft.actualSource} onChange={(event) => { const actualSource = event.target.value; setLineDraft({ ...lineDraft, actualSource, direction: actualSource === "SALES_INVOICE" ? "REVENUE" : actualSource === "PURCHASE_INVOICE" ? "EXPENSE" : lineDraft.direction }); }}>{sourceOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label>예산액<input required min="0" type="number" value={lineDraft.amount} onChange={(event) => setLineDraft({ ...lineDraft, amount: event.target.value })} /></label>
           <label>경보 기준<input required min="0" max="100" type="number" value={lineDraft.thresholdPct} onChange={(event) => setLineDraft({ ...lineDraft, thresholdPct: event.target.value })} /><small>차이 ±%</small></label>

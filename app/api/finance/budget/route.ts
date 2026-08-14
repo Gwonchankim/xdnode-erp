@@ -233,6 +233,12 @@ export async function POST(request: Request) {
     if ((actualSource === "SALES_INVOICE" && direction !== "REVENUE") || (actualSource === "PURCHASE_INVOICE" && direction !== "EXPENSE")) {
       return Response.json({ error: "Clobe 매출은 수익, Clobe 매입은 비용 구분으로 연결해 주세요." }, { status: 400 });
     }
+    if (accountCode) {
+      const account = await db.prepare("SELECT name FROM finance_master_accounts WHERE code = ? AND status = 'ACTIVE'").bind(accountCode).first<{ name: string }>();
+      if (!account || account.name !== accountName) return Response.json({ error: "활성 계정과목 마스터에서 예산 계정을 다시 선택해 주세요." }, { status: 409 });
+    } else if (["POSTED_JOURNAL_DEBIT", "POSTED_JOURNAL_CREDIT"].includes(actualSource)) {
+      return Response.json({ error: "전기 분개를 연결하려면 활성 계정과목을 선택해 주세요." }, { status: 400 });
+    }
     if (["SALES_INVOICE","PURCHASE_INVOICE"].includes(actualSource)) {
       const duplicate = await db.prepare(`SELECT id FROM finance_budget_plan_lines
         WHERE plan_id = ? AND month = ? AND department = ? AND actual_source = ? LIMIT 1`)

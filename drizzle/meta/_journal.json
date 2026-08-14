@@ -169,6 +169,13 @@
       "when": 1786692767833,
       "tag": "0023_management_reporting",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1786694400000,
+      "tag": "0024_finance_master_data",
+      "breakpoints": true
     }
   ]
 }

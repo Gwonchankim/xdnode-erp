@@ -4,6 +4,7 @@ import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
+const partnerKey = (name: string, businessNumber: string) => businessNumber.replace(/\D/g, "") || name.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 
 type VendorRow = { id: string; name: string; business_number: string; contact_name: string; email: string; payment_terms_days: number; status: string };
 type OrderRow = { id: string; order_number: string; vendor_id: string; vendor_name?: string | null; title: string; currency: string; subtotal: number; tax_amount: number; total_amount: number; expected_date: string; status: string; requester_employee_id: string; approved_by: string; approved_at: number | null; created_at: number; updated_at: number };
@@ -135,6 +136,20 @@ export async function POST(request: Request) {
       (id, name, business_number, contact_name, email, payment_terms_days, status, created_by, created_at, updated_at, deleted_at)
       VALUES (?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?, ?, NULL)`)
       .bind(id, name, businessNumber, String(body.contactName ?? "").trim(), String(body.email ?? "").trim(), paymentTermsDays, authorization.principal.employeeId, now, now).run();
+    const normalizedKey = partnerKey(name, businessNumber);
+    const masterId = `partner:${normalizedKey}`;
+    await db.batch([
+      db.prepare(`INSERT OR IGNORE INTO finance_master_partners
+        (id, canonical_name, normalized_key, business_number, partner_type, payment_terms_days, status, source, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'VENDOR', ?, 'ACTIVE', 'PURCHASE', ?, ?, ?)`)
+        .bind(masterId, name, normalizedKey, businessNumber, paymentTermsDays, authorization.principal.employeeId, now, now),
+      db.prepare(`INSERT OR IGNORE INTO finance_master_partner_aliases
+        (id, mapping_key, source_system, source_entity_id, source_name, partner_id, created_at, updated_at)
+        SELECT ?, ?, 'PURCHASE', ?, ?, id, ?, ? FROM finance_master_partners WHERE normalized_key = ?`)
+        .bind(`alias:PURCHASE:${id}`, `PURCHASE:${id}`, id, name, now, now, normalizedKey),
+      db.prepare("UPDATE finance_master_partners SET partner_type = CASE WHEN partner_type = 'CUSTOMER' THEN 'BOTH' ELSE partner_type END, payment_terms_days = ?, updated_at = ? WHERE normalized_key = ?")
+        .bind(paymentTermsDays, now, normalizedKey),
+    ]);
     const row = await db.prepare("SELECT * FROM finance_purchase_vendors WHERE id = ?").bind(id).first<VendorRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "PURCHASE_VENDOR_CREATED", entityType: "purchaseVendor", entityId: id, after: row ? toVendor(row) : body });
     return Response.json({ item: row ? toVendor(row) : null }, { status: 201 });

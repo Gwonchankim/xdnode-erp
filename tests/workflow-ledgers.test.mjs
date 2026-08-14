@@ -324,3 +324,33 @@ test("management reports freeze approved snapshots, preserve versions and track 
   assert.ok(reportIndexes.some((row) => row.name === "idx_finance_management_report_period_version"));
   assert.ok(actionIndexes.some((row) => row.name === "idx_finance_management_report_action_status_due"));
 });
+
+test("finance master data enforces unique codes, aliases and approval-tracked changes", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertAccount = db.prepare(`INSERT INTO finance_master_accounts
+    (id, code, name, category, normal_balance, status, source, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, 'ASSET', 'DEBIT', 'ACTIVE', 'ECOUNT_2025', 'gc.kim', ?, ?)`);
+  insertAccount.run("account-1039", "1039", "보통예금", now, now);
+  assert.throws(() => insertAccount.run("account-duplicate", "1039", "중복", now, now), /UNIQUE constraint failed/);
+
+  db.prepare(`INSERT INTO finance_master_partners
+    (id, canonical_name, normalized_key, partner_type, status, source, created_by, created_at, updated_at)
+    VALUES ('partner-1', '주식회사 테스트', '주식회사테스트', 'BOTH', 'ACTIVE', 'ERP_LEGACY', 'gc.kim', ?, ?)`)
+    .run(now, now);
+  const insertAlias = db.prepare(`INSERT INTO finance_master_partner_aliases
+    (id, mapping_key, source_system, source_entity_id, source_name, partner_id, created_at, updated_at)
+    VALUES (?, 'SALES:account-1', 'SALES', 'account-1', '주식회사 테스트', 'partner-1', ?, ?)`);
+  insertAlias.run("alias-1", now, now);
+  assert.throws(() => insertAlias.run("alias-2", now, now), /UNIQUE constraint failed/);
+
+  db.prepare(`INSERT INTO finance_master_change_requests
+    (id, target_type, target_id, change_type, before_json, after_json, reason, status, created_by, created_at, updated_at)
+    VALUES ('change-1', 'ACCOUNT', 'account-1039', 'DEACTIVATE', '{}', '{"status":"INACTIVE"}',
+      '미사용 계정 비활성화', 'SUBMITTED', 'gc.kim', ?, ?)`)
+    .run(now, now);
+  const change = db.prepare("SELECT status, reason FROM finance_master_change_requests WHERE id = 'change-1'").get();
+  assert.equal(change.status, "SUBMITTED");
+  assert.equal(change.reason, "미사용 계정 비활성화");
+  assert.ok(db.prepare("PRAGMA index_list(finance_master_accounts)").all().some((row) => row.name === "idx_finance_master_account_code"));
+});

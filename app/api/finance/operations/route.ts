@@ -285,6 +285,7 @@ export async function POST(request: Request) {
     const amount = Number(body.amount);
     const requestedDate = String(body.requestedDate ?? "").trim();
     const dueDate = String(body.dueDate ?? "").trim();
+    const accountCode = String(body.accountCode ?? "").trim();
     const accountName = String(body.accountName ?? "").trim();
     const paymentMethod = String(body.paymentMethod ?? "BANK_TRANSFER").trim();
     if (!["EXPENSE", "PAYMENT"].includes(requestKind) || !title || !Number.isFinite(amount) || amount <= 0
@@ -292,13 +293,20 @@ export async function POST(request: Request) {
       || !["BANK_TRANSFER", "CORPORATE_CARD", "CASH", "AUTO_DEBIT"].includes(paymentMethod)) {
       return Response.json({ error: "구분·제목·요청일·0원 초과 금액과 지급수단을 확인해 주세요." }, { status: 400 });
     }
+    if (vendor && !await db.prepare("SELECT id FROM finance_master_partners WHERE canonical_name = ? AND status = 'ACTIVE'").bind(vendor).first()) {
+      return Response.json({ error: "활성 거래처 마스터에서 거래처를 선택해 주세요." }, { status: 409 });
+    }
+    if (accountCode) {
+      const account = await db.prepare("SELECT name FROM finance_master_accounts WHERE code = ? AND status = 'ACTIVE'").bind(accountCode).first<{ name: string }>();
+      if (!account || account.name !== accountName) return Response.json({ error: "활성 계정과목 마스터에서 계정을 다시 선택해 주세요." }, { status: 409 });
+    }
     await db.prepare(`INSERT INTO finance_expense_requests
       (id, request_kind, title, vendor, amount, requested_date, due_date, account_code, account_name,
         payment_method, memo, status, requester_employee_id, approved_by, approved_at, paid_by, paid_at,
         journal_status, evidence_required, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, '', NULL, '', NULL, 'UNPOSTED', 1, ?, ?)`)
       .bind(id, requestKind, title, vendor, Math.round(amount), requestedDate, dueDate,
-        String(body.accountCode ?? "").trim(), accountName, paymentMethod, String(body.memo ?? "").trim(),
+        accountCode, accountName, paymentMethod, String(body.memo ?? "").trim(),
         authorization.principal.employeeId, now, now).run();
     const row = await db.prepare(`SELECT expense.*, 0 AS evidence_count FROM finance_expense_requests expense WHERE id = ?`)
       .bind(id).first<ExpenseRow>();

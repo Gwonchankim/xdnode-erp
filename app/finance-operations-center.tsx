@@ -21,6 +21,8 @@ type JournalItem = {
   debitAccountCode: string; debitAccountName: string; creditAccountCode: string;
   creditAccountName: string; amount: number; status: string; preparedBy: string; postedBy: string;
 };
+type MasterAccount = { id: string; code: string; name: string; status: string };
+type MasterPartner = { id: string; canonical_name: string; status: string };
 type OperationsData = {
   asOf: string;
   sourceStatus: Record<string, "LIVE" | "IMPORTED" | "MANUAL" | "AUTOMATED" | "NOT_CONNECTED">;
@@ -50,6 +52,8 @@ export default function FinanceOperationsCenter({ onOpenBudget }: { onOpenBudget
   const [data, setData] = useState<OperationsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState("");
+  const [masterAccounts, setMasterAccounts] = useState<MasterAccount[]>([]);
+  const [masterPartners, setMasterPartners] = useState<MasterPartner[]>([]);
   const [forecastDraft, setForecastDraft] = useState({ expectedDate: financeCurrentData.asOf, direction: "INFLOW", category: "매출대금", counterparty: "", amount: "", probability: "100", memo: "" });
   const [expenseDraft, setExpenseDraft] = useState({ requestKind: "EXPENSE", title: "", vendor: "", amount: "", requestedDate: financeCurrentData.asOf, dueDate: "", accountCode: "", accountName: "", paymentMethod: "BANK_TRANSFER", memo: "" });
 
@@ -69,6 +73,15 @@ export default function FinanceOperationsCenter({ onOpenBudget }: { onOpenBudget
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, []);
+  useEffect(() => {
+    fetch("/api/finance/master-data").then(async (response) => {
+      const result = await response.json() as { accounts?: MasterAccount[]; partners?: MasterPartner[] };
+      if (response.ok) {
+        setMasterAccounts((result.accounts ?? []).filter((item) => item.status === "ACTIVE"));
+        setMasterPartners((result.partners ?? []).filter((item) => item.status === "ACTIVE"));
+      }
+    }).catch(() => undefined);
+  }, []);
 
   const weightedForecast = useMemo(() => (data?.forecast ?? []).reduce((sum, item) => {
     if (["CANCELLED", "COMPLETED"].includes(item.status)) return sum;
@@ -198,11 +211,11 @@ export default function FinanceOperationsCenter({ onOpenBudget }: { onOpenBudget
       <form className="finance-control-form expense-form" onSubmit={createExpense}>
         <label>구분<select value={expenseDraft.requestKind} onChange={(event) => setExpenseDraft({ ...expenseDraft, requestKind: event.target.value })}><option value="EXPENSE">지출 결의</option><option value="PAYMENT">지급 요청</option></select></label>
         <label>제목<input required value={expenseDraft.title} onChange={(event) => setExpenseDraft({ ...expenseDraft, title: event.target.value })} /></label>
-        <label>거래처<input value={expenseDraft.vendor} onChange={(event) => setExpenseDraft({ ...expenseDraft, vendor: event.target.value })} /></label>
+        <label>거래처<select value={expenseDraft.vendor} onChange={(event) => setExpenseDraft({ ...expenseDraft, vendor: event.target.value })}><option value="">선택 안 함</option>{masterPartners.map((item) => <option key={item.id} value={item.canonical_name}>{item.canonical_name}</option>)}</select></label>
         <label>금액<input required type="number" min="1" value={expenseDraft.amount} onChange={(event) => setExpenseDraft({ ...expenseDraft, amount: event.target.value })} /></label>
         <label>요청일<input required type="date" value={expenseDraft.requestedDate} onChange={(event) => setExpenseDraft({ ...expenseDraft, requestedDate: event.target.value })} /></label>
         <label>지급예정일<input type="date" value={expenseDraft.dueDate} onChange={(event) => setExpenseDraft({ ...expenseDraft, dueDate: event.target.value })} /></label>
-        <label>계정명<input value={expenseDraft.accountName} onChange={(event) => setExpenseDraft({ ...expenseDraft, accountName: event.target.value })} /></label>
+        <label>계정과목<select value={expenseDraft.accountCode} onChange={(event) => { const account = masterAccounts.find((item) => item.code === event.target.value); setExpenseDraft({ ...expenseDraft, accountCode: account?.code ?? "", accountName: account?.name ?? "" }); }}><option value="">선택 안 함</option>{masterAccounts.map((item) => <option key={item.id} value={item.code}>{item.code} · {item.name}</option>)}</select></label>
         <label>지급수단<select value={expenseDraft.paymentMethod} onChange={(event) => setExpenseDraft({ ...expenseDraft, paymentMethod: event.target.value })}><option value="BANK_TRANSFER">계좌이체</option><option value="CORPORATE_CARD">법인카드</option><option value="AUTO_DEBIT">자동이체</option><option value="CASH">현금</option></select></label>
         <button type="submit">+ 요청 초안</button>
       </form>

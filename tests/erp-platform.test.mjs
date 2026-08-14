@@ -15,6 +15,33 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
   for (const source of files) assert.match(source, /writeErpAudit/);
 });
 
+test("finance master changes are approval-gated and new finance inputs validate active master records", async () => {
+  const [api, workspace, engine, operations, budget, sales, purchasing, page, plan, taskRoute] = await Promise.all([
+    read("app/api/finance/master-data/route.ts"), read("app/finance-master-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/api/finance/operations/route.ts"),
+    read("app/api/finance/budget/route.ts"), read("app/api/sales/route.ts"),
+    read("app/api/finance/purchasing/route.ts"), read("app/page.tsx"), read("docs/finance-master-data-plan.md"), read("app/api/operations/route.ts"),
+  ]);
+  assert.match(api, /requestType: "MASTER_DATA"/);
+  assert.match(api, /targetEntityType: "FINANCE_MASTER_CHANGE"/);
+  assert.match(api, /INSERT OR IGNORE INTO finance_master_accounts/);
+  assert.match(workspace, /계좌번호 전체값은 저장하지 않으며/);
+  assert.match(engine, /targetEntityType === "FINANCE_MASTER_CHANGE"/);
+  assert.match(engine, /transition_token/);
+  assert.match(workspace, /통합 재무 마스터/);
+  assert.match(workspace, /실제 이카운트 세금코드 목록/);
+  assert.match(operations, /finance_master_partners WHERE canonical_name/);
+  assert.match(operations, /finance_master_accounts WHERE code/);
+  assert.match(budget, /전기 분개를 연결하려면 활성 계정과목/);
+  assert.match(sales, /finance_master_partner_aliases/);
+  assert.match(purchasing, /finance_master_partner_aliases/);
+  assert.match(page, /"master", "통합 재무 마스터"/);
+  assert.match(taskRoute, /finance-master-quality/);
+  assert.match(taskRoute, /destination: "finance:master"/);
+  assert.match(plan, /과거 문자열 스냅샷은 보존/);
+  assert.match(plan, /임의 코드를 생성하지 않는다/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

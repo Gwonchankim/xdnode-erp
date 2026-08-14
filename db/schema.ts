@@ -1528,6 +1528,16 @@ export const hrTrainingAssignments = sqliteTable("hr_training_assignments", {
   index("idx_hr_training_assignment_course_status").on(table.courseId, table.status),
 ]);
 
+export const hrAnalyticsReports = sqliteTable("hr_analytics_reports", {
+  id: text("id").primaryKey(), reportType: text("report_type").notNull().default("HR_OVERVIEW"),
+  title: text("title").notNull(), periodStart: text("period_start").notNull(), periodEnd: text("period_end").notNull(),
+  version: integer("version").notNull().default(1), snapshotJson: text("snapshot_json").notNull(),
+  generatedBy: text("generated_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_analytics_report_period_version").on(table.reportType, table.periodStart, table.periodEnd, table.version),
+  index("idx_hr_analytics_report_created").on(table.createdAt),
+]);
+
 export const hrOfferRequests = sqliteTable("hr_offer_requests", {
   id: text("id").primaryKey(),
   applicantId: text("applicant_id").notNull(),

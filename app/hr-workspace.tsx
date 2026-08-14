@@ -7,6 +7,7 @@ import WorkforcePlanningView from "./workforce-planning-view";
 import RecruitmentRequisitionView from "./recruitment-requisition-view";
 import PerformanceManagementView from "./performance-management-view";
 import TrainingManagementView from "./training-management-view";
+import HrAnalyticsView from "./hr-analytics-view";
 
 export default function HRWorkspace({ requestedView = "dashboard", navigationRequestKey = 0 }: { requestedView?: string; navigationRequestKey?: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -1394,8 +1395,9 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         {active === "workforce" && <WorkforcePlanningView onNotify={showToast} />}
         {active === "performance" && <PerformanceManagementView onNotify={showToast} />}
         {active === "training" && <TrainingManagementView onNotify={showToast} />}
+        {active === "reports" && <HrAnalyticsView onNotify={showToast} />}
         {active === "settings" && <SettingsView employees={employees} onSave={() => showToast("환경설정을 저장했습니다.")} onNotify={showToast} />}
-        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "requisitions", "recruitment", "recruiters", "interviews", "onboarding", "workforce", "performance", "training", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
+        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "requisitions", "recruitment", "recruiters", "interviews", "onboarding", "workforce", "performance", "training", "reports", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}

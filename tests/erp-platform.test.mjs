@@ -1095,3 +1095,24 @@ test("training management snapshots employees and requires evidence for mandator
   assert.match(operations, /destination: "hr:training"/);
   assert.match(plan, /법정교육은 증빙 없는 완료를 허용하지 않음/);
 });
+
+test("HR analytics aggregates ledgers without exposing employee identifiers", async () => {
+  const [api, view, workspace, schema, migration, plan] = await Promise.all([
+    read("app/api/hr/analytics/route.ts"), read("app/hr-analytics-view.tsx"), read("app/hr-workspace.tsx"),
+    read("db/schema.ts"), read("drizzle/0043_hr_analytics_reports.sql"), read("docs/hr-analytics-reporting-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "hr", "read"\)/);
+  assert.match(api, /기간 중 퇴직자 ÷ 기간 시작·종료 평균 재직자/);
+  assert.match(api, /c\.status = 'FINALIZED' AND p\.status = 'FINALIZED'/);
+  assert.match(api, /item\.assignment_status === "SUBMITTED"/);
+  assert.match(api, /if \(!canSensitive\) return Response\.json\(\{ error: "저장 리포트는 HR 관리자만 열 수 있습니다/);
+  assert.match(api, /HR_ANALYTICS_REPORT_GENERATED/);
+  assert.match(api, /COALESCE\(MAX\(version\), 0\) \+ 1/);
+  assert.doesNotMatch(api, /employeeName.*csv|email.*csv|phone.*csv/i);
+  assert.match(view, /개인 이름·사번·이메일·연락처·생년월일/);
+  assert.match(view, /CSV 내보내기/);
+  assert.match(workspace, /<HrAnalyticsView/);
+  assert.match(schema, /hrAnalyticsReports/);
+  assert.match(migration, /idx_hr_analytics_report_period_version/);
+  assert.match(plan, /급여와 성과평가 집계는 HR 관리자 또는 최고관리자에게만 제공/);
+});

@@ -806,3 +806,15 @@ test("training ledgers preserve one employee assignment per course", async () =>
   assert.throws(() => insert.run("assignment-2", now, now), /UNIQUE constraint failed/);
   db.close();
 });
+
+test("HR analytics reports preserve immutable period versions", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insert = db.prepare(`INSERT INTO hr_analytics_reports
+    (id, report_type, title, period_start, period_end, version, snapshot_json, generated_by, created_at)
+    VALUES (?, 'HR_OVERVIEW', '2026년 HR 리포트', '2026-01-01', '2026-08-14', 1, '{}', 'gc.kim', ?)`);
+  insert.run("report-1", now);
+  assert.throws(() => insert.run("report-duplicate", now), /UNIQUE constraint failed/);
+  const indexes = db.prepare("PRAGMA index_list(hr_analytics_reports)").all();
+  assert.ok(indexes.some((row) => row.name === "idx_hr_analytics_report_period_version" && row.unique === 1));
+  db.close();
+});

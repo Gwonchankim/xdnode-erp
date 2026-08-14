@@ -66,6 +66,8 @@ export async function ensureErpPlatformSchema(db: D1Database) {
       ON erp_audit_logs (module, created_at)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_audit_entity
       ON erp_audit_logs (entity_type, entity_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_audit_created_id
+      ON erp_audit_logs (created_at, id)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS erp_tasks (
       id TEXT PRIMARY KEY NOT NULL,
       module TEXT NOT NULL,

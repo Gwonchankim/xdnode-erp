@@ -1467,6 +1467,27 @@ test("data integration center reconciles approved snapshots with idempotent revi
   assert.match(migration, /WHERE `idempotency_key` <> ''/); assert.match(plan, /자동 덮어쓰기/); assert.match(plan, /외부 API를 호출하지 않았는데 수집했다고 표시/);
 });
 
+test("enterprise audit trail is admin-only, paginated, redacted and immutable", async () => {
+  const [api, workspace, center, platform, schema, migration, plan] = await Promise.all([
+    read("app/api/audit-log/route.ts"), read("app/audit-log-workspace.tsx"), read("app/data-governance-center.tsx"),
+    read("app/erp-platform.ts"), read("db/schema.ts"), read("drizzle/0060_erp_audit_trail.sql"),
+    read("docs/erp-audit-trail-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /ORDER BY a\.created_at DESC, a\.id DESC LIMIT 31/);
+  assert.match(api, /a\.created_at < \? OR \(a\.created_at = \? AND a\.id < \?\)/);
+  assert.match(api, /secretKey\.test\(key\)/);
+  assert.match(api, /automaticMutation: false/);
+  assert.doesNotMatch(api, /UPDATE erp_audit_logs|DELETE FROM erp_audit_logs/);
+  assert.match(workspace, /통합 감사·변경이력/);
+  assert.match(workspace, /다음 30건 보기/);
+  assert.match(workspace, /보안 키 값은 서버에서 가려 표시/);
+  assert.match(center, /감사·변경이력/);
+  for (const source of [platform, schema, migration]) assert.match(source, /idx_erp_audit_created_id/);
+  assert.match(plan, /조회는 `settings:admin` 권한/);
+  assert.match(plan, /수정·삭제 경로가 없다/);
+});
+
 test("controlled data intake stages immutable originals before approval and explicit application", async () => {
   const [api, server, workspace, integration, approval, schema, migration, plan] = await Promise.all([
     read("app/api/data-intake/route.ts"), read("app/data-intake.ts"), read("app/data-intake-workspace.tsx"),

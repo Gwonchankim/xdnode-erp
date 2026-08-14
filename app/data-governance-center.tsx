@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import DataIntegrationWorkspace from "./data-integration-workspace";
+import AuditLogWorkspace from "./audit-log-workspace";
 
 type Check = { code: string; category: string; status: "PASS" | "WARN" | "FAIL"; title: string; detail: string };
 type Snapshot = { id: string; status: string; fileName: string; sha256: string; byteSize: number; tableCount: number; rowCount: number; requestedBy: string; createdAt: number; verifiedAt: number | null; verificationStatus: string; verificationDetail: string; failureMessage: string; downloadUrl: string };
@@ -39,7 +40,7 @@ async function requestData() {
   return payload;
 }
 
-export default function DataGovernanceCenter({ onClose, initialView = "trust" }: { onClose: () => void; initialView?: "trust" | "integration" }) {
+export default function DataGovernanceCenter({ onClose, initialView = "trust" }: { onClose: () => void; initialView?: "trust" | "integration" | "audit" }) {
   const [view, setView] = useState(initialView);
   const [data, setData] = useState<GovernanceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -93,8 +94,8 @@ export default function DataGovernanceCenter({ onClose, initialView = "trust" }:
         <div><p>DATA CONTROL CENTER</p><h2>데이터 통제 센터</h2><span>신뢰성·복구와 원천 연동·대사를 관리자 권한으로 관리합니다.</span></div>
         <button type="button" aria-label="닫기" onClick={onClose}>×</button>
       </header>
-      <nav className="data-governance-tabs" aria-label="데이터 통제 영역"><button type="button" className={view === "trust" ? "active" : ""} onClick={() => setView("trust")}>신뢰성·복구</button><button type="button" className={view === "integration" ? "active" : ""} onClick={() => setView("integration")}>연동·대사</button></nav>
-      {view === "integration" ? <DataIntegrationWorkspace /> : <>
+      <nav className="data-governance-tabs" aria-label="데이터 통제 영역"><button type="button" className={view === "trust" ? "active" : ""} onClick={() => setView("trust")}>신뢰성·복구</button><button type="button" className={view === "integration" ? "active" : ""} onClick={() => setView("integration")}>연동·대사</button><button type="button" className={view === "audit" ? "active" : ""} onClick={() => setView("audit")}>감사·변경이력</button></nav>
+      {view === "integration" ? <DataIntegrationWorkspace /> : view === "audit" ? <AuditLogWorkspace /> : <>
       {loading && <div className="data-governance-loading">데이터 통제 현황을 불러오는 중입니다.</div>}
       {error && <div className="data-governance-message error" role="alert">{error}</div>}
       {notice && <div className="data-governance-message" role="status">{notice}</div>}

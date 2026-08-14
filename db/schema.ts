@@ -275,6 +275,7 @@ export const erpAuditLogs = sqliteTable("erp_audit_logs", {
 }, (table) => [
   index("idx_erp_audit_module_created").on(table.module, table.createdAt),
   index("idx_erp_audit_entity").on(table.entityType, table.entityId),
+  index("idx_erp_audit_created_id").on(table.createdAt, table.id),
 ]);
 
 export const erpDataControlRuns = sqliteTable("erp_data_control_runs", {

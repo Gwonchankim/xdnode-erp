@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { calculateStraightLineDepreciation } from "../app/fixed-asset-calculation.mjs";
-import { buildLedgerAccountSummaries } from "../app/finance-general-ledger.ts";
+import { buildLedgerAccountSummaries, buildOperationalFinancialStatements } from "../app/finance-general-ledger.ts";
 
 async function loadFinanceData() {
   const source = await readFile(new URL("../app/finance-historical-data.ts", import.meta.url), "utf8");
@@ -104,6 +104,29 @@ test("general ledger carries pre-period postings into opening balances", () => {
   assert.equal(summaries.reduce((sum, row) => sum + row.openingDebit - row.openingCredit, 0), 0);
   assert.equal(summaries.reduce((sum, row) => sum + row.periodDebit - row.periodCredit, 0), 0);
   assert.equal(summaries.reduce((sum, row) => sum + row.endingDebit - row.endingCredit, 0), 0);
+});
+
+test("operational statements use posted movements and require an approved classified opening", () => {
+  const rows = [
+    { key: "101", accountId: "", accountCode: "101", accountName: "현금", openingDebit: 1_000, openingCredit: 0,
+      periodDebit: 500, periodCredit: 200, endingDebit: 1_300, endingCredit: 0, lineCount: 2 },
+    { key: "301", accountId: "", accountCode: "301", accountName: "자본금", openingDebit: 0, openingCredit: 1_000,
+      periodDebit: 0, periodCredit: 0, endingDebit: 0, endingCredit: 1_000, lineCount: 0 },
+    { key: "401", accountId: "", accountCode: "401", accountName: "상품매출", openingDebit: 0, openingCredit: 0,
+      periodDebit: 0, periodCredit: 500, endingDebit: 0, endingCredit: 500, lineCount: 1 },
+    { key: "801", accountId: "", accountCode: "801", accountName: "급여", openingDebit: 0, openingCredit: 0,
+      periodDebit: 200, periodCredit: 0, endingDebit: 200, endingCredit: 0, lineCount: 1 },
+  ];
+  const categories = { "101": "ASSET", "301": "EQUITY", "401": "REVENUE", "801": "EXPENSE" };
+  const statements = buildOperationalFinancialStatements(rows, categories, true);
+  assert.equal(statements.status, "OFFICIAL");
+  assert.deepEqual({ revenue: statements.incomeStatement.revenue, expenses: statements.incomeStatement.expenses,
+    netIncome: statements.incomeStatement.netIncome }, { revenue: 500, expenses: 200, netIncome: 300 });
+  assert.deepEqual({ assets: statements.balanceSheet.assets, equity: statements.balanceSheet.equity,
+    currentEarnings: statements.balanceSheet.currentEarnings, difference: statements.balanceSheet.equationDifference },
+  { assets: 1_300, equity: 1_000, currentEarnings: 300, difference: 0 });
+  assert.equal(buildOperationalFinancialStatements(rows, categories, false).status, "DRAFT");
+  assert.equal(buildOperationalFinancialStatements(rows, { ...categories, "101": "OTHER" }, true).quality.unclassifiedCount, 1);
 });
 
 test("August management-report commerce inputs reconcile without treating supply difference as profit", async () => {

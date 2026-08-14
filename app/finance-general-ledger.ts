@@ -11,6 +11,19 @@ export type LedgerAccountSummary = {
   endingDebit: number; endingCredit: number; lineCount: number;
 };
 
+export type FinancialStatementAccount = LedgerAccountSummary & {
+  category: "ASSET" | "LIABILITY" | "EQUITY" | "REVENUE" | "EXPENSE" | "OTHER";
+};
+
+export type OperationalFinancialStatements = {
+  status: "OFFICIAL" | "DRAFT";
+  incomeStatement: { revenue: number; expenses: number; netIncome: number; rows: FinancialStatementAccount[] };
+  balanceSheet: { assets: number; liabilities: number; equity: number; currentEarnings: number;
+    equationDifference: number; rows: FinancialStatementAccount[] };
+  quality: { openingOfficial: boolean; unclassifiedCount: number;
+    unclassifiedAccounts: Array<{ code: string; name: string }>; equationBalanced: boolean };
+};
+
 export const generalLedgerAccountKey = (code: string, name: string) => code.trim() || `NAME:${name.trim()}`;
 
 export function buildLedgerAccountSummaries(
@@ -44,4 +57,41 @@ export function buildLedgerAccountSummaries(
     summary.endingDebit = Math.max(ending, 0); summary.endingCredit = Math.max(-ending, 0);
   }
   return [...summaries.values()].sort((a, b) => a.accountCode.localeCompare(b.accountCode, "ko") || a.accountName.localeCompare(b.accountName, "ko"));
+}
+
+export function buildOperationalFinancialStatements(
+  rows: LedgerAccountSummary[],
+  categories: Record<string, string>,
+  openingOfficial: boolean,
+): OperationalFinancialStatements {
+  const allowedCategories = new Set(["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]);
+  const classified = rows.map((row) => {
+    const category = String(categories[row.key] ?? "OTHER").toUpperCase();
+    return { ...row, category: (allowedCategories.has(category) ? category : "OTHER") as FinancialStatementAccount["category"] };
+  });
+  const amount = (category: FinancialStatementAccount["category"], normalBalance: "DEBIT" | "CREDIT") => classified
+    .filter((row) => row.category === category)
+    .reduce((total, row) => total + (normalBalance === "DEBIT"
+      ? row.endingDebit - row.endingCredit : row.endingCredit - row.endingDebit), 0);
+  const movement = (category: FinancialStatementAccount["category"], normalBalance: "DEBIT" | "CREDIT") => classified
+    .filter((row) => row.category === category)
+    .reduce((total, row) => total + (normalBalance === "DEBIT"
+      ? row.periodDebit - row.periodCredit : row.periodCredit - row.periodDebit), 0);
+  const revenue = movement("REVENUE", "CREDIT"); const expenses = movement("EXPENSE", "DEBIT");
+  const netIncome = revenue - expenses;
+  const assets = amount("ASSET", "DEBIT"); const liabilities = amount("LIABILITY", "CREDIT");
+  const equity = amount("EQUITY", "CREDIT");
+  const unclassified = classified.filter((row) => row.category === "OTHER"
+    && Boolean(row.openingDebit || row.openingCredit || row.periodDebit || row.periodCredit));
+  const equationDifference = assets - liabilities - equity - netIncome;
+  const quality = { openingOfficial, unclassifiedCount: unclassified.length,
+    unclassifiedAccounts: unclassified.map((row) => ({ code: row.accountCode, name: row.accountName })),
+    equationBalanced: equationDifference === 0 };
+  return {
+    status: quality.openingOfficial && quality.unclassifiedCount === 0 && quality.equationBalanced ? "OFFICIAL" : "DRAFT",
+    incomeStatement: { revenue, expenses, netIncome, rows: classified.filter((row) => ["REVENUE", "EXPENSE"].includes(row.category)) },
+    balanceSheet: { assets, liabilities, equity, currentEarnings: netIncome, equationDifference,
+      rows: classified.filter((row) => ["ASSET", "LIABILITY", "EQUITY"].includes(row.category)) },
+    quality,
+  };
 }

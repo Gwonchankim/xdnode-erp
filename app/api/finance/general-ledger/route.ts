@@ -3,8 +3,9 @@ import { authorizeErpRequest } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { financeHistoricalData } from "../../../finance-historical-data";
 import { ensureFinancePostingSchema } from "../../../finance-posting";
-import { buildLedgerAccountSummaries, generalLedgerAccountKey, type LedgerAccountSummary, type UnifiedLedgerRow } from "../../../finance-general-ledger";
-import {approvedOpeningRows,ensureFinanceOpeningBalanceSchema} from "../../../finance-opening-balance";
+import { buildLedgerAccountSummaries, buildOperationalFinancialStatements, generalLedgerAccountKey,
+  type LedgerAccountSummary, type UnifiedLedgerRow } from "../../../finance-general-ledger";
+import { approvedOpeningRows, ensureFinanceOpeningBalanceSchema, openingAccountCategory } from "../../../finance-opening-balance";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -85,6 +86,14 @@ export async function GET(request: Request) {
   const opening=await approvedOpeningRows(db);const openingSource=opening?.rows??financeHistoricalData.trialBalance2025;
   const ytdRows = await ledgerRows("2026-01-01", to); const periodRows = ytdRows.filter((row) => row.voucherDate >= from);
   const accounts = buildLedgerAccountSummaries(openingSource, ytdRows, from);
+  const masterAccounts = await db.prepare("SELECT code,category FROM finance_master_accounts WHERE status='ACTIVE'")
+    .all<{ code: string; category: string }>().catch(() => ({ results: [] }));
+  const masterCategories = new Map(masterAccounts.results.map((row) => [row.code, row.category]));
+  const openingCategories = new Map(opening?.rows.map((row) => [row.code, row.category]) ?? []);
+  const categories: Record<string, string> = {};
+  for (const item of accounts) categories[item.key] = masterCategories.get(item.accountCode)
+    ?? openingCategories.get(item.accountCode) ?? openingAccountCategory(item.accountCode, item.accountName);
+  const statements = buildOperationalFinancialStatements(accounts, categories, Boolean(opening));
   const openingDebit = sum(accounts, "openingDebit"); const openingCredit = sum(accounts, "openingCredit");
   const periodDebit = sum(accounts, "periodDebit"); const periodCredit = sum(accounts, "periodCredit");
   const endingDebit = sum(accounts, "endingDebit"); const endingCredit = sum(accounts, "endingCredit");
@@ -102,7 +111,7 @@ export async function GET(request: Request) {
     } });
   }
   const limit = Math.min(500, Math.max(50, Number(url.searchParams.get("limit") || 200)));
-  return Response.json({ asOf: currentAsOf, from, to, accounts, rows: filteredRows.slice(0, limit),
+  return Response.json({ asOf: currentAsOf, from, to, accounts, statements, rows: filteredRows.slice(0, limit),
     pagination: { returned: Math.min(filteredRows.length, limit), total: filteredRows.length, limit },
     totals: { openingDebit, openingCredit, openingDifference: openingDebit - openingCredit, periodDebit, periodCredit,
       periodDifference: periodDebit - periodCredit, endingDebit, endingCredit, endingDifference: endingDebit - endingCredit },
@@ -112,5 +121,6 @@ export async function GET(request: Request) {
       paymentJournalLines: periodRows.filter((row) => row.sourceType === "PAYMENT_JOURNAL").length,
       postedOnly: true, stagedOrClobeRowsIncluded: false },
     controls: { balanced: openingDebit === openingCredit && periodDebit === periodCredit && endingDebit === endingCredit,
-      openingApprovedReference: Boolean(opening), sourceMutation: false, directClobePosting: false } });
+      openingApprovedReference: Boolean(opening), statementOfficial: statements.status === "OFFICIAL",
+      sourceMutation: false, directClobePosting: false } });
 }

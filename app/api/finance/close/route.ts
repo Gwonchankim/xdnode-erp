@@ -3,6 +3,7 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
+import { buildFinanceLedgerSnapshot } from "../../../finance-ledger-snapshot";
 import { ensureFinancePostingSchema } from "../../../finance-posting";
 
 type Bindings = { DB: D1Database };
@@ -89,6 +90,8 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const periodStart = `${period}-01`; const nextPeriodDate = new Date(`${periodStart}T00:00:00Z`);
   nextPeriodDate.setUTCMonth(nextPeriodDate.getUTCMonth() + 1); const periodEndExclusive = nextPeriodDate.toISOString().slice(0, 10);
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
+  const ledgerAsOf = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
+  const ledgerSnapshotPromise = buildFinanceLedgerSnapshot(db, ledgerAsOf);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const treasuryTargetDate = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
   const [bank, unposted, pendingPosting, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, incentiveSettlement, treasuryReport, tax] = await Promise.all([
@@ -253,7 +256,20 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     + Number(debtCovenants?.due_count ?? 0) + Number(debtCovenants?.breach_count ?? 0);
   const alertCutoff = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
   const alertActions = await buildFinanceAlertReportSnapshot(db, alertCutoff);
+  const ledgerSnapshot = await ledgerSnapshotPromise;
   const controls: CloseControl[] = [
+    { key: "APPROVED_OPENING_BALANCE", category: "STATEMENT", title: "승인된 2026 개시잔액",
+      status: ledgerSnapshot.openingSetId ? "PASS" : "FAIL",
+      message: ledgerSnapshot.openingSetId
+        ? `${ledgerSnapshot.openingSetId} · 원천 SHA-256 ${ledgerSnapshot.openingChecksum.slice(0, 12)}…`
+        : "전자결재가 완료된 2026 개시잔액 기준선이 없습니다.",
+      count: ledgerSnapshot.openingSetId ? 0 : 1 },
+    { key: "GENERAL_LEDGER_BALANCE", category: "STATEMENT", title: "총계정원장·재무제표 균형",
+      status: ledgerSnapshot.difference.opening === 0 && ledgerSnapshot.difference.period === 0
+        && ledgerSnapshot.difference.ending === 0 && ledgerSnapshot.statements.quality.equationBalanced ? "PASS" : "FAIL",
+      message: `전기 ${ledgerSnapshot.lineCount}행 · 개시 차이 ${ledgerSnapshot.difference.opening.toLocaleString("ko-KR")}원 · 당기 차이 ${ledgerSnapshot.difference.period.toLocaleString("ko-KR")}원 · 기말 차이 ${ledgerSnapshot.difference.ending.toLocaleString("ko-KR")}원 · 회계등식 차이 ${ledgerSnapshot.statements.balanceSheet.equationDifference.toLocaleString("ko-KR")}원`,
+      count: Math.abs(ledgerSnapshot.difference.opening) + Math.abs(ledgerSnapshot.difference.period)
+        + Math.abs(ledgerSnapshot.difference.ending) + Math.abs(ledgerSnapshot.statements.balanceSheet.equationDifference) },
     { key: "BANK_RECONCILIATION", category: "BANK", title: "원화 은행거래 대사",
       status: bankTotal > 0 && bankPending === 0 ? "PASS" : "FAIL",
       message: bankTotal ? `${bankTotal}건 중 미대사 ${bankPending}건` : "해당 월 은행 거래 원문이 없습니다.", count: bankPending },
@@ -453,8 +469,28 @@ export async function POST(request: Request) {
       return Response.json({ approvalSubmitted: true, approvalId: existing.id }, { status: 202 });
     }
     const now = Date.now();
+    const ledgerAsOf = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
+    const ledgerSnapshot = await buildFinanceLedgerSnapshot(db, ledgerAsOf);
+    if (!ledgerSnapshot.official) return Response.json({ error: "공식 개시잔액과 균형이 확인된 총계정원장이 필요합니다.",
+      reasons: [!ledgerSnapshot.openingSetId ? "개시잔액 승인 필요" : "", ledgerSnapshot.difference.opening !== 0 ? "개시 차대변 불일치" : "",
+        ledgerSnapshot.difference.period !== 0 ? "당기 차대변 불일치" : "", ledgerSnapshot.difference.ending !== 0 ? "기말 차대변 불일치" : "",
+        !ledgerSnapshot.statements.quality.equationBalanced ? "재무상태표 회계등식 불일치" : "",
+        ledgerSnapshot.statements.quality.unclassifiedCount ? `미분류 계정 ${ledgerSnapshot.statements.quality.unclassifiedCount}개` : ""].filter(Boolean) }, { status: 409 });
     const snapshot = { period, periodEnd: state.run.period_end, asOf: financeCurrentData.asOf,
-      controls: state.controls, tasks: state.tasks.map(taskView), evidenceCount: state.summary.evidenceCount };
+      controls: state.controls, tasks: state.tasks.map(taskView), evidenceCount: state.summary.evidenceCount,
+      ledgerSnapshot: { asOf: ledgerSnapshot.asOf, official: ledgerSnapshot.official,
+        openingSetId: ledgerSnapshot.openingSetId, openingChecksum: ledgerSnapshot.openingChecksum,
+        lineCount: ledgerSnapshot.lineCount, totals: ledgerSnapshot.totals, difference: ledgerSnapshot.difference,
+        statements: { status: ledgerSnapshot.statements.status,
+          incomeStatement: { revenue: ledgerSnapshot.statements.incomeStatement.revenue,
+            expenses: ledgerSnapshot.statements.incomeStatement.expenses,
+            netIncome: ledgerSnapshot.statements.incomeStatement.netIncome },
+          balanceSheet: { assets: ledgerSnapshot.statements.balanceSheet.assets,
+            liabilities: ledgerSnapshot.statements.balanceSheet.liabilities,
+            equity: ledgerSnapshot.statements.balanceSheet.equity,
+            currentEarnings: ledgerSnapshot.statements.balanceSheet.currentEarnings,
+            equationDifference: ledgerSnapshot.statements.balanceSheet.equationDifference },
+          quality: ledgerSnapshot.statements.quality }, ledgerHash: ledgerSnapshot.ledgerHash } };
     const updated = await db.prepare(`UPDATE finance_close_runs SET status = 'SUBMITTED', snapshot_json = ?,
       control_pass_count = ?, control_fail_count = ?, manual_completed_count = ?, manual_total_count = ?,
       evidence_count = ?, submitted_by = ?, submitted_at = ?, updated_at = ? WHERE period = ? AND status = 'OPEN'`)

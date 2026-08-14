@@ -1502,3 +1502,15 @@ test("opening balances require a balanced immutable draft and final electronic a
   assert.match(approval,/OPENING_BALANCE: "개시잔액 기준선 승인"/);assert.match(approval,/FINANCE_OPENING_BALANCE_SET/);assert.match(ledger,/approvedOpeningRows/);assert.match(ledger,/openingApprovedReference: Boolean\(opening\)/);
   assert.match(control,/금액 편집 없이 생성/);assert.match(control,/개시잔액 결재 제출/);assert.match(migration,/WHERE `status`='APPROVED'/);assert.match(plan,/승인 전 참고값/);assert.match(plan,/수정과 삭제 API를 제공하지 않는다/);
 });
+
+test("operational statements and month close freeze only approved posted ledger evidence",async()=>{
+  const[api,server,snapshot,workspace,close,plan]=await Promise.all([read("app/api/finance/general-ledger/route.ts"),read("app/finance-general-ledger.ts"),read("app/finance-ledger-snapshot.ts"),read("app/general-ledger-workspace.tsx"),read("app/api/finance/close/route.ts"),read("docs/finance-operational-statements-plan.md")]);
+  assert.match(api,/buildOperationalFinancialStatements/);assert.match(api,/statements/);assert.match(api,/statementOfficial/);
+  assert.match(server,/periodDebit.*periodCredit/);assert.match(server,/equationDifference/);assert.match(server,/unclassifiedAccounts/);
+  assert.match(snapshot,/finance_posting_batches batch ON batch\.id=voucher\.batch_id AND batch\.status='POSTED'/);
+  assert.match(snapshot,/finance_journal_entries[\s\S]*status='POSTED'/);assert.match(snapshot,/crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(workspace,/2026 손익계산서·재무상태표/);assert.match(workspace,/검토용 초안/);assert.match(workspace,/공식화 전 확인/);
+  assert.match(close,/buildFinanceLedgerSnapshot/);assert.match(close,/APPROVED_OPENING_BALANCE/);assert.match(close,/GENERAL_LEDGER_BALANCE/);
+  assert.match(close,/openingChecksum/);assert.match(close,/ledgerHash/);assert.match(close,/ledgerSnapshot/);
+  assert.match(plan,/세금계산서 통계.*직접 합산하지 않는다/);assert.match(plan,/월마감 제출 직전에 원장을 다시 계산/);
+});

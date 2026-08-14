@@ -120,6 +120,13 @@
       "when": 1786684922106,
       "tag": "0016_wild_black_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1786685368852,
+      "tag": "0017_workable_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }

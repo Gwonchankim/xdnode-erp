@@ -142,6 +142,23 @@ test("sales quote-to-cash documents support versioning and approval gates", asyn
   assert.match(view, /견적·수주·납품·청구·수금/);
 });
 
+test("sales collections explicitly allocate to an approved invoice and reserve its remaining balance", async () => {
+  const [api, view, schema, migration] = await Promise.all([
+    read("app/api/sales/route.ts"), read("app/sales-workspace.tsx"), read("db/schema.ts"),
+    read("drizzle/0017_workable_lady_deathstrike.sql"),
+  ]);
+  assert.match(api, /sales_payment_allocations/);
+  assert.match(api, /invoiceDocumentId/);
+  assert.match(api, /payment\.status <> 'CANCELLED'/);
+  assert.match(api, /CASE WHEN payment\.id IS NOT NULL/);
+  assert.match(api, /역수금·환불 절차가 필요합니다/);
+  assert.match(view, /대상 청구서/);
+  assert.match(view, /현재 미수금/);
+  assert.match(view, /수금 예약/);
+  assert.match(schema, /salesPaymentAllocations/);
+  assert.match(migration, /idx_sales_payment_allocation_payment/);
+});
+
 test("system tasks are generated from live workflow state instead of static counts", async () => {
   const api = await read("app/api/operations/route.ts");
   assert.match(api, /TRIM\(owner_id\) = ''/);

@@ -56,6 +56,30 @@ test("payroll close can identify its single downstream finance request", async (
   assert.equal(linked.evidence_required, 0);
 });
 
+test("sales payment allocations preserve partial collections and one invoice target per payment", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertDocument = db.prepare(`INSERT INTO sales_documents
+    (id, opportunity_id, document_type, document_number, amount, status, issued_date, created_at, updated_at)
+    VALUES (?, 'opportunity-1', ?, ?, ?, ?, '2026-08-14', ?, ?)`);
+  insertDocument.run("invoice-1", "INVOICE", "INV-001", 100000, "ACCEPTED", now, now);
+  insertDocument.run("payment-1", "PAYMENT", "PAY-001", 40000, "ACCEPTED", now, now);
+  insertDocument.run("payment-2", "PAYMENT", "PAY-002", 25000, "DRAFT", now, now);
+  const insertAllocation = db.prepare(`INSERT INTO sales_payment_allocations
+    (id, payment_document_id, invoice_document_id, amount, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 'gc.kim', ?, ?)`);
+  insertAllocation.run("allocation-1", "payment-1", "invoice-1", 40000, now, now);
+  insertAllocation.run("allocation-2", "payment-2", "invoice-1", 25000, now, now);
+  assert.throws(() => insertAllocation.run("allocation-3", "payment-2", "invoice-other", 25000, now, now), /UNIQUE constraint failed/);
+  const totals = db.prepare(`SELECT
+    SUM(allocation.amount) AS reserved,
+    SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END) AS collected
+    FROM sales_payment_allocations allocation JOIN sales_documents payment ON payment.id = allocation.payment_document_id
+    WHERE allocation.invoice_document_id = ? AND payment.status <> 'CANCELLED'`).get("invoice-1");
+  assert.equal(totals.reserved, 65000);
+  assert.equal(totals.collected, 40000);
+});
+
 test("retirement and recruitment offer ledgers preserve workflow state", async () => {
   const db = await migratedDatabase();
   const now = Date.now();

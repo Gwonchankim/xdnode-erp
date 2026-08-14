@@ -676,6 +676,19 @@ export const salesDocuments = sqliteTable("sales_documents", {
   index("idx_sales_documents_status_due").on(table.status, table.dueDate),
 ]);
 
+export const salesPaymentAllocations = sqliteTable("sales_payment_allocations", {
+  id: text("id").primaryKey(),
+  paymentDocumentId: text("payment_document_id").notNull(),
+  invoiceDocumentId: text("invoice_document_id").notNull(),
+  amount: integer("amount").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_payment_allocation_payment").on(table.paymentDocumentId),
+  index("idx_sales_payment_allocation_invoice").on(table.invoiceDocumentId),
+]);
+
 export const salesIncentiveRules = sqliteTable("sales_incentive_rules", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

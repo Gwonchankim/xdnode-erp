@@ -87,11 +87,13 @@ export const hrApplicants = sqliteTable("hr_applicants", {
   screeningMemosJson: text("screening_memos_json").notNull().default("[]"),
   interviewJson: text("interview_json"),
   interviewMemosJson: text("interview_memos_json").notNull().default("[]"),
+  requisitionId: text("requisition_id").notNull().default(""),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
   index("idx_hr_applicants_name").on(table.name),
   index("idx_hr_applicants_email").on(table.email),
   index("idx_hr_applicants_phone").on(table.phone),
+  index("idx_hr_applicants_requisition").on(table.requisitionId),
 ]);
 
 export const hrPayrollRecords = sqliteTable("hr_payroll_records", {
@@ -1410,6 +1412,31 @@ export const hrWorkforcePlanLines = sqliteTable("hr_workforce_plan_lines", {
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
   uniqueIndex("idx_hr_workforce_plan_line_org").on(table.planId, table.organizationId),
+]);
+
+export const hrRecruitmentRequisitions = sqliteTable("hr_recruitment_requisitions", {
+  id: text("id").primaryKey(),
+  workforcePlanId: text("workforce_plan_id").notNull(),
+  workforcePlanLineId: text("workforce_plan_line_id").notNull(),
+  organizationId: text("organization_id").notNull(),
+  title: text("title").notNull(),
+  role: text("role").notNull(),
+  requestedHeadcount: integer("requested_headcount").notNull().default(1),
+  ownerEmployeeId: text("owner_employee_id").notNull(),
+  targetStartDate: text("target_start_date").notNull(),
+  reason: text("reason").notNull(),
+  status: text("status").notNull().default("DRAFT"),
+  requestedBy: text("requested_by").notNull(),
+  approvedBy: text("approved_by").notNull().default(""),
+  approvedAt: integer("approved_at"),
+  closedBy: text("closed_by").notNull().default(""),
+  closedAt: integer("closed_at"),
+  closeReason: text("close_reason").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_hr_requisition_plan_org").on(table.workforcePlanId, table.organizationId),
+  index("idx_hr_requisition_status_owner").on(table.status, table.ownerEmployeeId),
 ]);
 
 export const hrOfferRequests = sqliteTable("hr_offer_requests", {

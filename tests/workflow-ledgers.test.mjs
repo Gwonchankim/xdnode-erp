@@ -735,3 +735,27 @@ test("workforce plans preserve period versions and one organization line per pla
   db.prepare("UPDATE hr_workforce_plans SET status = 'SUBMITTED', submitted_at = ? WHERE id = 'workforce-1'").run(now);
   assert.equal(db.prepare("SELECT status FROM hr_workforce_plans WHERE id = 'workforce-1'").get().status, "SUBMITTED");
 });
+
+test("recruitment requisitions preserve approved-plan lineage and applicant linkage", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  db.prepare(`INSERT INTO hr_recruitment_requisitions
+    (id, workforce_plan_id, workforce_plan_line_id, organization_id, title, role, requested_headcount,
+      owner_employee_id, target_start_date, reason, status, requested_by, approved_by, approved_at,
+      closed_by, closed_at, close_reason, created_at, updated_at)
+    VALUES ('req-1', 'plan-1', 'line-1', 'org-ai-business', 'AI 연구원 충원', '연구개발', 2,
+      'gc.kim', '2026-10-01', '승인 정원 부족 충원', 'OPEN', 'gc.kim', 'ceo', ?, '', NULL, '', ?, ?)`)
+    .run(now, now, now);
+  db.prepare(`INSERT INTO hr_applicants
+    (id, name, role, applied, owner_id, stage, experience, email, phone, source, summary,
+      resume_file_name, resume_text, checklist_json, screening_memos_json, interview_json,
+      interview_memos_json, requisition_id, updated_at)
+    VALUES ('applicant-linked', '홍길동', '연구개발', '2026.08.14', 'gc.kim', '서류 검토', '',
+      'hong@example.com', '', '직접 등록', '', '', '', '[]', '[]', NULL, '[]', 'req-1', ?)`)
+    .run(now);
+  const linked = db.prepare(`SELECT r.status, r.requested_headcount, a.requisition_id
+    FROM hr_recruitment_requisitions r JOIN hr_applicants a ON a.requisition_id = r.id WHERE r.id = 'req-1'`).get();
+  assert.deepEqual({ ...linked }, { status: "OPEN", requested_headcount: 2, requisition_id: "req-1" });
+  const indexes = db.prepare("PRAGMA index_list(hr_applicants)").all();
+  assert.ok(indexes.some((row) => row.name === "idx_hr_applicants_requisition"));
+});

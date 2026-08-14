@@ -1008,3 +1008,30 @@ test("workforce planning versions approved headcount and derives actual staffing
   assert.match(plan, /지원자 수는 채용 경쟁도이지 확보 인원이 아니므로/);
   assert.match(plan, /DRAFT → SUBMITTED → APPROVED/);
 });
+
+test("recruitment requisitions reserve approved gaps and link applicants through accepted offers", async () => {
+  const [api, recruitment, view, workspace, schema, migration, approval, plan] = await Promise.all([
+    read("app/api/hr/recruitment-requisitions/route.ts"), read("app/api/hr/recruitment/route.ts"),
+    read("app/recruitment-requisition-view.tsx"), read("app/hr-workspace.tsx"), read("db/schema.ts"),
+    read("drizzle/0040_recruitment_requisitions.sql"), read("app/approval-engine.ts"),
+    read("docs/hr-recruitment-requisition-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "recruitment", "read"\)/);
+  assert.match(api, /line\.approved_headcount - projected/);
+  assert.match(api, /\["DRAFT", "SUBMITTED", "OPEN"\]/);
+  assert.match(api, /availableHeadcount: Math\.max\(0, hiringGap - reserved\)/);
+  assert.match(api, /requestType: "REQUISITION"/);
+  assert.match(api, /targetEntityType: "HR_RECRUITMENT_REQUISITION"/);
+  assert.match(recruitment, /requisition_id/);
+  assert.match(recruitment, /요청 인원이 이미 모두 충원되었습니다/);
+  assert.match(recruitment, /status = 'FILLED'/);
+  assert.match(view, /채용요청·TO 관리/);
+  assert.match(view, /지원자 수는 충원 인원으로 계산하지 않습니다/);
+  assert.match(workspace, /<RecruitmentRequisitionView/);
+  assert.match(workspace, /채용요청·TO/);
+  assert.match(schema, /hrRecruitmentRequisitions/);
+  assert.match(migration, /ALTER TABLE `hr_applicants` ADD `requisition_id`/);
+  assert.match(approval, /REQUISITION: "채용요청 승인"/);
+  assert.match(approval, /targetEntityType === "HR_RECRUITMENT_REQUISITION"/);
+  assert.match(plan, /추가 기안 가능 = 계획 부족 - 예약 TO/);
+});

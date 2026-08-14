@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { companyEmployees, companyJobTitles, companyOrganizations, companyRanks } from "./hr-company-data";
 import WorkforcePlanningView from "./workforce-planning-view";
+import RecruitmentRequisitionView from "./recruitment-requisition-view";
 
 export default function HRWorkspace({ requestedView = "dashboard", navigationRequestKey = 0 }: { requestedView?: string; navigationRequestKey?: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -107,6 +108,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
   {
     title: "채용",
     items: [
+      { id: "requisitions", label: "채용요청·TO", icon: "요" },
       { id: "recruitment", label: "지원자 관리", icon: "채" },
       { id: "interviews", label: "면접관리", icon: "면" },
       { id: "recruiters", label: "채용담당자 관리", icon: "담" },
@@ -443,7 +445,17 @@ type Applicant = {
   screeningMemos: RecruitmentNote[];
   interview?: InterviewSchedule;
   interviewMemos: RecruitmentNote[];
+  requisitionId: string;
   offer?: RecruitmentOffer;
+};
+
+type RecruitmentRequisitionOption = {
+  id: string;
+  title: string;
+  role: string;
+  organizationId: string;
+  requestedHeadcount: number;
+  status: string;
 };
 
 type RecruitmentOffer = {
@@ -608,6 +620,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
   const [applicants, setApplicants] = useState(initialApplicants);
   const [interviews, setInterviews] = useState(initialInterviews);
   const [recruiterIds, setRecruiterIds] = useState<string[]>(["gc.kim"]);
+  const [requisitions, setRequisitions] = useState<RecruitmentRequisitionOption[]>([]);
   const [screeningApplicantId, setScreeningApplicantId] = useState<string | null>(null);
   const [interviewApplicantId, setInterviewApplicantId] = useState<string | null>(null);
   const [directInterviewPickerOpen, setDirectInterviewPickerOpen] = useState(false);
@@ -619,7 +632,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
   const [retirementOpen, setRetirementOpen] = useState(false);
   const [resumeStatus, setResumeStatus] = useState<"idle" | "analyzing" | "done" | "error">("idle");
   const [resumeMessage, setResumeMessage] = useState("");
-  const [applicantDraft, setApplicantDraft] = useState({ name: "", role: "", email: "", phone: "", experience: "", source: "직접 등록", summary: "", resumeFileName: "", resumeText: "" });
+  const [applicantDraft, setApplicantDraft] = useState({ name: "", role: "", email: "", phone: "", experience: "", source: "직접 등록", summary: "", resumeFileName: "", resumeText: "", requisitionId: "" });
 
   useEffect(() => {
     let cancelled = false;
@@ -704,7 +717,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     let cancelled = false;
     fetch("/api/hr/recruitment")
       .then(async (response) => {
-        const data = await response.json() as { applicants?: Applicant[]; recruiterIds?: string[]; error?: string };
+        const data = await response.json() as { applicants?: Applicant[]; recruiterIds?: string[]; requisitions?: RecruitmentRequisitionOption[]; error?: string };
         if (!response.ok) throw new Error(data.error || "채용 정보를 불러오지 못했습니다.");
         return data;
       })
@@ -713,6 +726,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         const loadedApplicants = data.applicants ?? [];
         setApplicants(loadedApplicants);
         setRecruiterIds(data.recruiterIds?.length ? data.recruiterIds : ["gc.kim"]);
+        setRequisitions(data.requisitions ?? []);
         setInterviews(loadedApplicants.flatMap((applicant) => {
           const schedule = applicant.interview;
           if (!schedule || ![schedule.date, schedule.time, schedule.interviewers, schedule.location].some(Boolean)) return [];
@@ -1185,7 +1199,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     setApplicants((value) => [applicant, ...value]);
     setApplicantModalOpen(false);
     setResumeStatus("idle");
-    setApplicantDraft({ name: "", role: "", email: "", phone: "", experience: "", source: "직접 등록", summary: "", resumeFileName: "", resumeText: "" });
+    setApplicantDraft({ name: "", role: "", email: "", phone: "", experience: "", source: "직접 등록", summary: "", resumeFileName: "", resumeText: "", requisitionId: "" });
     setResumeMessage("");
     showToast("지원자가 지원 현황에 등록되었습니다.");
   }
@@ -1370,20 +1384,34 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} employees={employees} organizations={organizations} ranks={ranks} jobTitles={jobTitles} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} organizations={organizations} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onUpdateOrganization={updateOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview onSelectMonth={setSelectedPayrollMonth} />)}
-        {active === "recruitment" && (screeningApplicant ? <ScreeningWorkflow applicant={screeningApplicant} applicants={applicants} recruiters={recruiters} onBack={() => setScreeningApplicantId(null)} onSave={saveScreeningApplicant} /> : <RecruitmentView applicants={applicants} recruiters={recruiters} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onOwnerChange={assignRecruiter} onScreening={setScreeningApplicantId} onReject={rejectApplicant} onDelete={deleteApplicant} />)}
+        {active === "requisitions" && <RecruitmentRequisitionView onNotify={showToast} />}
+        {active === "recruitment" && (screeningApplicant ? <ScreeningWorkflow applicant={screeningApplicant} applicants={applicants} recruiters={recruiters} onBack={() => setScreeningApplicantId(null)} onSave={saveScreeningApplicant} /> : <RecruitmentView applicants={applicants} recruiters={recruiters} requisitions={requisitions} query={query} onAdd={() => setApplicantModalOpen(true)} onSelect={setSelectedApplicantId} onOwnerChange={assignRecruiter} onScreening={setScreeningApplicantId} onReject={rejectApplicant} onDelete={deleteApplicant} />)}
         {active === "recruiters" && <RecruiterManagement employees={employees} recruiterIds={recruiterIds} onAdd={addRecruiter} onRemove={removeRecruiter} />}
         {active === "interviews" && (interviewApplicant ? <InterviewCandidateView applicant={interviewApplicant} applicants={applicants} organizations={organizations} onBack={() => setInterviewApplicantId(null)} onSaveMemo={addInterviewMemo} onSubmitOffer={submitRecruitmentOffer} onRespondOffer={respondRecruitmentOffer} /> : <InterviewManagement interviews={interviews} onSelectApplicant={setInterviewApplicantId} onDirect={() => setDirectInterviewPickerOpen(true)} />)}
         {active === "onboarding" && <LifecycleManagementView />}
         {active === "workforce" && <WorkforcePlanningView onNotify={showToast} />}
         {active === "settings" && <SettingsView employees={employees} onSave={() => showToast("환경설정을 저장했습니다.")} onNotify={showToast} />}
-        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "recruitment", "recruiters", "interviews", "onboarding", "workforce", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
+        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "requisitions", "recruitment", "recruiters", "interviews", "onboarding", "workforce", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
 
-      {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div><div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.docx,.txt" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "원본 이력서를 AI가 분석하고 있어요" : resumeStatus === "done" ? "이력서 분석 완료" : resumeStatus === "error" ? "이력서 분석 실패" : "원본 이력서를 AI가 바로 분석합니다"}</strong><small>{resumeMessage || "PDF, DOCX, TXT · 한도 초과 시에만 기본 텍스트 추출로 전환합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" || resumeStatus === "error" ? "다시 선택" : "파일 선택"}</em></label></div><div className="form-grid"><label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label><label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label><label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label><label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label><label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label><label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label></div><label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div></form></div>}
+      {applicantModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setApplicantModalOpen(false)}><form className="employee-modal applicant-modal" onSubmit={saveApplicant} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-header"><div><p>NEW APPLICANT</p><h2>지원자 등록</h2></div><button type="button" onClick={() => setApplicantModalOpen(false)}>×</button></div>
+        <div className={`resume-drop ${resumeStatus}`}><label><input type="file" accept=".pdf,.docx,.txt" onChange={(event) => parseResume(event.target.files?.[0])} /><span className="resume-icon">AI</span><div><strong>{resumeStatus === "analyzing" ? "원본 이력서를 AI가 분석하고 있어요" : resumeStatus === "done" ? "이력서 분석 완료" : resumeStatus === "error" ? "이력서 분석 실패" : "원본 이력서를 AI가 바로 분석합니다"}</strong><small>{resumeMessage || "PDF, DOCX, TXT · 한도 초과 시에만 기본 텍스트 추출로 전환합니다."}</small></div><em>{resumeStatus === "analyzing" ? "분석 중…" : resumeStatus === "done" || resumeStatus === "error" ? "다시 선택" : "파일 선택"}</em></label></div>
+        <div className="form-grid">
+          <label><span>이름 *</span><input required value={applicantDraft.name} onChange={(event) => setApplicantDraft({ ...applicantDraft, name: event.target.value })} /></label>
+          <label><span>지원 직무 *</span><input required value={applicantDraft.role} onChange={(event) => setApplicantDraft({ ...applicantDraft, role: event.target.value })} /></label>
+          <label className="wide"><span>채용요청·TO</span><select value={applicantDraft.requisitionId} onChange={(event) => setApplicantDraft({ ...applicantDraft, requisitionId: event.target.value })}><option value="">예외·직접 등록</option>{requisitions.filter((item) => item.status === "OPEN").map((item) => <option key={item.id} value={item.id}>{item.title} · {item.role}</option>)}</select><small>승인 TO에 연결하면 채용 제안과 입사 확정 인원이 자동 집계됩니다.</small></label>
+          <label><span>이메일 *</span><input required type="email" value={applicantDraft.email} onChange={(event) => setApplicantDraft({ ...applicantDraft, email: event.target.value })} /></label>
+          <label><span>연락처</span><input value={applicantDraft.phone} onChange={(event) => setApplicantDraft({ ...applicantDraft, phone: event.target.value })} /></label>
+          <label><span>경력</span><input value={applicantDraft.experience} onChange={(event) => setApplicantDraft({ ...applicantDraft, experience: event.target.value })} /></label>
+          <label><span>지원 경로</span><select value={applicantDraft.source} onChange={(event) => setApplicantDraft({ ...applicantDraft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label>
+        </div>
+        <label className="form-note"><span>경력 요약</span><textarea value={applicantDraft.summary} onChange={(event) => setApplicantDraft({ ...applicantDraft, summary: event.target.value })} placeholder="주요 경력과 역량을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setApplicantModalOpen(false)}>취소</button><button type="submit" className="primary-button">지원자 등록</button></div>
+      </form></div>}
 
-      {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} recruiters={recruiters} onClose={() => setSelectedApplicantId(null)} onSave={updateApplicantDetail} onInterview={() => { setSelectedApplicantId(null); setScreeningApplicantId(selectedApplicant.id); }} />}
+      {selectedApplicant && <ApplicantDetail applicant={selectedApplicant} recruiters={recruiters} requisitions={requisitions} onClose={() => setSelectedApplicantId(null)} onSave={updateApplicantDetail} onInterview={() => { setSelectedApplicantId(null); setScreeningApplicantId(selectedApplicant.id); }} />}
       {directInterviewPickerOpen && <DirectInterviewPicker applicants={applicants} onClose={() => setDirectInterviewPickerOpen(false)} onSelect={(applicant) => { setDirectInterviewPickerOpen(false); setInterviewTarget(applicant); }} />}
       {interviewTarget && <InterviewScheduleModal applicant={interviewTarget} onClose={() => setInterviewTarget(null)} onSubmit={scheduleInterview} />}
       {personnelAction && selectedEmployee && <PersonnelActionModal employee={selectedEmployee} ranks={ranks} organizations={organizations} onClose={() => setPersonnelAction(null)} onSubmit={savePersonnelAction} />}
@@ -2056,7 +2084,7 @@ function previousApplicationsFor(applicant: Applicant, applicants: Applicant[]) 
   });
 }
 
-function RecruitmentView({ applicants, recruiters, query, onAdd, onSelect, onOwnerChange, onScreening, onReject, onDelete }: { applicants: Applicant[]; recruiters: Employee[]; query: string; onAdd: () => void; onSelect: (id: string) => void; onOwnerChange: (applicantId: string, ownerId: string) => void; onScreening: (id: string) => void; onReject: (id: string) => void; onDelete: (id: string) => void }) {
+function RecruitmentView({ applicants, recruiters, requisitions, query, onAdd, onSelect, onOwnerChange, onScreening, onReject, onDelete }: { applicants: Applicant[]; recruiters: Employee[]; requisitions: RecruitmentRequisitionOption[]; query: string; onAdd: () => void; onSelect: (id: string) => void; onOwnerChange: (applicantId: string, ownerId: string) => void; onScreening: (id: string) => void; onReject: (id: string) => void; onDelete: (id: string) => void }) {
   const visible = query ? applicants.filter((applicant) => JSON.stringify(applicant).toLowerCase().includes(query.toLowerCase())) : applicants;
   return <div className="page-wrap module-page recruitment-page">
     <section className="module-hero"><div><p className="eyebrow">RECRUITING PIPELINE</p><h1>지원자 관리</h1><p>지원자별 담당자와 서류 합격·면접 회신 과정을 한 흐름으로 관리합니다.</p></div><button type="button" className="primary-button" onClick={onAdd}>+ 지원자 등록</button></section>
@@ -2068,10 +2096,11 @@ function RecruitmentView({ applicants, recruiters, query, onAdd, onSelect, onOwn
     ].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section>
     <section className="panel table-panel">
       <div className="table-toolbar"><div><h2>지원 현황</h2><span>전체 지원자 {visible.length}명</span></div><div><button type="button">공고 전체</button><button type="button">단계 필터</button></div></div>
-      <div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>지원 직무</th><th>지원일</th><th>지원경로</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용 처리</th><th className="applicant-delete-column">삭제</th></tr></thead><tbody>{visible.length ? visible.map((applicant) => {
+      <div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>채용요청·TO</th><th>지원 직무</th><th>지원일</th><th>지원경로</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용 처리</th><th className="applicant-delete-column">삭제</th></tr></thead><tbody>{visible.length ? visible.map((applicant) => {
         const previous = previousApplicationsFor(applicant, applicants);
-        return <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button>{previous.length > 0 && <em className="repeat-applicant-badge">재지원 {previous.length}건</em>}</td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.source}</td><td>{applicant.experience || "미입력"}</td><td><select className="recruiter-cell-select" value={applicant.ownerId} onChange={(event) => onOwnerChange(applicant.id, event.target.value)}><option value="">미지정</option>{recruiters.map((recruiter) => <option value={recruiter.id} key={recruiter.id}>{recruiter.name}</option>)}</select></td><td><StatusPill value={applicant.stage} /></td><td><div className="row-actions"><button type="button" className="interview-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onScreening(applicant.id)}>서류 합격</button><button type="button" className="reject-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onReject(applicant.id)}>서류 탈락</button></div></td><td className="applicant-delete-column"><button type="button" className="delete-applicant-button" onClick={() => onDelete(applicant.id)} aria-label={`${applicant.name} 지원자 모든 정보 삭제`} title="지원자 모든 정보 삭제"><span aria-hidden="true">🗑</span></button></td></tr>;
-      }) : <tr><td colSpan={9} className="empty-cell">등록된 지원자가 없습니다.</td></tr>}</tbody></table></div>
+        const requisition = requisitions.find((item) => item.id === applicant.requisitionId);
+        return <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button>{previous.length > 0 && <em className="repeat-applicant-badge">재지원 {previous.length}건</em>}</td><td><span className={requisition ? "applicant-to-link" : "applicant-to-exception"}>{requisition?.title ?? "예외·미연결"}</span></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.source}</td><td>{applicant.experience || "미입력"}</td><td><select className="recruiter-cell-select" value={applicant.ownerId} onChange={(event) => onOwnerChange(applicant.id, event.target.value)}><option value="">미지정</option>{recruiters.map((recruiter) => <option value={recruiter.id} key={recruiter.id}>{recruiter.name}</option>)}</select></td><td><StatusPill value={applicant.stage} /></td><td><div className="row-actions"><button type="button" className="interview-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onScreening(applicant.id)}>서류 합격</button><button type="button" className="reject-action" disabled={applicant.stage === "서류 탈락"} onClick={() => onReject(applicant.id)}>서류 탈락</button></div></td><td className="applicant-delete-column"><button type="button" className="delete-applicant-button" onClick={() => onDelete(applicant.id)} aria-label={`${applicant.name} 지원자 모든 정보 삭제`} title="지원자 모든 정보 삭제"><span aria-hidden="true">🗑</span></button></td></tr>;
+      }) : <tr><td colSpan={10} className="empty-cell">등록된 지원자가 없습니다.</td></tr>}</tbody></table></div>
     </section>
   </div>;
 }
@@ -2296,7 +2325,7 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
   </section>;
 }
 
-function ApplicantDetail({ applicant, recruiters, onClose, onSave, onInterview }: { applicant: Applicant; recruiters: Employee[]; onClose: () => void; onSave: (applicant: Applicant) => void; onInterview: () => void }) {
+function ApplicantDetail({ applicant, recruiters, requisitions, onClose, onSave, onInterview }: { applicant: Applicant; recruiters: Employee[]; requisitions: RecruitmentRequisitionOption[]; onClose: () => void; onSave: (applicant: Applicant) => void; onInterview: () => void }) {
   const [draft, setDraft] = useState({
     name: applicant.name,
     role: applicant.role,
@@ -2306,6 +2335,7 @@ function ApplicantDetail({ applicant, recruiters, onClose, onSave, onInterview }
     source: applicant.source,
     summary: applicant.summary,
     ownerId: applicant.ownerId,
+    requisitionId: applicant.requisitionId,
   });
   const [note, setNote] = useState("");
   const ownerName = recruiters.find((recruiter) => recruiter.id === draft.ownerId)?.name ?? "담당자 미지정";
@@ -2345,6 +2375,7 @@ function ApplicantDetail({ applicant, recruiters, onClose, onSave, onInterview }
             <label><span>연락처</span><input value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} /></label>
             <label><span>경력</span><input value={draft.experience} onChange={(event) => setDraft({ ...draft, experience: event.target.value })} /></label>
             <label><span>채용담당자</span><select value={draft.ownerId} onChange={(event) => setDraft({ ...draft, ownerId: event.target.value })}><option value="">미지정</option>{recruiters.map((recruiter) => <option value={recruiter.id} key={recruiter.id}>{recruiter.name}</option>)}</select></label>
+            <label className="wide"><span>채용요청·TO</span><select value={draft.requisitionId} onChange={(event) => setDraft({ ...draft, requisitionId: event.target.value })}><option value="">예외·미연결</option>{requisitions.filter((item) => item.status === "OPEN" || item.id === applicant.requisitionId).map((item) => <option key={item.id} value={item.id}>{item.title} · {item.role}</option>)}</select></label>
             <label className="wide"><span>지원 경로</span><select value={draft.source} onChange={(event) => setDraft({ ...draft, source: event.target.value })}><option>사람인</option><option>그룹바이</option><option>직접 등록</option><option>원티드</option><option>잡코리아</option><option>링크드인</option><option>직원 추천</option><option>기타 채용사이트</option><option>이력서 내용 추출</option></select></label>
           </div>
           <label className="form-note"><span>경력 및 이력서 요약</span><textarea value={draft.summary} onChange={(event) => setDraft({ ...draft, summary: event.target.value })} /></label>

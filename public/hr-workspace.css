@@ -1128,3 +1128,27 @@ button { color: inherit; }
 .workforce-head { min-height: 38px; grid-template-columns: 1.1fr repeat(5, .55fr) .7fr minmax(220px, 1.4fr) auto; background: #f4f4f5; box-shadow: none; color: #71717a; font-size: 8px; font-weight: 900; }
 @media (max-width: 1150px) { .workforce-create { grid-template-columns: 1fr 1fr; }.workforce-create .wide { grid-column: 1 / -1; }.workforce-plan-control { grid-template-columns: 1fr; }.workforce-plan-actions { justify-content: flex-start; } }
 @media (max-width: 720px) { .workforce-hero, .workforce-hero-actions { align-items: stretch; flex-direction: column; }.workforce-hero-actions select { min-width: 0; }.workforce-create, .workforce-plan-copy { grid-template-columns: 1fr; }.workforce-create .wide { grid-column: auto; }.workforce-version-strip { align-items: flex-start; flex-direction: column; }.workforce-plan-actions { align-items: stretch; flex-direction: column; } }
+
+.requisition-plan-badge { padding: 11px 16px; border: 1px solid #cfd4dc; border-radius: 14px; background: #fff; color: #18181b; font-size: 12px; font-weight: 800; }
+.requisition-create-panel { margin-top: 22px; padding: 24px; }
+.requisition-create-panel .detail-card-heading > span { color: #71717a; font-size: 12px; font-weight: 700; }
+.requisition-empty { margin: 18px 0 0; padding: 22px; border-radius: 16px; background: #f4f4f5; color: #52525b; font-size: 13px; text-align: center; }
+.requisition-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 20px; }
+.requisition-form label { display: grid; gap: 8px; }
+.requisition-form label > span { color: #52525b; font-size: 12px; font-weight: 800; }
+.requisition-form input, .requisition-form select, .requisition-form textarea { width: 100%; min-height: 46px; padding: 11px 13px; border: 1px solid #d4d4d8; border-radius: 13px; color: #18181b; background: #fff; font: inherit; }
+.requisition-form textarea { min-height: 94px; resize: vertical; }
+.requisition-form .wide { grid-column: 1 / -1; }
+.requisition-form > button { justify-self: end; grid-column: 1 / -1; }
+.requisition-ledger { margin-top: 22px; }
+.requisition-ledger td:first-child strong, .requisition-ledger td:first-child small { display: block; }
+.requisition-ledger td:first-child small { margin-top: 5px; color: #71717a; white-space: nowrap; }
+.requisition-status { display: inline-flex; padding: 7px 10px; border-radius: 10px; background: #f4f4f5; color: #3f3f46; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.requisition-status.open, .requisition-status.filled { color: #fff; background: #18181b; }
+.requisition-status.submitted { color: #9a3412; background: #ffedd5; }
+.requisition-status.rejected, .requisition-status.closed { color: #991b1b; background: #fee2e2; }
+.applicant-to-link, .applicant-to-exception { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 9px; border-radius: 9px; font-size: 11px; font-weight: 800; }
+.applicant-to-link { color: #fff; background: #18181b; }
+.applicant-to-exception { color: #71717a; background: #f4f4f5; }
+@media (max-width: 1080px) { .requisition-form { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 720px) { .requisition-form { grid-template-columns: 1fr; }.requisition-form .wide, .requisition-form > button { grid-column: 1; } }

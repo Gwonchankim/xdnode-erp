@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { companyEmployees } from "../../../hr-company-data";
+import { companyEmployees, companyOrganizations } from "../../../hr-company-data";
 import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
@@ -12,7 +12,7 @@ type ApplicantRow = {
   id: string; name: string; role: string; applied: string; owner_id: string; stage: string;
   experience: string; email: string; phone: string; source: string; summary: string;
   resume_file_name: string; resume_text: string; checklist_json: string; screening_memos_json: string;
-  interview_json: string | null; interview_memos_json: string; updated_at: number;
+  interview_json: string | null; interview_memos_json: string; requisition_id: string; updated_at: number;
 };
 type OfferRow = {
   id: string; applicant_id: string; proposed_title: string; department: string; employment_type: string;
@@ -33,7 +33,8 @@ async function ensureSchema() {
       email TEXT NOT NULL, phone TEXT NOT NULL DEFAULT '', source TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '',
       resume_file_name TEXT NOT NULL DEFAULT '', resume_text TEXT NOT NULL DEFAULT '',
       checklist_json TEXT NOT NULL DEFAULT '[]', screening_memos_json TEXT NOT NULL DEFAULT '[]',
-      interview_json TEXT, interview_memos_json TEXT NOT NULL DEFAULT '[]', updated_at INTEGER NOT NULL
+      interview_json TEXT, interview_memos_json TEXT NOT NULL DEFAULT '[]',
+      requisition_id TEXT NOT NULL DEFAULT '', updated_at INTEGER NOT NULL
     )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_offer_requests (
       id TEXT PRIMARY KEY NOT NULL, applicant_id TEXT NOT NULL, proposed_title TEXT NOT NULL,
@@ -50,6 +51,8 @@ async function ensureSchema() {
       job_title TEXT NOT NULL, status TEXT NOT NULL DEFAULT '재직', history_json TEXT NOT NULL DEFAULT '[]',
       retirement_json TEXT, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_organization_records (
+      organization_id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, description TEXT NOT NULL, updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_lifecycle_tasks (
       id TEXT PRIMARY KEY, employee_id TEXT NOT NULL, lifecycle_type TEXT NOT NULL, task_group TEXT NOT NULL,
       title TEXT NOT NULL, owner_employee_id TEXT NOT NULL DEFAULT '', due_date TEXT NOT NULL DEFAULT '',
@@ -60,6 +63,14 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_applicants_phone ON hr_applicants (phone)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_offer_applicant_created ON hr_offer_requests(applicant_id, created_at)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_offer_status_start ON hr_offer_requests(status, start_date)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS hr_recruitment_requisitions (
+      id TEXT PRIMARY KEY NOT NULL, workforce_plan_id TEXT NOT NULL, workforce_plan_line_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL, title TEXT NOT NULL, role TEXT NOT NULL,
+      requested_headcount INTEGER NOT NULL DEFAULT 1, owner_employee_id TEXT NOT NULL,
+      target_start_date TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'DRAFT',
+      requested_by TEXT NOT NULL, approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
+      closed_by TEXT NOT NULL DEFAULT '', closed_at INTEGER, close_reason TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS applicant_interview_recordings (
       id TEXT PRIMARY KEY, applicant_id TEXT NOT NULL, recorded_at TEXT NOT NULL,
       audio_key TEXT NOT NULL, audio_content_type TEXT NOT NULL, audio_file_name TEXT NOT NULL,
@@ -78,6 +89,11 @@ async function ensureSchema() {
   ].filter(([name]) => !existing.has(name))) {
     await db.prepare(`ALTER TABLE hr_offer_requests ADD COLUMN ${name} ${definition}`).run();
   }
+  const applicantColumns = await db.prepare("PRAGMA table_info(hr_applicants)").all<{ name: string }>();
+  if (!applicantColumns.results.some((column) => column.name === "requisition_id")) {
+    await db.prepare("ALTER TABLE hr_applicants ADD COLUMN requisition_id TEXT NOT NULL DEFAULT ''").run();
+  }
+  await db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_applicants_requisition ON hr_applicants(requisition_id)").run();
 }
 
 function safeJson<T>(value: string, fallback: T): T {
@@ -94,6 +110,7 @@ function toApplicant(row: ApplicantRow) {
     screeningMemos: safeJson<unknown[]>(row.screening_memos_json, []),
     interview: row.interview_json ? safeJson<unknown>(row.interview_json, undefined) : undefined,
     interviewMemos: safeJson<unknown[]>(row.interview_memos_json, []),
+    requisitionId: row.requisition_id,
   };
 }
 
@@ -114,12 +131,15 @@ export async function GET() {
   await ensureSchema();
   const authorization = await authorizeErpRequest(db, "recruitment", "read");
   if (authorization.response) return authorization.response;
-  const [applicantResult, recruiterResult, offerResult] = await Promise.all([
+  const [applicantResult, recruiterResult, offerResult, requisitionResult] = await Promise.all([
     db.prepare(`SELECT id, name, role, applied, owner_id, stage, experience, email, phone, source, summary,
-      resume_file_name, resume_text, checklist_json, screening_memos_json, interview_json, interview_memos_json, updated_at
+      resume_file_name, resume_text, checklist_json, screening_memos_json, interview_json, interview_memos_json, requisition_id, updated_at
       FROM hr_applicants ORDER BY applied DESC, updated_at DESC`).all<ApplicantRow>(),
     db.prepare("SELECT employee_id FROM hr_recruiters ORDER BY created_at ASC").all<{ employee_id: string }>(),
     db.prepare("SELECT * FROM hr_offer_requests ORDER BY created_at DESC").all<OfferRow>(),
+    db.prepare(`SELECT id, title, role, organization_id, requested_headcount, status
+      FROM hr_recruitment_requisitions WHERE status IN ('OPEN','DRAFT','SUBMITTED') ORDER BY created_at DESC`)
+      .all<{ id: string; title: string; role: string; organization_id: string; requested_headcount: number; status: string }>(),
   ]);
   const latestOffer = new Map<string, ReturnType<typeof toOffer>>();
   offerResult.results.forEach((row) => { if (!latestOffer.has(row.applicant_id)) latestOffer.set(row.applicant_id, toOffer(row)); });
@@ -130,6 +150,7 @@ export async function GET() {
     }),
     recruiterIds: recruiterResult.results.map((row: { employee_id: string }) => row.employee_id),
     offers: offerResult.results.map(toOffer),
+    requisitions: requisitionResult.results.map((row) => ({ id: row.id, title: row.title, role: row.role, organizationId: row.organization_id, requestedHeadcount: row.requested_headcount, status: row.status })),
   });
 }
 
@@ -166,6 +187,16 @@ export async function PUT(request: Request) {
 
     const hrAuthorization = await authorizeErpRequest(db, "hr", "write");
     if (hrAuthorization.response) return hrAuthorization.response;
+    if (applicant.requisition_id) {
+      const requisition = await db.prepare("SELECT requested_headcount, status FROM hr_recruitment_requisitions WHERE id = ?")
+        .bind(applicant.requisition_id).first<{ requested_headcount: number; status: string }>();
+      const filled = await db.prepare(`SELECT COUNT(DISTINCT a.id) AS count FROM hr_applicants a
+        JOIN hr_offer_requests o ON o.applicant_id = a.id
+        WHERE a.requisition_id = ? AND o.status = 'ACCEPTED'`).bind(applicant.requisition_id).first<{ count: number }>();
+      if (!requisition || requisition.status !== "OPEN" || (filled?.count ?? 0) >= requisition.requested_headcount) {
+        return Response.json({ error: "연결된 TO의 잔여 인원이 없어 입사 전환할 수 없습니다. 정원과 채용요청을 다시 확인해 주세요." }, { status: 409 });
+      }
+    }
     const employeeId = stringValue("employeeId").trim();
     const position = stringValue("position").trim();
     const jobTitle = stringValue("jobTitle").trim() || offer.proposed_title;
@@ -181,7 +212,14 @@ export async function PUT(request: Request) {
     ];
     const statements = [
       db.prepare(`UPDATE hr_offer_requests SET status = 'ACCEPTED', employee_id = ?, response_note = ?, responded_by = ?, responded_at = ?, updated_at = ?
-        WHERE id = ? AND status = 'APPROVED'`).bind(employeeId, responseNote, authorization.principal.employeeId, now, now, id),
+        WHERE id = ? AND status = 'APPROVED' AND (
+          NOT EXISTS (SELECT 1 FROM hr_applicants a WHERE a.id = hr_offer_requests.applicant_id AND TRIM(a.requisition_id) <> '')
+          OR EXISTS (SELECT 1 FROM hr_applicants a JOIN hr_recruitment_requisitions r ON r.id = a.requisition_id
+            WHERE a.id = hr_offer_requests.applicant_id AND r.status = 'OPEN'
+              AND r.requested_headcount > (SELECT COUNT(DISTINCT accepted.id) FROM hr_applicants accepted
+                JOIN hr_offer_requests accepted_offer ON accepted_offer.applicant_id = accepted.id
+                WHERE accepted.requisition_id = r.id AND accepted_offer.status = 'ACCEPTED'))
+        )`).bind(employeeId, responseNote, authorization.principal.employeeId, now, now, id),
       db.prepare(`UPDATE hr_applicants SET stage = '입사 확정', updated_at = ? WHERE id = ?
         AND EXISTS (SELECT 1 FROM hr_offer_requests WHERE id = ? AND status = 'ACCEPTED' AND updated_at = ?)`)
         .bind(now, offer.applicant_id, id, now),
@@ -198,6 +236,14 @@ export async function PUT(request: Request) {
         WHERE EXISTS (SELECT 1 FROM hr_offer_requests WHERE id = ? AND status = 'ACCEPTED' AND updated_at = ?)`)
         .bind(`${id}:ONBOARDING:${group}`, employeeId, group, title, authorization.principal.employeeId, offer.start_date, now, now, id, now)),
     ];
+    if (applicant.requisition_id) {
+      statements.push(db.prepare(`UPDATE hr_recruitment_requisitions SET status = 'FILLED', closed_by = ?, closed_at = ?,
+        close_reason = '요청 인원 입사 확정', updated_at = ? WHERE id = ? AND status = 'OPEN'
+          AND requested_headcount <= (SELECT COUNT(DISTINCT a.id) FROM hr_applicants a
+            JOIN hr_offer_requests o ON o.applicant_id = a.id
+            WHERE a.requisition_id = ? AND o.status = 'ACCEPTED')`)
+        .bind(authorization.principal.employeeId, now, now, applicant.requisition_id, applicant.requisition_id));
+    }
     const result = await db.batch(statements);
     if ((result[0].meta.changes ?? 0) < 1) return Response.json({ error: "채용 제안 상태가 변경되어 입사 전환하지 못했습니다." }, { status: 409 });
     const after = await db.prepare("SELECT * FROM hr_offer_requests WHERE id = ?").bind(id).first<OfferRow>();
@@ -208,6 +254,11 @@ export async function PUT(request: Request) {
   const email = stringValue("email").trim();
   if (!id || !name || !email) return Response.json({ error: "지원자 ID, 이름, 이메일이 필요합니다." }, { status: 400 });
   const interview = body.interview && typeof body.interview === "object" ? JSON.stringify(body.interview) : null;
+  const requisitionId = stringValue("requisitionId").trim();
+  if (requisitionId) {
+    const requisition = await db.prepare("SELECT id, status FROM hr_recruitment_requisitions WHERE id = ?").bind(requisitionId).first<{ id: string; status: string }>();
+    if (!requisition || requisition.status !== "OPEN") return Response.json({ error: "모집 중인 채용요청·TO만 지원자에게 연결할 수 있습니다." }, { status: 409 });
+  }
   const updatedAt = Date.now();
   const before = await db.prepare("SELECT * FROM hr_applicants WHERE id = ?").bind(id).first<ApplicantRow>();
   const latestOffer = await db.prepare("SELECT status FROM hr_offer_requests WHERE applicant_id = ? ORDER BY created_at DESC LIMIT 1")
@@ -215,18 +266,18 @@ export async function PUT(request: Request) {
   const stage = offerStage(latestOffer?.status ?? "") ?? stringValue("stage");
   await db.prepare(`INSERT INTO hr_applicants
     (id, name, role, applied, owner_id, stage, experience, email, phone, source, summary, resume_file_name,
-      resume_text, checklist_json, screening_memos_json, interview_json, interview_memos_json, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      resume_text, checklist_json, screening_memos_json, interview_json, interview_memos_json, requisition_id, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET name=excluded.name, role=excluded.role, applied=excluded.applied,
       owner_id=excluded.owner_id, stage=excluded.stage, experience=excluded.experience, email=excluded.email,
       phone=excluded.phone, source=excluded.source, summary=excluded.summary, resume_file_name=excluded.resume_file_name,
       resume_text=excluded.resume_text, checklist_json=excluded.checklist_json,
       screening_memos_json=excluded.screening_memos_json, interview_json=excluded.interview_json,
-      interview_memos_json=excluded.interview_memos_json, updated_at=excluded.updated_at`)
+      interview_memos_json=excluded.interview_memos_json, requisition_id=excluded.requisition_id, updated_at=excluded.updated_at`)
     .bind(id, name, stringValue("role"), stringValue("applied"), stringValue("ownerId"), stage,
       stringValue("experience"), email, stringValue("phone"), stringValue("source"), stringValue("summary"),
       stringValue("resumeFileName"), stringValue("resumeText"), JSON.stringify(body.checklist ?? []),
-      JSON.stringify(body.screeningMemos ?? []), interview, JSON.stringify(body.interviewMemos ?? []), updatedAt).run();
+      JSON.stringify(body.screeningMemos ?? []), interview, JSON.stringify(body.interviewMemos ?? []), requisitionId, updatedAt).run();
   const after = await db.prepare("SELECT * FROM hr_applicants WHERE id = ?").bind(id).first<ApplicantRow>();
   await writeErpAudit(db, {
     principal: authorization.principal,
@@ -262,6 +313,20 @@ export async function POST(request: Request) {
     const active = await db.prepare(`SELECT id FROM hr_offer_requests WHERE applicant_id = ?
       AND status IN ('SUBMITTED', 'APPROVED') ORDER BY created_at DESC LIMIT 1`).bind(applicantId).first<{ id: string }>();
     if (active) return Response.json({ error: "진행 중이거나 승인된 채용 제안이 이미 있습니다." }, { status: 409 });
+    if (applicant.requisition_id) {
+      const requisition = await db.prepare(`SELECT id, organization_id, requested_headcount, status
+        FROM hr_recruitment_requisitions WHERE id = ?`).bind(applicant.requisition_id)
+        .first<{ id: string; organization_id: string; requested_headcount: number; status: string }>();
+      if (!requisition || requisition.status !== "OPEN") return Response.json({ error: "연결된 채용요청·TO가 모집 중 상태가 아닙니다." }, { status: 409 });
+      const filled = await db.prepare(`SELECT COUNT(DISTINCT a.id) AS count FROM hr_applicants a
+        JOIN hr_offer_requests o ON o.applicant_id = a.id
+        WHERE a.requisition_id = ? AND o.status = 'ACCEPTED'`).bind(requisition.id).first<{ count: number }>();
+      if ((filled?.count ?? 0) >= requisition.requested_headcount) return Response.json({ error: "연결된 TO의 요청 인원이 이미 모두 충원되었습니다." }, { status: 409 });
+      const savedOrganization = await db.prepare("SELECT name FROM hr_organization_records WHERE organization_id = ?")
+        .bind(requisition.organization_id).first<{ name: string }>();
+      const expectedDepartment = savedOrganization?.name ?? companyOrganizations.find((item) => item.id === requisition.organization_id)?.name ?? "";
+      if (expectedDepartment && department !== expectedDepartment) return Response.json({ error: `채용 제안 소속은 연결된 TO의 조직(${expectedDepartment})과 같아야 합니다.` }, { status: 409 });
+    }
     const id = crypto.randomUUID();
     const now = Date.now();
     await db.prepare(`INSERT INTO hr_offer_requests
@@ -275,7 +340,7 @@ export async function POST(request: Request) {
         module: "recruitment", requestType: "OFFER", title: `${applicant.name} 채용 제안 승인`,
         description: `${department} · ${proposedTitle} · 연봉 ${Math.round(annualSalary).toLocaleString("ko-KR")}원 · ${startDate} 입사 예정`,
         targetEntityType: "RECRUITMENT_OFFER", targetEntityId: id, amount: Math.round(annualSalary), dueDate: startDate,
-        priority: "HIGH", metadata: { applicantId, proposedTitle, department, employmentType, startDate, probationMonths },
+        priority: "HIGH", metadata: { applicantId, requisitionId: applicant.requisition_id, proposedTitle, department, employmentType, startDate, probationMonths },
       });
       const row = await db.prepare("SELECT * FROM hr_offer_requests WHERE id = ?").bind(id).first<OfferRow>();
       await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "OFFER_APPROVAL_SUBMITTED", entityType: "recruitmentOffer", entityId: id, after: row ? toOffer(row) : body });

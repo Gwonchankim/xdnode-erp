@@ -4,10 +4,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
-type SalesData = { dataStatus: { crm: string; incentive: string }; accounts: Account[]; opportunities: Opportunity[]; incentiveRules: Array<{ id: string; name: string; version: number; status: string }> };
+type SalesDocument = { id: string; opportunityId: string; opportunityTitle: string; accountName: string; documentType: string; documentNumber: string; version: number; amount: number; status: string; issuedDate: string; dueDate: string };
+type SalesData = { dataStatus: { crm: string; incentive: string }; accounts: Account[]; opportunities: Opportunity[]; documents: SalesDocument[]; incentiveRules: Array<{ id: string; name: string; version: number; status: string }> };
 
 const stageLabels: Record<string, string> = { LEAD: "리드", DISCOVERY: "요구 확인", PROPOSAL: "제안", CONTRACT: "계약 협의", WON: "수주", LOST: "실주" };
 const dataLabels: Record<string, string> = { MANUAL: "수기 관리", NOT_CONNECTED: "미연결", APPROVED: "승인 규칙", UNVERIFIED: "규칙 미확정" };
+const salesDocumentLabels: Record<string, string> = { QUOTE: "견적", ORDER: "수주", DELIVERY: "납품", INVOICE: "청구", PAYMENT: "수금" };
+const salesDocumentStatusLabels: Record<string, string> = { DRAFT: "작성 중", ISSUED: "발행", ACCEPTED: "확정", COMPLETED: "완료", CANCELLED: "취소" };
 const currency = (value: number) => `₩${value.toLocaleString("ko-KR")}`;
 
 export default function SalesWorkspace({ search }: { search: string }) {
@@ -15,6 +18,7 @@ export default function SalesWorkspace({ search }: { search: string }) {
   const [message, setMessage] = useState("");
   const [accountDraft, setAccountDraft] = useState({ name: "", businessNumber: "", industry: "", memo: "" });
   const [opportunityDraft, setOpportunityDraft] = useState({ accountId: "", title: "", leadType: "OUTBOUND", stage: "LEAD", expectedRevenue: "", expectedCost: "", probability: "10", expectedCloseDate: "", nextAction: "", nextActionDate: "" });
+  const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
   const [simulation, setSimulation] = useState({ salePrice: 100_000_000, costPrice: 90_000_000, leadType: "OUTBOUND" });
 
   async function load() {
@@ -24,6 +28,7 @@ export default function SalesWorkspace({ search }: { search: string }) {
       if (!response.ok) throw new Error(result.error || "영업 데이터를 불러오지 못했습니다.");
       setData(result);
       if (!opportunityDraft.accountId && result.accounts[0]) setOpportunityDraft((current) => ({ ...current, accountId: result.accounts[0].id }));
+      if (!documentDraft.opportunityId && result.opportunities[0]) setDocumentDraft((current) => ({ ...current, opportunityId: result.opportunities[0].id }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "영업 데이터를 불러오지 못했습니다.");
     }
@@ -57,6 +62,23 @@ export default function SalesWorkspace({ search }: { search: string }) {
     const response = await fetch("/api/sales", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage }) });
     const result = await response.json() as { error?: string };
     if (!response.ok) { setMessage(result.error || "단계를 변경하지 못했습니다."); return; }
+    await load();
+  }
+
+  async function createDocument(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setMessage("");
+    const response = await fetch("/api/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "document", ...documentDraft, amount: Number(documentDraft.amount) }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "영업 문서를 저장하지 못했습니다."); return; }
+    setMessage(`${salesDocumentLabels[documentDraft.documentType]} 문서를 저장했습니다.`);
+    setDocumentDraft((current) => ({ ...current, documentNumber: "", amount: "", issuedDate: "", dueDate: "" }));
+    await load();
+  }
+
+  async function updateDocumentStatus(id: string, status: string) {
+    const response = await fetch("/api/sales", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "document", id, status }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "문서 상태를 변경하지 못했습니다."); return; }
     await load();
   }
 
@@ -98,6 +120,22 @@ export default function SalesWorkspace({ search }: { search: string }) {
       <div className="sales-pipeline-row head"><span>거래처 / 영업 건</span><span>단계</span><span>예상 매출</span><span>예상 이익</span><span>확률</span><span>예정일</span></div>
       {opportunities.map((item) => <div className="sales-pipeline-row" key={item.id}><p><strong>{item.accountName}</strong><small>{item.title}</small></p><select value={item.stage} onChange={(event) => void updateStage(item.id, event.target.value)}>{Object.entries(stageLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><b>{currency(item.expectedRevenue)}</b><span>{currency(item.expectedRevenue - item.expectedCost)}</span><span>{item.probability}%</span><time>{item.expectedCloseDate || "미정"}</time></div>)}
       {!opportunities.length && <div className="finance-empty">등록된 영업 기회가 없습니다. 위에서 거래처와 영업 건을 먼저 등록해 주세요.</div>}
+    </section>
+
+    <section className="panel sales-document-flow">
+      <header><div><p>QUOTE TO CASH</p><h2>견적·수주·납품·청구·수금</h2></div><span>{data?.documents.length ?? 0}개 문서</span></header>
+      <form className="sales-document-form" onSubmit={createDocument}>
+        <label>영업 건<select required value={documentDraft.opportunityId} onChange={(event) => setDocumentDraft({ ...documentDraft, opportunityId: event.target.value })}><option value="">선택</option>{(data?.opportunities ?? []).map((item) => <option key={item.id} value={item.id}>{item.accountName} · {item.title}</option>)}</select></label>
+        <label>문서 종류<select value={documentDraft.documentType} onChange={(event) => setDocumentDraft({ ...documentDraft, documentType: event.target.value })}>{Object.entries(salesDocumentLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label>문서번호<input required value={documentDraft.documentNumber} onChange={(event) => setDocumentDraft({ ...documentDraft, documentNumber: event.target.value })} placeholder="견적·발주·세금계산서 번호" /></label>
+        <label>금액<input required type="number" min="0" value={documentDraft.amount} onChange={(event) => setDocumentDraft({ ...documentDraft, amount: event.target.value })} /></label>
+        <label>발행일<input type="date" value={documentDraft.issuedDate} onChange={(event) => setDocumentDraft({ ...documentDraft, issuedDate: event.target.value })} /></label>
+        <label>예정일<input type="date" value={documentDraft.dueDate} onChange={(event) => setDocumentDraft({ ...documentDraft, dueDate: event.target.value })} /></label>
+        <button type="submit">+ 문서 저장</button>
+      </form>
+      <div className="sales-document-row head"><span>거래처 / 영업 건</span><span>종류</span><span>문서번호</span><span>버전</span><span>금액</span><span>발행·예정일</span><span>상태</span></div>
+      {(data?.documents ?? []).map((document) => <div className="sales-document-row" key={document.id}><p><strong>{document.accountName}</strong><small>{document.opportunityTitle}</small></p><span>{salesDocumentLabels[document.documentType] ?? document.documentType}</span><b>{document.documentNumber}</b><span>v{document.version}</span><strong>{currency(document.amount)}</strong><time>{document.issuedDate || "미발행"}<small>{document.dueDate ? ` → ${document.dueDate}` : ""}</small></time><select aria-label={`${document.documentNumber} 상태`} value={document.status} onChange={(event) => void updateDocumentStatus(document.id, event.target.value)}>{Object.entries(salesDocumentStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>)}
+      {!data?.documents.length && <div className="finance-empty">영업 문서를 등록하면 견적부터 수금까지 한 흐름으로 확인할 수 있습니다.</div>}
     </section>
 
     <section className="sales-live-grid incentive-governance">

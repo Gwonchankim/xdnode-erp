@@ -992,3 +992,61 @@ button { color: inherit; }
 
 .payroll-workflow { display: flex; align-items: center; gap: 10px; }
 .payroll-workflow select { height: 40px; padding: 0 12px; color: #18181b; background: #fff; border: 1px solid #d4d4d8; border-radius: 14px; font: inherit; font-size: 11px; font-weight: 800; }
+
+.manual-source-badge { width: fit-content; padding: 8px 11px; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px; font-size: 10px; font-weight: 900; }
+.manual-source-badge.compact { padding: 5px 7px; font-size: 8px; }
+.time-leave-entry-grid { margin-top: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.operations-entry-card { padding-bottom: 18px; overflow: hidden; }
+.operations-entry-card .detail-card-heading { padding: 18px 20px; border-bottom: 1px solid #e4e4e7; }
+.operations-form-grid { padding: 16px 20px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.operations-form-grid label { display: grid; gap: 6px; }
+.operations-form-grid label > span { color: #71717a; font-size: 10px; font-weight: 800; }
+.operations-form-grid input, .operations-form-grid select { min-width: 0; height: 42px; padding: 0 12px; color: #18181b; background: #fff; border: 1px solid #d4d4d8; border-radius: 14px; font: inherit; }
+.operations-form-grid .wide { grid-column: 1 / -1; }
+.operations-entry-card > .primary-button { margin: 0 20px; width: calc(100% - 40px); }
+.time-leave-tables { margin-top: 18px; display: grid; gap: 18px; }
+.time-leave-tables .panel { overflow: hidden; }
+.time-leave-tables .data-table { min-width: 920px; }
+
+@media (max-width: 1050px) {
+  .time-leave-entry-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .operations-form-grid { grid-template-columns: 1fr; }
+  .operations-form-grid .wide { grid-column: auto; }
+}
+
+.secure-document-badge { width: fit-content; padding: 9px 12px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 14px; font-size: 10px; font-weight: 900; }
+.document-layout { margin-top: 22px; display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 18px; align-items: start; }
+.document-employee-list { max-height: calc(100vh - 180px); overflow: hidden; position: sticky; top: 20px; }
+.document-employee-list > div:last-child { max-height: calc(100vh - 255px); padding: 7px; overflow-y: auto; }
+.document-employee-list button { width: 100%; min-height: 54px; padding: 8px 10px; display: grid; grid-template-columns: 34px 1fr; gap: 9px; align-items: center; text-align: left; background: transparent; border: 0; border-radius: 14px; cursor: pointer; }
+.document-employee-list button:hover, .document-employee-list button.active { color: #fff; background: #18181b; }
+.document-employee-list button > span { width: 32px; height: 32px; display: grid; place-items: center; color: #18181b; background: #f4f4f5; border-radius: 11px; font-size: 10px; font-weight: 900; }
+.document-employee-list button p { min-width: 0; margin: 0; }
+.document-employee-list button strong, .document-employee-list button small { display: block; }
+.document-employee-list button strong { font-size: 11px; }
+.document-employee-list button small { margin-top: 3px; color: #71717a; font-size: 9px; }
+.document-employee-list button.active small, .document-employee-list button:hover small { color: #d4d4d8; }
+.document-content { display: grid; gap: 18px; }
+.document-upload-card, .document-table-card { overflow: hidden; }
+.document-upload-fields { padding: 18px 20px; display: grid; grid-template-columns: 190px minmax(0, 1fr) auto; gap: 12px; align-items: end; }
+.document-upload-fields label { display: grid; gap: 6px; }
+.document-upload-fields label > span { color: #71717a; font-size: 10px; font-weight: 800; }
+.document-upload-fields select { height: 42px; padding: 0 12px; border: 1px solid #d4d4d8; border-radius: 14px; background: #fff; font: inherit; }
+.document-upload-fields .file-field { min-width: 0; }
+.document-upload-fields .file-field input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.document-upload-fields .file-field strong { height: 42px; padding: 0 12px; display: flex; align-items: center; overflow: hidden; color: #52525b; background: #fff; border: 1px dashed #a1a1aa; border-radius: 14px; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.document-download-link { color: #18181b; font-weight: 800; text-decoration: underline; text-decoration-color: #fb5b1b; text-underline-offset: 3px; }
+.document-table-card .data-table { min-width: 900px; }
+.document-table-card .row-actions a { padding: 7px 9px; color: #fff; background: #18181b; border-radius: 10px; font-size: 9px; font-weight: 800; text-decoration: none; }
+
+@media (max-width: 1050px) {
+  .document-layout { grid-template-columns: 1fr; }
+  .document-employee-list { position: static; max-height: none; }
+  .document-employee-list > div:last-child { max-height: 240px; display: grid; grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 700px) {
+  .document-upload-fields { grid-template-columns: 1fr; }
+  .document-employee-list > div:last-child { grid-template-columns: 1fr; }
+}

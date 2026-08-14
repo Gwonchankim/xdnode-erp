@@ -1595,10 +1595,26 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .incentive-sandbox-body > div { min-height: 58px; padding: 10px 14px; display: grid; gap: 2px; color: #fff; background: #18181b; border-radius: 14px; }
 .incentive-sandbox-body > div small, .incentive-sandbox-body > div span { color: #d4d4d8; font-size: 8px; }
 .incentive-sandbox-body > div strong { font-size: 16px; }
+.sales-document-flow { overflow: hidden; }
+.sales-document-flow > header { min-height: 72px; padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #e4e4e7; }
+.sales-document-flow header p { margin: 0 0 7px; color: #71717a; letter-spacing: .12em; font-size: 9px; font-weight: 900; }
+.sales-document-flow header h2 { margin: 0; font-size: 18px; }
+.sales-document-flow header > span { color: #71717a; font-size: 9px; font-weight: 900; }
+.sales-document-form { padding: 16px 18px; display: grid; grid-template-columns: 1.4fr .7fr 1fr .8fr .8fr .8fr auto; gap: 10px; background: #fafafa; border-bottom: 1px solid #e4e4e7; }
+.sales-document-form label { min-width: 0; display: grid; gap: 5px; color: #71717a; font-size: 9px; font-weight: 800; }
+.sales-document-form input, .sales-document-form select, .sales-document-row select { min-width: 0; height: 38px; padding: 0 10px; background: #fff; border: 1px solid #d4d4d8; border-radius: 12px; font: inherit; }
+.sales-document-form button { align-self: end; height: 38px; padding: 0 13px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 9px; font-weight: 900; }
+.sales-document-row { min-height: 58px; padding: 0 18px; display: grid; grid-template-columns: minmax(180px, 1.4fr) .55fr .8fr .35fr .8fr .9fr .8fr; gap: 12px; align-items: center; border-top: 1px solid #ececee; font-size: 10px; }
+.sales-document-row.head { min-height: 40px; color: #71717a; background: #f4f4f5; font-size: 9px; font-weight: 800; }
+.sales-document-row p, .sales-document-row time { margin: 0; }
+.sales-document-row p strong, .sales-document-row p small, .sales-document-row time small { display: block; }
+.sales-document-row p small, .sales-document-row time small { margin-top: 3px; color: #71717a; }
+.sales-document-row select { height: 34px; font-size: 9px; }
 
 @media (max-width: 1100px) {
   .sales-live-metrics { grid-template-columns: repeat(2, 1fr); }
   .sales-live-grid, .incentive-governance { grid-template-columns: 1fr; }
+  .sales-document-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .sales-live-heading { display: grid; }
@@ -1606,4 +1622,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
   .sales-entry-panel form, .opportunity-entry form, .incentive-sandbox-body { grid-template-columns: 1fr 1fr; }
   .sales-live-pipeline { overflow-x: auto; }
   .sales-pipeline-row { min-width: 760px; }
+  .sales-document-flow { overflow-x: auto; }
+  .sales-document-form { min-width: 720px; }
+  .sales-document-row { min-width: 860px; }
 }

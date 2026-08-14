@@ -6,6 +6,7 @@ const db = (env as unknown as Bindings).DB;
 
 type AccountRow = { id: string; name: string; business_number: string; industry: string; owner_employee_id: string; status: string; memo: string; created_at: number; updated_at: number; deleted_at: number | null };
 type OpportunityRow = { id: string; account_id: string; title: string; owner_employee_id: string; stage: string; lead_type: string; expected_revenue: number; expected_cost: number; probability: number; expected_close_date: string; next_action: string; next_action_date: string; status: string; created_at: number; updated_at: number; deleted_at: number | null };
+type SalesDocumentRow = { id: string; opportunity_id: string; document_type: string; document_number: string; version: number; amount: number; status: string; issued_date: string; due_date: string; created_at: number; updated_at: number; opportunity_title?: string | null; account_name?: string | null };
 type RuleRow = { id: string; name: string; version: number; status: string; effective_from: string; effective_to: string; rules_json: string; approved_by: string; approved_at: number | null; created_at: number; updated_at: number };
 
 async function ensureSchema() {
@@ -27,30 +28,43 @@ async function ensureSchema() {
       effective_from TEXT NOT NULL DEFAULT '', effective_to TEXT NOT NULL DEFAULT '', rules_json TEXT NOT NULL DEFAULT '{}',
       approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_documents (
+      id TEXT PRIMARY KEY NOT NULL, opportunity_id TEXT NOT NULL, document_type TEXT NOT NULL,
+      document_number TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, amount INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'DRAFT', issued_date TEXT NOT NULL DEFAULT '', due_date TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_accounts_owner_status ON sales_accounts(owner_employee_id, status)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_opportunities_owner_stage ON sales_opportunities(owner_employee_id, stage)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_documents_opportunity_type ON sales_documents(opportunity_id, document_type)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_documents_status_due ON sales_documents(status, due_date)"),
   ]);
 }
 
 const toAccount = (row: AccountRow) => ({ id: row.id, name: row.name, businessNumber: row.business_number, industry: row.industry, ownerEmployeeId: row.owner_employee_id, status: row.status, memo: row.memo });
 const toOpportunity = (row: OpportunityRow, accountName = "") => ({ id: row.id, accountId: row.account_id, accountName, title: row.title, ownerEmployeeId: row.owner_employee_id, stage: row.stage, leadType: row.lead_type, expectedRevenue: row.expected_revenue, expectedCost: row.expected_cost, probability: row.probability, expectedCloseDate: row.expected_close_date, nextAction: row.next_action, nextActionDate: row.next_action_date, status: row.status });
+const toSalesDocument = (row: SalesDocumentRow) => ({ id: row.id, opportunityId: row.opportunity_id, opportunityTitle: row.opportunity_title ?? "", accountName: row.account_name ?? "", documentType: row.document_type, documentNumber: row.document_number, version: row.version, amount: row.amount, status: row.status, issuedDate: row.issued_date, dueDate: row.due_date });
 const toRule = (row: RuleRow) => ({ id: row.id, name: row.name, version: row.version, status: row.status, effectiveFrom: row.effective_from, effectiveTo: row.effective_to, rule: JSON.parse(row.rules_json || "{}"), approvedBy: row.approved_by, approvedAt: row.approved_at });
 
 export async function GET() {
   await ensureSchema();
   const authorization = await authorizeErpRequest(db, "sales", "read");
   if (authorization.response) return authorization.response;
-  const [accounts, opportunities, rules] = await Promise.all([
+  const [accounts, opportunities, documents, rules] = await Promise.all([
     db.prepare("SELECT * FROM sales_accounts WHERE deleted_at IS NULL ORDER BY name").all<AccountRow>(),
     db.prepare(`SELECT o.*, a.name AS account_name FROM sales_opportunities o
       LEFT JOIN sales_accounts a ON a.id = o.account_id WHERE o.deleted_at IS NULL
       ORDER BY CASE o.stage WHEN 'CONTRACT' THEN 1 WHEN 'PROPOSAL' THEN 2 WHEN 'DISCOVERY' THEN 3 ELSE 4 END, o.expected_close_date`).all<OpportunityRow & { account_name: string | null }>(),
+    db.prepare(`SELECT d.*, o.title AS opportunity_title, a.name AS account_name FROM sales_documents d
+      LEFT JOIN sales_opportunities o ON o.id = d.opportunity_id LEFT JOIN sales_accounts a ON a.id = o.account_id
+      ORDER BY d.created_at DESC`).all<SalesDocumentRow>(),
     db.prepare("SELECT * FROM sales_incentive_rules ORDER BY version DESC, created_at DESC").all<RuleRow>(),
   ]);
   return Response.json({
     dataStatus: { crm: opportunities.results.length ? "MANUAL" : "NOT_CONNECTED", incentive: rules.results.some((row) => row.status === "ACTIVE") ? "APPROVED" : "UNVERIFIED" },
     accounts: accounts.results.map(toAccount),
     opportunities: opportunities.results.map((row) => toOpportunity(row, row.account_name ?? "미지정")),
+    documents: documents.results.map(toSalesDocument),
     incentiveRules: rules.results.map(toRule),
   });
 }
@@ -94,6 +108,32 @@ export async function POST(request: Request) {
     return Response.json({ item: row ? toOpportunity(row, account.name) : null }, { status: 201 });
   }
 
+  if (resource === "document") {
+    const opportunityId = String(body.opportunityId ?? "").trim();
+    const documentType = String(body.documentType ?? "").trim();
+    const documentNumber = String(body.documentNumber ?? "").trim();
+    const amount = Number(body.amount ?? 0);
+    const issuedDate = String(body.issuedDate ?? "").trim();
+    const dueDate = String(body.dueDate ?? "").trim();
+    const opportunity = await db.prepare(`SELECT o.*, a.name AS account_name FROM sales_opportunities o
+      LEFT JOIN sales_accounts a ON a.id = o.account_id WHERE o.id = ? AND o.deleted_at IS NULL`).bind(opportunityId).first<OpportunityRow & { account_name: string | null }>();
+    if (!opportunity || !["QUOTE", "ORDER", "DELIVERY", "INVOICE", "PAYMENT"].includes(documentType) || !documentNumber || !Number.isFinite(amount) || amount < 0
+      || (issuedDate && !/^\d{4}-\d{2}-\d{2}$/.test(issuedDate)) || (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) {
+      return Response.json({ error: "영업 건·문서 종류·문서번호·금액·일자를 확인해 주세요." }, { status: 400 });
+    }
+    const latest = await db.prepare("SELECT MAX(version) AS version FROM sales_documents WHERE opportunity_id = ? AND document_type = ?")
+      .bind(opportunityId, documentType).first<{ version: number | null }>();
+    const version = (latest?.version ?? 0) + 1;
+    await db.prepare(`INSERT INTO sales_documents
+      (id, opportunity_id, document_type, document_number, version, amount, status, issued_date, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, ?)`)
+      .bind(id, opportunityId, documentType, documentNumber, version, Math.round(amount), issuedDate, dueDate, now, now).run();
+    const row = await db.prepare("SELECT * FROM sales_documents WHERE id = ?").bind(id).first<SalesDocumentRow>();
+    const after = row ? toSalesDocument({ ...row, opportunity_title: opportunity.title, account_name: opportunity.account_name }) : body;
+    await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "SALES_DOCUMENT_CREATED", entityType: "salesDocument", entityId: id, after });
+    return Response.json({ item: after }, { status: 201 });
+  }
+
   return Response.json({ error: "지원하지 않는 영업 항목입니다." }, { status: 400 });
 }
 
@@ -102,7 +142,22 @@ export async function PUT(request: Request) {
   const authorization = await authorizeErpRequest(db, "sales", "write");
   if (authorization.response) return authorization.response;
   const body = await request.json() as Record<string, unknown>;
+  const resource = String(body.resource ?? "opportunity");
   const id = String(body.id ?? "").trim();
+  if (resource === "document") {
+    const before = await db.prepare("SELECT * FROM sales_documents WHERE id = ?").bind(id).first<SalesDocumentRow>();
+    if (!before) return Response.json({ error: "영업 문서를 찾을 수 없습니다." }, { status: 404 });
+    const status = String(body.status ?? before.status);
+    if (!["DRAFT", "ISSUED", "ACCEPTED", "COMPLETED", "CANCELLED"].includes(status)) return Response.json({ error: "올바르지 않은 문서 상태입니다." }, { status: 400 });
+    if (["ACCEPTED", "COMPLETED"].includes(status)) {
+      const approval = await authorizeErpRequest(db, "sales", "approve");
+      if (approval.response) return approval.response;
+    }
+    await db.prepare("UPDATE sales_documents SET status = ?, updated_at = ? WHERE id = ?").bind(status, Date.now(), id).run();
+    const after = await db.prepare("SELECT * FROM sales_documents WHERE id = ?").bind(id).first<SalesDocumentRow>();
+    await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "SALES_DOCUMENT_STATUS_UPDATED", entityType: "salesDocument", entityId: id, before: toSalesDocument(before), after: after ? toSalesDocument(after) : null });
+    return Response.json({ item: after ? toSalesDocument(after) : null });
+  }
   const before = await db.prepare("SELECT * FROM sales_opportunities WHERE id = ? AND deleted_at IS NULL").bind(id).first<OpportunityRow>();
   if (!before) return Response.json({ error: "영업 건을 찾을 수 없습니다." }, { status: 404 });
   const stage = String(body.stage ?? before.stage);

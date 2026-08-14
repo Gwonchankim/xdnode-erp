@@ -98,6 +98,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { id: "employees", label: "인사기록카드", icon: "인" },
       { id: "organization", label: "조직관리", icon: "조" },
       { id: "payroll", label: "급여관리", icon: "급" },
+      { id: "documents", label: "인사문서", icon: "문" },
       { id: "onboarding", label: "입·퇴사 관리", icon: "온" },
       { id: "workforce", label: "인력계획·정원", icon: "계" },
     ],
@@ -1281,6 +1282,8 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
 
       <main className="main-content">
         {active === "dashboard" && <Dashboard employees={employees} organizations={organizations} applicants={applicants} onNavigate={navigate} />}
+        {active === "schedule" && <TimeAndLeaveView employees={employees} onNotify={showToast} />}
+        {active === "documents" && <EmployeeDocumentView employees={employees} onNotify={showToast} />}
         {active === "employees" && (selectedEmployee ? <EmployeeDetail employee={selectedEmployee} employees={employees} organizations={organizations} ranks={ranks} jobTitles={jobTitles} onBack={() => setSelectedEmployeeId(null)} onUpdate={updateEmployee} onPersonnelAction={() => setPersonnelAction("인사 발령")} onRetirement={() => setRetirementOpen(true)} /> : <EmployeeDirectory employees={employees} organizations={organizations} query={query} onSelect={setSelectedEmployeeId} onAdd={() => setEmployeeModalOpen(true)} />)}
         {active === "organization" && <OrganizationManagement organizations={organizations} employees={employees} ranks={ranks} jobTitles={jobTitles} onLeaderChange={updateOrganizationLeader} onAddOrganization={addOrganization} onUpdateOrganization={updateOrganization} onAddRank={addRank} onRemoveRank={removeRank} onAddJobTitle={addJobTitle} onRemoveJobTitle={removeJobTitle} />}
         {active === "payroll" && (selectedPayrollMonth ? <PayrollMonthDetail month={selectedPayrollMonth} onBack={() => setSelectedPayrollMonth(null)} /> : <PayrollOverview onSelectMonth={setSelectedPayrollMonth} />)}
@@ -1288,7 +1291,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         {active === "recruiters" && <RecruiterManagement employees={employees} recruiterIds={recruiterIds} onAdd={addRecruiter} onRemove={removeRecruiter} />}
         {active === "interviews" && (interviewApplicant ? <InterviewCandidateView applicant={interviewApplicant} applicants={applicants} onBack={() => setInterviewApplicantId(null)} onSaveMemo={addInterviewMemo} /> : <InterviewManagement interviews={interviews} onSelectApplicant={setInterviewApplicantId} onDirect={() => setDirectInterviewPickerOpen(true)} />)}
         {active === "settings" && <SettingsView employees={employees} onSave={() => showToast("환경설정을 저장했습니다.")} onNotify={showToast} />}
-        {!["dashboard", "employees", "organization", "payroll", "recruitment", "recruiters", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
+        {!["dashboard", "schedule", "documents", "employees", "organization", "payroll", "recruitment", "recruiters", "interviews", "settings"].includes(active) && moduleConfig && <ModuleView config={moduleConfig} rows={filteredRows} query={query} onPrimary={() => showToast(`${moduleConfig.action} 기능을 열었습니다.`)} />}
       </main>
 
       {employeeModalOpen && <div className="modal-backdrop" role="presentation" onMouseDown={() => setEmployeeModalOpen(false)}><form className="employee-modal" onSubmit={saveEmployee} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>NEW EMPLOYEE</p><h2>직원 등록</h2></div><button type="button" onClick={() => setEmployeeModalOpen(false)}>×</button></div><div className="form-grid"><label><span>이름 *</span><input required name="name" placeholder="홍길동" /></label><label><span>사번 *</span><input required name="employeeId" placeholder="사번 또는 계정 ID" /></label><label><span>이메일 *</span><input required name="email" type="email" placeholder="name@company.com" /></label><label><span>연락처</span><input name="phone" placeholder="010-0000-0000" /></label><label><span>소속 조직 *</span><select required name="department" defaultValue=""><option value="" disabled>조직 선택</option>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>고용형태 *</span><select required name="type"><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>입사일 *</span><input required name="joinDate" type="date" /></label><label><span>직급</span><select name="position">{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle">{jobTitles.filter((title) => title !== "조직장").map((title) => <option key={title}>{title}</option>)}</select></label></div><label className="form-note"><span>메모</span><textarea placeholder="입사 준비에 필요한 참고사항을 입력하세요."></textarea></label><div className="modal-actions"><button type="button" onClick={() => setEmployeeModalOpen(false)}>취소</button><button type="submit" className="primary-button">직원 등록</button></div></form></div>}
@@ -1672,6 +1675,174 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
     </form>
     <div className="interview-record-list">{loading ? <p className="interview-empty">면담 기록을 불러오는 중입니다.</p> : records.length ? records.map((record) => <article key={record.id}><div><strong>{new Date(record.interviewAt).toLocaleString("ko-KR")}</strong><small>{record.audioFileName ? "음성녹음 포함" : "텍스트 기록"}</small></div>{record.audioUrl && <audio controls src={record.audioUrl}>면담 녹음</audio>}<section><span>AI 전사기록</span><p>{record.transcript || "전사기록 없음"}</p></section><section><span>사용자 메모</span><p>{record.memo || "메모 없음"}</p></section></article>) : <p className="interview-empty">아직 등록된 면담 기록이 없습니다.</p>}</div>
   </section>;
+}
+
+type LeaveRequestRow = {
+  id: string; employee_id: string; leave_type: string; start_date: string; end_date: string;
+  units: number; reason: string; status: string; approver_employee_id: string; decided_at: number | null;
+};
+
+type AttendanceRecordRow = {
+  id: string; employee_id: string; work_date: string; work_type: string; check_in: string; check_out: string;
+  minutes_worked: number; status: string; source_type: string; memo: string; approved_by: string;
+};
+
+const leaveTypeLabels: Record<string, string> = { ANNUAL: "연차", HALF_AM: "오전 반차", HALF_PM: "오후 반차", SICK: "병가", FAMILY: "가족돌봄", OTHER: "기타" };
+const attendanceTypeLabels: Record<string, string> = { OFFICE: "사무실", REMOTE: "재택", FIELD: "외근", TRIP: "출장", OFF: "비근무" };
+const approvalLabels: Record<string, string> = { PENDING: "승인 대기", APPROVED: "승인", REJECTED: "반려", CANCELLED: "취소", RECORDED: "확인 대기" };
+
+function TimeAndLeaveView({ employees, onNotify }: { employees: Employee[]; onNotify: (message: string) => void }) {
+  const activeEmployees = employees.filter((employee) => !["퇴직", "퇴직 예정"].includes(employee.status));
+  const today = new Date().toISOString().slice(0, 10);
+  const [leaveRequests, setLeaveRequests] = useState<LeaveRequestRow[]>([]);
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecordRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [leaveDraft, setLeaveDraft] = useState({ employeeId: activeEmployees[0]?.id ?? "", leaveType: "ANNUAL", startDate: today, endDate: today, units: "1", reason: "" });
+  const [attendanceDraft, setAttendanceDraft] = useState({ employeeId: activeEmployees[0]?.id ?? "", workDate: today, workType: "OFFICE", checkIn: "09:00", checkOut: "18:00", memo: "" });
+
+  async function load() {
+    try {
+      const response = await fetch("/api/hr/operations");
+      const payload = await response.json() as { leaveRequests?: LeaveRequestRow[]; attendanceRecords?: AttendanceRecordRow[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "근태·휴가 자료를 불러오지 못했습니다.");
+      setLeaveRequests(payload.leaveRequests ?? []);
+      setAttendanceRecords(payload.attendanceRecords ?? []);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "근태·휴가 자료를 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { void load(); }, []);
+
+  const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id;
+  const pendingLeaves = leaveRequests.filter((item) => item.status === "PENDING");
+  const approvedUnits = leaveRequests.filter((item) => item.status === "APPROVED" && item.start_date.startsWith(today.slice(0, 4))).reduce((sum, item) => sum + item.units, 0);
+  const todayAttendance = attendanceRecords.filter((item) => item.work_date === today && item.status !== "REJECTED");
+  const pendingAttendance = attendanceRecords.filter((item) => item.status === "RECORDED");
+
+  async function createLeave(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const units = Math.round(Number(leaveDraft.units) * 100);
+    const response = await fetch("/api/hr/operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "leaveRequest", ...leaveDraft, units }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "휴가 신청을 저장하지 못했습니다."); return; }
+    onNotify("휴가 신청을 저장하고 승인 업무를 생성했습니다.");
+    setLeaveDraft((current) => ({ ...current, reason: "" }));
+    await load();
+  }
+
+  async function createAttendance(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const response = await fetch("/api/hr/operations", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "attendance", ...attendanceDraft }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "근태 기록을 저장하지 못했습니다."); return; }
+    onNotify("근태 기록을 저장했습니다.");
+    setAttendanceDraft((current) => ({ ...current, memo: "" }));
+    await load();
+  }
+
+  async function decide(resource: "leaveRequest" | "attendance", id: string, status: string) {
+    const response = await fetch("/api/hr/operations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource, id, status }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "상태를 변경하지 못했습니다."); return; }
+    onNotify(status === "APPROVED" ? "승인 처리했습니다." : "반려 처리했습니다.");
+    await load();
+  }
+
+  return <div className="page-wrap module-page time-leave-page">
+    <section className="module-hero"><div><p className="eyebrow">TIME &amp; LEAVE</p><h1>일정·근태·휴가</h1><p>수기 근태와 휴가 신청·승인을 실제 저장합니다. 출입기록 자동연동 전까지 자료 출처는 수기 입력으로 표시됩니다.</p></div><span className="manual-source-badge">MANUAL · 자동연동 미설정</span></section>
+    <section className="metric-grid module-metrics">{[
+      ["오늘 근태", `${todayAttendance.length}명`, `재직자 ${activeEmployees.length}명 중 기록`],
+      ["휴가 승인 대기", `${pendingLeaves.length}건`, "알림 업무 자동 생성"],
+      ["올해 승인 휴가", `${(approvedUnits / 100).toFixed(1)}일`, "승인된 신청 합계"],
+      ["근태 확인 대기", `${pendingAttendance.length}건`, "수기 입력 검토 필요"],
+    ].map(([label, value, note], index) => <div className="compact-metric" key={label}><span className={`metric-accent ${["navy", "orange", "blue", "red"][index]}`}></span><p>{label}</p><h2>{value}</h2><small>{note}</small></div>)}</section>
+
+    <section className="time-leave-entry-grid">
+      <form className="panel operations-entry-card" onSubmit={createLeave}><div className="detail-card-heading"><div><p className="eyebrow">LEAVE REQUEST</p><h2>휴가 신청</h2></div><span>승인 필요</span></div><div className="operations-form-grid"><label><span>대상 직원</span><select required value={leaveDraft.employeeId} onChange={(event) => setLeaveDraft({ ...leaveDraft, employeeId: event.target.value })}>{activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></label><label><span>휴가 종류</span><select value={leaveDraft.leaveType} onChange={(event) => { const value = event.target.value; setLeaveDraft({ ...leaveDraft, leaveType: value, units: value.startsWith("HALF") ? ".5" : leaveDraft.units }); }}>{Object.entries(leaveTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>시작일</span><input required type="date" value={leaveDraft.startDate} onChange={(event) => setLeaveDraft({ ...leaveDraft, startDate: event.target.value })} /></label><label><span>종료일</span><input required type="date" value={leaveDraft.endDate} onChange={(event) => setLeaveDraft({ ...leaveDraft, endDate: event.target.value })} /></label><label><span>사용일수</span><input required type="number" min=".5" step=".5" value={leaveDraft.units} onChange={(event) => setLeaveDraft({ ...leaveDraft, units: event.target.value })} /></label><label className="wide"><span>사유</span><input value={leaveDraft.reason} onChange={(event) => setLeaveDraft({ ...leaveDraft, reason: event.target.value })} /></label></div><button type="submit" className="primary-button">휴가 신청 저장</button></form>
+      <form className="panel operations-entry-card" onSubmit={createAttendance}><div className="detail-card-heading"><div><p className="eyebrow">ATTENDANCE</p><h2>근태 기록</h2></div><span>수기 입력</span></div><div className="operations-form-grid"><label><span>대상 직원</span><select required value={attendanceDraft.employeeId} onChange={(event) => setAttendanceDraft({ ...attendanceDraft, employeeId: event.target.value })}>{activeEmployees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select></label><label><span>근무일</span><input required type="date" value={attendanceDraft.workDate} onChange={(event) => setAttendanceDraft({ ...attendanceDraft, workDate: event.target.value })} /></label><label><span>근무 형태</span><select value={attendanceDraft.workType} onChange={(event) => setAttendanceDraft({ ...attendanceDraft, workType: event.target.value })}>{Object.entries(attendanceTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label><span>출근</span><input type="time" value={attendanceDraft.checkIn} onChange={(event) => setAttendanceDraft({ ...attendanceDraft, checkIn: event.target.value })} /></label><label><span>퇴근</span><input type="time" value={attendanceDraft.checkOut} onChange={(event) => setAttendanceDraft({ ...attendanceDraft, checkOut: event.target.value })} /></label><label className="wide"><span>메모</span><input value={attendanceDraft.memo} onChange={(event) => setAttendanceDraft({ ...attendanceDraft, memo: event.target.value })} /></label></div><button type="submit" className="primary-button">근태 기록 저장</button></form>
+    </section>
+
+    <section className="time-leave-tables">
+      <article className="panel"><div className="table-toolbar"><div><h2>휴가 신청 현황</h2><span>{leaveRequests.length}건 · 0.5일은 50단위로 안전하게 저장됩니다.</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>직원</th><th>종류</th><th>기간</th><th>일수</th><th>사유</th><th>상태</th><th>처리</th></tr></thead><tbody>{loading ? <tr><td colSpan={7} className="table-message">불러오는 중입니다.</td></tr> : leaveRequests.length ? leaveRequests.map((item) => <tr key={item.id}><td>{employeeName(item.employee_id)}</td><td>{leaveTypeLabels[item.leave_type] ?? item.leave_type}</td><td>{item.start_date}~{item.end_date}</td><td>{(item.units / 100).toFixed(1)}일</td><td>{item.reason || "-"}</td><td><StatusPill value={approvalLabels[item.status] ?? item.status} /></td><td>{item.status === "PENDING" ? <div className="row-actions"><button type="button" onClick={() => void decide("leaveRequest", item.id, "APPROVED")}>승인</button><button type="button" className="reject-action" onClick={() => void decide("leaveRequest", item.id, "REJECTED")}>반려</button></div> : "처리 완료"}</td></tr>) : <tr><td colSpan={7} className="empty-cell">등록된 휴가 신청이 없습니다.</td></tr>}</tbody></table></div></article>
+      <article className="panel"><div className="table-toolbar"><div><h2>근태 기록 현황</h2><span>{attendanceRecords.length}건 · 출입시스템 연동 전 수기 기록</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>직원</th><th>근무일</th><th>형태</th><th>출퇴근</th><th>근무시간</th><th>출처</th><th>상태</th><th>처리</th></tr></thead><tbody>{loading ? <tr><td colSpan={8} className="table-message">불러오는 중입니다.</td></tr> : attendanceRecords.length ? attendanceRecords.map((item) => <tr key={item.id}><td>{employeeName(item.employee_id)}</td><td>{item.work_date}</td><td>{attendanceTypeLabels[item.work_type] ?? item.work_type}</td><td>{item.check_in || "-"}~{item.check_out || "-"}</td><td>{Math.floor(item.minutes_worked / 60)}시간 {item.minutes_worked % 60}분</td><td><span className="manual-source-badge compact">{item.source_type}</span></td><td><StatusPill value={approvalLabels[item.status] ?? item.status} /></td><td>{item.status === "RECORDED" ? <div className="row-actions"><button type="button" onClick={() => void decide("attendance", item.id, "APPROVED")}>확인</button><button type="button" className="reject-action" onClick={() => void decide("attendance", item.id, "REJECTED")}>반려</button></div> : "처리 완료"}</td></tr>) : <tr><td colSpan={8} className="empty-cell">등록된 근태 기록이 없습니다.</td></tr>}</tbody></table></div></article>
+    </section>
+  </div>;
+}
+
+type EmployeeDocument = {
+  id: string; module: string; entityType: string; entityId: string; category: string; version: number;
+  fileName: string; contentType: string; uploadedBy: string; createdAt: number; downloadUrl: string;
+};
+
+const documentCategoryLabels: Record<string, string> = {
+  EMPLOYMENT_CONTRACT: "근로계약서", PERSONNEL_ORDER: "인사발령서", CERTIFICATE: "증명서",
+  EVALUATION: "평가서", RETIREMENT: "퇴직서류", CONSENT: "동의서", OTHER: "기타",
+};
+
+function EmployeeDocumentView({ employees, onNotify }: { employees: Employee[]; onNotify: (message: string) => void }) {
+  const [employeeId, setEmployeeId] = useState(employees[0]?.id ?? "");
+  const [documents, setDocuments] = useState<EmployeeDocument[]>([]);
+  const [category, setCategory] = useState("EMPLOYMENT_CONTRACT");
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(true);
+  const selectedEmployee = employees.find((employee) => employee.id === employeeId);
+
+  async function load(targetId = employeeId) {
+    if (!targetId) { setDocuments([]); setLoading(false); return; }
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/documents?module=hr&entityType=employee&entityId=${encodeURIComponent(targetId)}`);
+      const payload = await response.json() as { documents?: EmployeeDocument[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "인사문서를 불러오지 못했습니다.");
+      setDocuments(payload.documents ?? []);
+    } catch (error) {
+      onNotify(error instanceof Error ? error.message : "인사문서를 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  useEffect(() => { void load(employeeId); }, [employeeId]);
+
+  async function upload(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!employeeId || !file) { onNotify("직원과 파일을 선택해 주세요."); return; }
+    const form = new FormData();
+    form.append("module", "hr"); form.append("entityType", "employee"); form.append("entityId", employeeId);
+    form.append("category", category); form.append("file", file, file.name);
+    const response = await fetch("/api/documents", { method: "POST", body: form });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "문서를 저장하지 못했습니다."); return; }
+    setFile(null);
+    onNotify("인사문서 원본과 새 버전을 저장했습니다.");
+    await load();
+  }
+
+  async function remove(document: EmployeeDocument) {
+    if (!window.confirm(`${document.fileName} 문서를 목록에서 삭제할까요? 원본은 복구를 위해 보존됩니다.`)) return;
+    const response = await fetch("/api/documents", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: document.id }) });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { onNotify(payload.error || "문서를 삭제하지 못했습니다."); return; }
+    onNotify("문서를 소프트 삭제했습니다.");
+    await load();
+  }
+
+  const latestByCategory = new Map<string, number>();
+  documents.forEach((document) => latestByCategory.set(document.category, Math.max(latestByCategory.get(document.category) ?? 0, document.version)));
+
+  return <div className="page-wrap module-page employee-documents-page">
+    <section className="module-hero"><div><p className="eyebrow">HR DOCUMENT VAULT</p><h1>인사문서</h1><p>직원별 계약서·발령서·증명서 원본을 버전별로 보관하고 다운로드·삭제 이력을 기록합니다.</p></div><span className="secure-document-badge">PRIVATE · 접근기록 저장</span></section>
+    <section className="document-layout">
+      <aside className="panel document-employee-list"><div className="detail-card-heading"><div><p className="eyebrow">EMPLOYEE</p><h2>직원 선택</h2></div><span>{employees.length}명</span></div><div>{employees.map((employee) => <button type="button" key={employee.id} className={employee.id === employeeId ? "active" : ""} onClick={() => setEmployeeId(employee.id)}><span>{employee.name.slice(0, 1)}</span><p><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></p></button>)}</div></aside>
+      <div className="document-content">
+        <form className="panel document-upload-card" onSubmit={upload}><div className="detail-card-heading"><div><p className="eyebrow">NEW VERSION</p><h2>{selectedEmployee?.name ?? "직원"} 문서 등록</h2></div><span>최대 25MB</span></div><div className="document-upload-fields"><label><span>문서 분류</span><select value={category} onChange={(event) => setCategory(event.target.value)}>{Object.entries(documentCategoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="file-field"><span>원본 파일</span><input required type="file" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt,.csv" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /><strong>{file?.name ?? "파일을 선택해 주세요."}</strong></label><button type="submit" className="primary-button">문서 버전 저장</button></div></form>
+        <section className="panel document-table-card"><div className="table-toolbar"><div><h2>보관 문서</h2><span>{documents.length}개 버전 · 같은 분류를 다시 올리면 버전이 증가합니다.</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>분류</th><th>파일명</th><th>버전</th><th>등록자</th><th>등록일시</th><th>상태</th><th>작업</th></tr></thead><tbody>{loading ? <tr><td colSpan={7} className="table-message">문서를 불러오는 중입니다.</td></tr> : documents.length ? documents.map((document) => <tr key={document.id}><td>{documentCategoryLabels[document.category] ?? document.category}</td><td><a className="document-download-link" href={document.downloadUrl}>{document.fileName}</a></td><td>v{document.version}</td><td>{document.uploadedBy}</td><td>{new Date(document.createdAt).toLocaleString("ko-KR")}</td><td><StatusPill value={document.version === latestByCategory.get(document.category) ? "최신" : "이전 버전"} /></td><td><div className="row-actions"><a href={document.downloadUrl}>다운로드</a><button type="button" className="reject-action" onClick={() => void remove(document)}>삭제</button></div></td></tr>) : <tr><td colSpan={7} className="empty-cell">등록된 인사문서가 없습니다.</td></tr>}</tbody></table></div></section>
+      </div>
+    </section>
+  </div>;
 }
 
 const formatWon = (value: number) => `₩${Math.round(value).toLocaleString("ko-KR")}`;

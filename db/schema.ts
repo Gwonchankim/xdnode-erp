@@ -328,6 +328,25 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   index("idx_hr_leave_status_start").on(table.status, table.startDate),
 ]);
 
+export const hrAttendanceRecords = sqliteTable("hr_attendance_records", {
+  id: text("id").primaryKey(),
+  employeeId: text("employee_id").notNull(),
+  workDate: text("work_date").notNull(),
+  workType: text("work_type").notNull().default("OFFICE"),
+  checkIn: text("check_in").notNull().default(""),
+  checkOut: text("check_out").notNull().default(""),
+  minutesWorked: integer("minutes_worked").notNull().default(0),
+  status: text("status").notNull().default("RECORDED"),
+  sourceType: text("source_type").notNull().default("MANUAL"),
+  memo: text("memo").notNull().default(""),
+  approvedBy: text("approved_by").notNull().default(""),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_hr_attendance_employee_date").on(table.employeeId, table.workDate),
+  index("idx_hr_attendance_status_date").on(table.status, table.workDate),
+]);
+
 export const hrPersonnelActions = sqliteTable("hr_personnel_actions", {
   id: text("id").primaryKey(),
   employeeId: text("employee_id").notNull(),

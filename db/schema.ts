@@ -1371,6 +1371,7 @@ export const salesIncentiveRules = sqliteTable("sales_incentive_rules", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
+  uniqueIndex("idx_sales_incentive_rule_name_version").on(table.name, table.version),
   index("idx_sales_incentive_rules_status_effective").on(table.status, table.effectiveFrom),
 ]);
 
@@ -1393,6 +1394,26 @@ export const salesIncentiveResults = sqliteTable("sales_incentive_results", {
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 }, (table) => [
+  uniqueIndex("idx_sales_incentive_result_source").on(table.period, table.employeeId, table.opportunityId, table.ruleId),
   index("idx_sales_incentive_period_employee").on(table.period, table.employeeId),
   index("idx_sales_incentive_status").on(table.status),
 ]);
+
+export const salesIncentiveValidations = sqliteTable("sales_incentive_validations", {
+  id: text("id").primaryKey(), ruleId: text("rule_id").notNull(), validationType: text("validation_type").notNull(),
+  result: text("result").notNull(), evidenceDocumentId: text("evidence_document_id").notNull(), note: text("note").notNull(),
+  reviewedBy: text("reviewed_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_sales_incentive_validation_type").on(table.ruleId, table.validationType),
+  index("idx_sales_incentive_validation_result").on(table.result, table.createdAt)]);
+
+export const salesIncentiveNotes = sqliteTable("sales_incentive_notes", {
+  id: text("id").primaryKey(), resultId: text("result_id").notNull(), noteType: text("note_type").notNull(),
+  note: text("note").notNull(), createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_sales_incentive_note_result").on(table.resultId, table.createdAt)]);
+
+export const salesIncentivePayrollLinks = sqliteTable("sales_incentive_payroll_links", {
+  id: text("id").primaryKey(), resultId: text("result_id").notNull(), payrollPeriod: text("payroll_period").notNull(),
+  payrollRecordId: text("payroll_record_id").notNull(), appliedAmount: integer("applied_amount").notNull(),
+  appliedBy: text("applied_by").notNull(), appliedAt: integer("applied_at").notNull(),
+}, (table) => [uniqueIndex("idx_sales_incentive_payroll_result").on(table.resultId),
+  index("idx_sales_incentive_payroll_period").on(table.payrollPeriod, table.payrollRecordId)]);

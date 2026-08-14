@@ -536,3 +536,28 @@ test("debt ledgers keep Clobe sources, schedules, payment links and covenant rev
   insertReview.run("review-1", now, now);
   assert.throws(() => insertReview.run("review-duplicate", now, now), /UNIQUE constraint failed/);
 });
+
+test("incentive governance keeps rule versions, triple checks, source results and payroll links unique", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertRule = db.prepare(`INSERT INTO sales_incentive_rules
+    (id, name, version, effective_from, effective_to, rules_json, status, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, '영업 인센티브', 1, '2026-01-01', '', '{}', 'DRAFT', '', NULL, ?, ?)`);
+  insertRule.run("rule-1", now, now);
+  assert.throws(() => insertRule.run("rule-duplicate", now, now), /UNIQUE constraint failed/);
+  const insertValidation = db.prepare(`INSERT INTO sales_incentive_validations
+    (id, rule_id, validation_type, result, evidence_document_id, note, reviewed_by, created_at, updated_at)
+    VALUES (?, 'rule-1', 'POLICY', 'PASS', 'document-1', '규정 원문 대조 완료', 'gc.kim', ?, ?)`);
+  insertValidation.run("validation-1", now, now);
+  assert.throws(() => insertValidation.run("validation-duplicate", now, now), /UNIQUE constraint failed/);
+  const insertResult = db.prepare(`INSERT INTO sales_incentive_results
+    (id, period, employee_id, opportunity_id, rule_id, rule_version, recognized_revenue, recognized_cost,
+      payout_amount, calculation_json, status, payroll_ref, created_at, updated_at)
+    VALUES (?, '2026-08', 'gc.kim', 'opportunity-1', 'rule-1', 1, 100000000, 90000000, 250000, '{}', 'APPROVED', '', ?, ?)`);
+  insertResult.run("result-1", now, now);
+  assert.throws(() => insertResult.run("result-duplicate", now, now), /UNIQUE constraint failed/);
+  const insertLink = db.prepare(`INSERT INTO sales_incentive_payroll_links
+    (id, result_id, payroll_period, payroll_record_id, applied_amount, applied_by, applied_at)
+    VALUES (?, 'result-1', '2026-08', 'payroll-1', 250000, 'gc.kim', ?)`);
+  insertLink.run("link-1", now);
+  assert.throws(() => insertLink.run("link-duplicate", now), /UNIQUE constraint failed/);
+});

@@ -262,15 +262,33 @@ test("13-week cash forecast de-duplicates ledgers, exposes data quality and pers
   assert.match(page, /"forecast", "13주 자금예측"/);
 });
 
-test("sales incentive remains unverified until an approved active rule exists", async () => {
-  const [api, view] = await Promise.all([
+test("sales incentives require triple validation, collected cash, staged review and one payroll application", async () => {
+  const [api, governance, engine, documents, operations, migration, schema] = await Promise.all([
     read("app/api/sales/route.ts"),
-    read("app/sales-workspace.tsx"),
+    read("app/incentive-governance.tsx"), read("app/approval-engine.ts"), read("app/api/documents/route.ts"),
+    read("app/api/operations/route.ts"), read("drizzle/0033_incentive_governance.sql"), read("db/schema.ts"),
   ]);
   assert.match(api, /status === "ACTIVE"/);
   assert.match(api, /"UNVERIFIED"/);
-  assert.match(view, /SIMULATION ONLY/);
-  assert.match(view, /급여 미반영/);
+  const control = await read("app/api/sales/incentives/route.ts");
+  assert.match(control, /requiredValidations = \["POLICY", "EXAMPLE", "HISTORICAL"\]/);
+  assert.match(control, /recognitionBasis: "COLLECTED_PAYMENT"/);
+  assert.match(control, /costBasis: "OPPORTUNITY_EXPECTED_COST_PRORATED"/);
+  assert.match(control, /payment\.status IN \('ACCEPTED','COMPLETED'\)/);
+  assert.match(control, /status = 'SALES_CONFIRMED'/);
+  assert.match(control, /status = 'FINANCE_REVIEWED'/);
+  assert.match(control, /targetEntityType: "INCENTIVE_RULE"/);
+  assert.match(control, /targetEntityType: "INCENTIVE_RESULT"/);
+  assert.match(control, /status !== "DRAFT"/);
+  assert.match(control, /idx_sales_incentive_payroll_result/);
+  assert.match(engine, /INCENTIVE_RULE/); assert.match(engine, /INCENTIVE_RESULT/);
+  assert.match(documents, /검증 또는 승인 절차에 사용된 인센티브 근거문서/);
+  assert.match(operations, /incentive-governance-risk/);
+  assert.match(governance, /자동 확정 없음 · 3회 교차검증/);
+  assert.match(governance, /확정 수금액/);
+  for (const table of ["sales_incentive_validations", "sales_incentive_notes", "sales_incentive_payroll_links"]) {
+    assert.match(migration, new RegExp(table)); assert.match(schema, new RegExp(table));
+  }
 });
 
 test("runtime API column names stay aligned with the Drizzle production schema", async () => {

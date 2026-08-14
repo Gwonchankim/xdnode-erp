@@ -90,6 +90,11 @@ export async function POST(request: Request) {
     if (!facility) return Response.json({ error: "차입계약 원장을 먼저 등록해 주세요." }, { status: 404 });
     if (!["DRAFT", "ACTIVE"].includes(facility.status)) return Response.json({ error: "종료·무효 계약에는 문서를 추가할 수 없습니다." }, { status: 409 });
   }
+  if (moduleName === "sales" && entityType === "salesIncentiveRule") {
+    const rule = await db.prepare("SELECT status FROM sales_incentive_rules WHERE id = ?").bind(entityId).first<{ status: string }>();
+    if (!rule) return Response.json({ error: "인센티브 규정 초안을 먼저 등록해 주세요." }, { status: 404 });
+    if (rule.status !== "DRAFT") return Response.json({ error: "제출·승인된 인센티브 규정에는 근거문서를 추가할 수 없습니다." }, { status: 409 });
+  }
   if (file.size > 25 * 1024 * 1024) return Response.json({ error: "파일은 25MB 이하만 저장할 수 있습니다." }, { status: 413 });
   const contentType = file.type || "application/octet-stream";
   if (!allowedTypes.has(contentType)) return Response.json({ error: "PDF, DOCX, XLSX, PNG, JPG, TXT, CSV 파일만 저장할 수 있습니다." }, { status: 415 });
@@ -145,6 +150,16 @@ export async function DELETE(request: Request) {
     ]);
     if (review || (facility && ["ACTIVE", "CLOSED"].includes(facility.status) && facility.evidence_document_id === row.id)) {
       return Response.json({ error: "활성 계약 또는 확정된 약정 검토에 사용된 근거문서입니다. 감사 기록 보호를 위해 삭제할 수 없습니다." }, { status: 409 });
+    }
+  }
+  if (row.module === "sales" && row.entity_type === "salesIncentiveRule") {
+    const [rule, validation] = await Promise.all([
+      db.prepare("SELECT status FROM sales_incentive_rules WHERE id = ?").bind(row.entity_id).first<{ status: string }>(),
+      db.prepare("SELECT id FROM sales_incentive_validations WHERE rule_id = ? AND evidence_document_id = ? LIMIT 1")
+        .bind(row.entity_id, row.id).first<{ id: string }>(),
+    ]);
+    if (validation || (rule && rule.status !== "DRAFT")) {
+      return Response.json({ error: "검증 또는 승인 절차에 사용된 인센티브 근거문서는 삭제할 수 없습니다." }, { status: 409 });
     }
   }
   const deletedAt = Date.now();

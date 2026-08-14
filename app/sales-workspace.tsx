@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import IncentiveGovernance from "./incentive-governance";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
@@ -24,7 +25,6 @@ export default function SalesWorkspace({ search }: { search: string }) {
   const [accountDraft, setAccountDraft] = useState({ name: "", businessNumber: "", industry: "", memo: "" });
   const [opportunityDraft, setOpportunityDraft] = useState({ accountId: "", title: "", leadType: "OUTBOUND", stage: "LEAD", expectedRevenue: "", expectedCost: "", probability: "10", expectedCloseDate: "", nextAction: "", nextActionDate: "" });
   const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
-  const [simulation, setSimulation] = useState({ salePrice: 100_000_000, costPrice: 90_000_000, leadType: "OUTBOUND" });
 
   async function load() {
     try {
@@ -46,10 +46,6 @@ export default function SalesWorkspace({ search }: { search: string }) {
   const pipeline = open.reduce((sum, item) => sum + item.expectedRevenue, 0);
   const weightedPipeline = open.reduce((sum, item) => sum + item.expectedRevenue * item.probability / 100, 0);
   const expectedMargin = open.reduce((sum, item) => sum + item.expectedRevenue - item.expectedCost, 0);
-  const simulationMargin = simulation.salePrice - simulation.costPrice;
-  const simulationRate = simulation.salePrice ? simulationMargin / simulation.salePrice : 0;
-  const provisionalEligible = simulation.leadType === "OUTBOUND" && simulationRate > .05;
-  const provisionalPayout = provisionalEligible ? (simulationMargin - simulation.salePrice * .05) * .05 : 0;
   const invoices = (data?.documents ?? []).filter((item) => item.documentType === "INVOICE" && ["ACCEPTED", "COMPLETED"].includes(item.status));
   const selectableInvoices = invoices.filter((item) => item.opportunityId === documentDraft.opportunityId && item.amount - item.reservedAmount > 0);
   const acceptedInvoiceTotal = invoices.reduce((sum, item) => sum + item.amount, 0);
@@ -150,9 +146,6 @@ export default function SalesWorkspace({ search }: { search: string }) {
       {!data?.documents.length && <div className="finance-empty">영업 문서를 등록하면 견적부터 수금까지 한 흐름으로 확인할 수 있습니다.</div>}
     </section>
 
-    <section className="sales-live-grid incentive-governance">
-      <article className="panel incentive-sandbox"><header><div><p>SIMULATION ONLY</p><h2>인센티브 계산 샌드박스</h2></div><span>급여 미반영</span></header><div className="incentive-warning">현재 회사의 확정·승인된 인센티브 규칙이 등록되지 않았습니다. 아래 결과는 기존 가정식의 시뮬레이션일 뿐 지급 근거가 아닙니다.</div><div className="incentive-sandbox-body"><label>매출가<input type="number" value={simulation.salePrice} onChange={(event) => setSimulation({ ...simulation, salePrice: Number(event.target.value) })} /></label><label>인정 원가<input type="number" value={simulation.costPrice} onChange={(event) => setSimulation({ ...simulation, costPrice: Number(event.target.value) })} /></label><label>유형<select value={simulation.leadType} onChange={(event) => setSimulation({ ...simulation, leadType: event.target.value })}><option value="OUTBOUND">아웃바운드</option><option value="INBOUND">인바운드</option><option value="RAM">RAM 단독</option></select></label><div><small>가정식 결과</small><strong>{currency(provisionalPayout)}</strong><span>마진율 {(simulationRate * 100).toFixed(1)}%</span></div></div></article>
-      <article className="panel incentive-rule-state"><header><div><p>RULE GOVERNANCE</p><h2>인센티브 규칙 상태</h2></div><span>{data?.incentiveRules.length ?? 0}개 버전</span></header><div className="finance-empty">확정 규정 원문, 적용일, 예외 승인권자, 환수 조건을 제공받기 전까지 활성 규칙과 급여 전송을 차단합니다.</div></article>
-    </section>
+    <IncentiveGovernance />
   </div>;
 }

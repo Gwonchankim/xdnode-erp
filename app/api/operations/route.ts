@@ -546,6 +546,30 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const incentiveRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM sales_incentive_rules WHERE status = 'ACTIVE') AS active_rule_count,
+      (SELECT COUNT(*) FROM sales_incentive_rules rule WHERE rule.status = 'DRAFT' AND (
+        SELECT COUNT(*) FROM sales_incentive_validations validation
+        WHERE validation.rule_id = rule.id AND validation.result = 'PASS'
+          AND validation.validation_type IN ('POLICY','EXAMPLE','HISTORICAL')) < 3) AS unverified_rule_count,
+      (SELECT COUNT(*) FROM sales_incentive_results WHERE status IN ('DRAFT','SALES_CONFIRMED','FINANCE_REVIEWED','SUBMITTED')) AS pending_result_count,
+      (SELECT COUNT(*) FROM sales_incentive_results WHERE status = 'APPROVED' AND payroll_ref = '') AS payroll_pending_count`)
+      .first<{ active_rule_count: number; unverified_rule_count: number; pending_result_count: number; payroll_pending_count: number }>();
+    const noActive = Number(incentiveRisk?.active_rule_count ?? 0) === 0 ? 1 : 0;
+    const unverified = Number(incentiveRisk?.unverified_rule_count ?? 0); const pending = Number(incentiveRisk?.pending_result_count ?? 0);
+    const payrollPending = Number(incentiveRisk?.payroll_pending_count ?? 0); const riskCount = noActive + unverified + pending + payrollPending;
+    if (riskCount > 0) await upsertRuleTask({
+      id: "incentive-governance-risk", module: "sales", category: "인센티브 통제",
+      title: `인센티브 규정·정산 ${riskCount}건 확인`,
+      description: `활성 규정 없음 ${noActive}건 · 3회 검증 미완료 규정 ${unverified}건 · 승인 진행 정산 ${pending}건 · 급여 미반영 승인액 ${payrollPending}건입니다.`,
+      dueDate: today, priority: noActive + payrollPending > 0 ? "HIGH" : "NORMAL", destination: "sales:incentive",
+      sourceId: `${noActive}:${unverified}:${pending}:${payrollPending}`,
+    }); else await closeRuleTask("incentive-governance-risk");
+  } catch {
+    // 인센티브 통제 원장이 배포된 뒤부터 규정·정산·급여 반영 위험을 평가합니다.
+  }
+
+  try {
     const [facilities, debtRisk] = await Promise.all([
       db.prepare("SELECT source_account_id, maturity_date, next_covenant_review_date, status FROM finance_debt_facilities WHERE status IN ('DRAFT','ACTIVE')")
         .all<{ source_account_id: string; maturity_date: string; next_covenant_review_date: string; status: string }>(),

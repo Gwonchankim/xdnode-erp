@@ -1045,3 +1045,51 @@ test("sales contracts keep one order link, unique numbers and append-only change
   assert.equal(db.prepare("SELECT json_extract(after_json, '$.endDate') AS end_date FROM sales_contract_change_requests WHERE id = 'contract-change-1'").get().end_date, "2027-12-31");
   db.close();
 });
+
+test("sales service ledgers keep one active SLA per priority and unique return receipt lineage", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO sales_documents
+    (id, opportunity_id, document_type, document_number, version, amount, status, issued_date, due_date, created_at, updated_at)
+    VALUES ('delivery-1', 'opportunity-1', 'DELIVERY', 'DEL-20260815-001', 1, 10000, 'ACCEPTED', '2026-08-15', '2026-08-15', ?, ?)`).run(now, now);
+  db.prepare(`INSERT INTO sales_document_lines
+    (id, document_id, line_number, catalog_item_id, description, quantity, unit, unit_price, amount, source_line_id, created_at)
+    VALUES ('delivery-line-1', 'delivery-1', 1, '', '납품 품목 A', 2, 'EA', 3000, 6000, '', ?),
+      ('delivery-line-2', 'delivery-1', 2, '', '납품 품목 B', 1, 'EA', 4000, 4000, '', ?)`).run(now, now);
+  const insertPolicy = db.prepare(`INSERT INTO sales_service_policies
+    (id, name, version, priority, first_response_hours, resolution_hours, effective_from, effective_to, status,
+      created_by, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, 4, 24, '2026-08-15', '', ?, 'gc.kim', '', NULL, ?, ?)`);
+  insertPolicy.run("service-policy-1", "표준 SLA", 1, "NORMAL", "ACTIVE", now, now);
+  assert.throws(() => insertPolicy.run("service-policy-2", "개정 SLA", 2, "NORMAL", "ACTIVE", now, now), /UNIQUE constraint failed/);
+  insertPolicy.run("service-policy-high", "긴급 SLA", 1, "HIGH", "ACTIVE", now, now);
+
+  const insertCase = db.prepare(`INSERT INTO sales_service_cases
+    (id, case_number, account_id, opportunity_id, delivery_document_id, contract_id, contact_id, category, priority,
+      subject, description, policy_id, opened_at, first_response_due_at, resolution_due_at, first_responded_at,
+      status, owner_employee_id, resolution_type, resolution_note, refund_amount, approval_request_id, finance_request_id,
+      resolved_by, resolved_at, closed_by, closed_at, created_by, created_at, updated_at)
+    VALUES (?, ?, 'account-1', 'opportunity-1', 'delivery-1', '', '', 'RETURN', 'NORMAL', '반품 요청',
+      '고객 반품 요청 검증', 'service-policy-1', ?, ?, ?, ?, 'RESOLUTION_APPROVED', 'gc.kim', 'RETURN',
+      '승인 반품 처리', 0, 'approval-1', '', '', NULL, '', NULL, 'gc.kim', ?, ?)`);
+  insertCase.run("service-case-1", "CS-20260815-000001", now, now + 3600000, now + 86400000, now + 1000, now, now);
+  assert.throws(() => insertCase.run("service-case-2", "CS-20260815-000001", now, now + 3600000, now + 86400000, now + 1000, now, now), /UNIQUE constraint failed/);
+  insertCase.run("service-case-2", "CS-20260815-000002", now, now + 3600000, now + 86400000, now + 1000, now, now);
+
+  const insertLine = db.prepare(`INSERT INTO sales_service_return_lines
+    (id, case_id, delivery_line_id, quantity_milli, disposition, inventory_movement_id, received_by, received_at, created_at, updated_at)
+    VALUES (?, 'service-case-1', 'delivery-line-1', 1000, 'RESTOCK', ?, '', NULL, ?, ?)`);
+  insertLine.run("service-return-1", "", now, now);
+  assert.throws(() => insertLine.run("service-return-duplicate-line", "", now, now), /UNIQUE constraint failed/);
+  assert.throws(() => db.prepare(`INSERT INTO sales_service_return_lines
+    (id, case_id, delivery_line_id, quantity_milli, disposition, inventory_movement_id, received_by, received_at, created_at, updated_at)
+    VALUES ('service-return-over-limit', 'service-case-2', 'delivery-line-1', 1001, 'QUARANTINE', '', '', NULL, ?, ?)`).run(now, now), /RETURN_QUANTITY_EXCEEDED/);
+  db.prepare("UPDATE sales_service_return_lines SET inventory_movement_id = 'movement-return-1' WHERE id = 'service-return-1'").run();
+  db.prepare(`INSERT INTO sales_service_return_lines
+    (id, case_id, delivery_line_id, quantity_milli, disposition, inventory_movement_id, received_by, received_at, created_at, updated_at)
+    VALUES ('service-return-2', 'service-case-1', 'delivery-line-2', 1000, 'RESTOCK', '', '', NULL, ?, ?)`).run(now, now);
+  assert.throws(() => db.prepare("UPDATE sales_service_return_lines SET inventory_movement_id = 'movement-return-1' WHERE id = 'service-return-2'").run(), /UNIQUE constraint failed/);
+  db.prepare("UPDATE sales_service_cases SET refund_amount = 7000 WHERE id = 'service-case-1'").run();
+  assert.throws(() => db.prepare("UPDATE sales_service_cases SET refund_amount = 4000 WHERE id = 'service-case-2'").run(), /REFUND_AMOUNT_EXCEEDED/);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sales_service_case_events WHERE case_id = 'service-case-1'").get().count, 0);
+  db.close();
+});

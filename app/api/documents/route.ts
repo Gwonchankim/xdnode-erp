@@ -3,6 +3,7 @@ import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 import type { ErpModule } from "../../erp-platform";
 import { ensureFinanceAlertActionSchema } from "../../finance-alert-actions-server";
 import { ensureSalesContractSchema } from "../../sales-contracts";
+import { ensureSalesServiceSchema } from "../../sales-service";
 
 type Bindings = { DB: D1Database; HR_AUDIO: R2Bucket };
 const bindings = env as unknown as Bindings;
@@ -118,6 +119,12 @@ export async function POST(request: Request) {
       return Response.json({ error: "활성 계약의 미완료 의무에만 증빙을 추가할 수 있습니다." }, { status: 409 });
     }
   }
+  if (moduleName === "sales" && entityType === "salesServiceCase") {
+    await ensureSalesServiceSchema(db);
+    const serviceCase = await db.prepare("SELECT status FROM sales_service_cases WHERE id = ?").bind(entityId).first<{ status: string }>();
+    if (!serviceCase) return Response.json({ error: "고객지원 케이스를 먼저 등록해 주세요." }, { status: 404 });
+    if (!["OPEN", "IN_PROGRESS"].includes(serviceCase.status)) return Response.json({ error: "처리안 제출 전 고객지원 케이스에만 근거문서를 추가할 수 있습니다." }, { status: 409 });
+  }
   if (file.size > 25 * 1024 * 1024) return Response.json({ error: "파일은 25MB 이하만 저장할 수 있습니다." }, { status: 413 });
   const contentType = file.type || "application/octet-stream";
   if (!allowedTypes.has(contentType)) return Response.json({ error: "PDF, DOCX, XLSX, PNG, JPG, TXT, CSV 파일만 저장할 수 있습니다." }, { status: 415 });
@@ -204,6 +211,13 @@ export async function DELETE(request: Request) {
     await ensureSalesContractSchema(db);
     const obligation = await db.prepare("SELECT status FROM sales_contract_obligations WHERE id = ?").bind(row.entity_id).first<{ status: string }>();
     if (obligation?.status === "COMPLETED") return Response.json({ error: "완료 근거로 사용된 계약 의무 증빙은 삭제할 수 없습니다." }, { status: 409 });
+  }
+  if (row.module === "sales" && row.entity_type === "salesServiceCase") {
+    await ensureSalesServiceSchema(db);
+    const serviceCase = await db.prepare("SELECT status FROM sales_service_cases WHERE id = ?").bind(row.entity_id).first<{ status: string }>();
+    if (serviceCase && !["OPEN", "IN_PROGRESS"].includes(serviceCase.status)) {
+      return Response.json({ error: "제출·승인·종결에 사용된 고객지원 근거문서는 삭제할 수 없습니다." }, { status: 409 });
+    }
   }
   const deletedAt = Date.now();
   await db.prepare("UPDATE erp_documents SET deleted_at = ? WHERE id = ?").bind(deletedAt, id).run();

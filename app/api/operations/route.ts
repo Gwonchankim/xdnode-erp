@@ -7,6 +7,7 @@ import { authorizeErpRequest, safeJson, writeErpAudit } from "../../erp-platform
 import { companyEmployees, companyOrganizations } from "../../hr-company-data";
 import { ensureSalesPricingSchema } from "../../sales-pricing";
 import { ensureSalesContractSchema } from "../../sales-contracts";
+import { ensureSalesServiceSchema } from "../../sales-service";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -160,6 +161,7 @@ async function closeRuleTask(id: string) {
 }
 
 async function seedStateDrivenOperations() {
+  const now = Date.now();
   const today = new Date().toISOString().slice(0, 10);
   try {
     const ownerMissing = await db.prepare(`SELECT COUNT(*) AS count FROM hr_applicants
@@ -804,6 +806,35 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const serviceRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM sales_service_cases WHERE status IN ('OPEN','IN_PROGRESS') AND first_responded_at IS NULL AND first_response_due_at < ?) AS response_overdue,
+      (SELECT COUNT(*) FROM sales_service_cases WHERE status IN ('OPEN','IN_PROGRESS','RESOLUTION_SUBMITTED','RESOLUTION_APPROVED') AND resolution_due_at < ?) AS resolution_overdue,
+      (SELECT COUNT(*) FROM sales_service_return_lines line JOIN sales_service_cases service ON service.id = line.case_id
+        WHERE service.status = 'RESOLUTION_APPROVED' AND line.disposition = 'RESTOCK' AND line.inventory_movement_id = '') AS return_pending,
+      (SELECT COUNT(*) FROM sales_service_cases service LEFT JOIN finance_expense_requests expense ON expense.id = service.finance_request_id
+        WHERE service.status = 'RESOLUTION_APPROVED' AND service.refund_amount > 0 AND COALESCE(expense.status, '') <> 'PAID') AS refund_pending,
+      (SELECT COUNT(*) FROM sales_service_cases service LEFT JOIN erp_tasks task ON task.id = 'sales-service-exchange:' || service.id AND task.deleted_at IS NULL
+        WHERE service.status = 'RESOLUTION_APPROVED' AND service.resolution_type = 'EXCHANGE' AND COALESCE(task.status, '') <> 'DONE') AS exchange_pending,
+      (SELECT COUNT(*) FROM sales_service_return_lines line JOIN sales_service_cases service ON service.id = line.case_id
+        LEFT JOIN erp_tasks task ON task.id = 'sales-service-disposition:' || line.id AND task.deleted_at IS NULL
+        WHERE service.status = 'RESOLUTION_APPROVED' AND line.disposition <> 'RESTOCK' AND COALESCE(task.status, '') <> 'DONE') AS disposition_pending`)
+      .bind(now, now).first<{ response_overdue: number; resolution_overdue: number; return_pending: number; refund_pending: number; exchange_pending: number; disposition_pending: number }>();
+    const responseOverdue = Number(serviceRisk?.response_overdue ?? 0); const resolutionOverdue = Number(serviceRisk?.resolution_overdue ?? 0);
+    const returnPending = Number(serviceRisk?.return_pending ?? 0); const refundPending = Number(serviceRisk?.refund_pending ?? 0);
+    const exchangePending = Number(serviceRisk?.exchange_pending ?? 0); const dispositionPending = Number(serviceRisk?.disposition_pending ?? 0);
+    const riskCount = responseOverdue + resolutionOverdue + returnPending + refundPending + exchangePending + dispositionPending;
+    if (riskCount > 0) await upsertRuleTask({
+      id: "sales-service-control-risk", module: "sales", category: "고객지원·반품",
+      title: `고객지원 후속조치 ${riskCount}건`,
+      description: `최초응답 지연 ${responseOverdue}건 · 해결기한 경과 ${resolutionOverdue}건 · 재입고 대기 ${returnPending}건 · 기타 반품처리 ${dispositionPending}건 · 환불 지급 대기 ${refundPending}건 · 교환 납품 대기 ${exchangePending}건입니다.`,
+      dueDate: today, priority: responseOverdue + resolutionOverdue > 0 ? "HIGH" : "NORMAL", destination: "sales:service",
+      sourceId: `${today}:${responseOverdue}:${resolutionOverdue}:${returnPending}:${dispositionPending}:${refundPending}:${exchangePending}`,
+    }); else await closeRuleTask("sales-service-control-risk");
+  } catch {
+    // 고객지원 원장이 배포된 뒤부터 SLA와 반품·환불·교환 후속조치를 평가합니다.
+  }
+
+  try {
     const targetYear = Number(today.slice(0, 4));
     const plan = await db.prepare("SELECT id, version FROM sales_target_plans WHERE year = ? AND status = 'APPROVED' LIMIT 1")
       .bind(targetYear).first<{ id: string; version: number }>();
@@ -1016,6 +1047,7 @@ export async function GET() {
   if (auth.response) return auth.response;
   await ensureSalesPricingSchema(db);
   await ensureSalesContractSchema(db);
+  await ensureSalesServiceSchema(db);
   await seedCurrentOperations();
   await seedStateDrivenOperations();
 

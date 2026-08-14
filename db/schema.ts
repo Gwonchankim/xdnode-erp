@@ -1764,6 +1764,53 @@ export const salesContractChangeRequests = sqliteTable("sales_contract_change_re
   createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
 }, (table) => [index("idx_sales_contract_change_contract_created").on(table.contractId, table.createdAt)]);
 
+export const salesServicePolicies = sqliteTable("sales_service_policies", {
+  id: text("id").primaryKey(), name: text("name").notNull(), version: integer("version").notNull().default(1),
+  priority: text("priority").notNull(), firstResponseHours: integer("first_response_hours").notNull(),
+  resolutionHours: integer("resolution_hours").notNull(), effectiveFrom: text("effective_from").notNull(),
+  effectiveTo: text("effective_to").notNull().default(""), status: text("status").notNull().default("DRAFT"),
+  createdBy: text("created_by").notNull(), approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_service_policy_name_version").on(table.name, table.version),
+  uniqueIndex("idx_sales_service_policy_active_priority").on(table.priority).where(sql`${table.status} = 'ACTIVE'`),
+]);
+
+export const salesServiceCases = sqliteTable("sales_service_cases", {
+  id: text("id").primaryKey(), caseNumber: text("case_number").notNull(), accountId: text("account_id").notNull(),
+  opportunityId: text("opportunity_id").notNull(), deliveryDocumentId: text("delivery_document_id").notNull(),
+  contractId: text("contract_id").notNull().default(""), contactId: text("contact_id").notNull().default(""),
+  category: text("category").notNull(), priority: text("priority").notNull(), subject: text("subject").notNull(),
+  description: text("description").notNull(), policyId: text("policy_id").notNull().default(""),
+  openedAt: integer("opened_at").notNull(), firstResponseDueAt: integer("first_response_due_at").notNull(),
+  resolutionDueAt: integer("resolution_due_at").notNull(), firstRespondedAt: integer("first_responded_at"),
+  status: text("status").notNull().default("OPEN"), ownerEmployeeId: text("owner_employee_id").notNull(),
+  resolutionType: text("resolution_type").notNull().default(""), resolutionNote: text("resolution_note").notNull().default(""),
+  refundAmount: integer("refund_amount").notNull().default(0), approvalRequestId: text("approval_request_id").notNull().default(""),
+  financeRequestId: text("finance_request_id").notNull().default(""), resolvedBy: text("resolved_by").notNull().default(""),
+  resolvedAt: integer("resolved_at"), closedBy: text("closed_by").notNull().default(""), closedAt: integer("closed_at"),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_service_case_number").on(table.caseNumber),
+  index("idx_sales_service_case_status_due").on(table.status, table.resolutionDueAt),
+  index("idx_sales_service_case_account_opened").on(table.accountId, table.openedAt),
+]);
+
+export const salesServiceCaseEvents = sqliteTable("sales_service_case_events", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull(), eventType: text("event_type").notNull(),
+  note: text("note").notNull(), actorEmployeeId: text("actor_employee_id").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_sales_service_event_case_created").on(table.caseId, table.createdAt)]);
+
+export const salesServiceReturnLines = sqliteTable("sales_service_return_lines", {
+  id: text("id").primaryKey(), caseId: text("case_id").notNull(), deliveryLineId: text("delivery_line_id").notNull(),
+  quantityMilli: integer("quantity_milli").notNull(), disposition: text("disposition").notNull(),
+  inventoryMovementId: text("inventory_movement_id").notNull().default(""), receivedBy: text("received_by").notNull().default(""),
+  receivedAt: integer("received_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_service_return_case_line").on(table.caseId, table.deliveryLineId),
+  uniqueIndex("idx_sales_service_return_inventory").on(table.inventoryMovementId).where(sql`${table.inventoryMovementId} <> ''`),
+]);
+
 export const salesTargetPlans = sqliteTable("sales_target_plans", {
   id: text("id").primaryKey(), year: integer("year").notNull(), version: integer("version").notNull(),
   name: text("name").notNull(), status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),

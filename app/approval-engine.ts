@@ -27,7 +27,7 @@ export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> 
   finance: { EXPENSE: "지출 승인", BUDGET: "예산 승인", CLOSE: "월마감 승인", REPORT: "경영보고 승인", PAYMENT: "지급 승인", PURCHASE_ORDER: "발주 승인", MASTER_DATA: "재무 마스터 승인" },
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인", WORKFORCE_PLAN: "인력계획 승인", PERFORMANCE_CYCLE: "성과평가 최종확정" },
   recruitment: { REQUISITION: "채용요청 승인", OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
-  sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "가격·할인 예외 승인", CONTRACT: "계약 활성화 승인", CONTRACT_CHANGE: "계약 변경 승인" },
+  sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "가격·할인 예외 승인", CONTRACT: "계약 활성화 승인", CONTRACT_CHANGE: "계약 변경 승인", SERVICE_POLICY: "고객지원 SLA 승인", SERVICE_RESOLUTION: "고객 이슈 처리 승인" },
 };
 
 export function isApprovalType(module: ApprovalModule, requestType: string) {
@@ -436,6 +436,81 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
         approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ? AND status = 'SUBMITTED' AND approval_request_id = ?
           AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
         .bind(koreaDate, actorEmployeeId, now, now, targetEntityId, requestId, requestId, transitionToken),
+    ];
+  } else if (targetEntityType === "SALES_SERVICE_POLICY") {
+    if (!approved) return [db.prepare(`UPDATE sales_service_policies SET status = 'REJECTED', approved_by = ?, approved_at = ?, updated_at = ?
+      WHERE id = ? AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken)];
+    return [
+      db.prepare(`UPDATE sales_service_policies SET status = 'RETIRED', updated_at = ?
+        WHERE status = 'ACTIVE' AND priority = (SELECT priority FROM sales_service_policies WHERE id = ? AND status = 'SUBMITTED')
+          AND id <> ? AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, targetEntityId, requestId, transitionToken),
+      db.prepare(`UPDATE sales_service_policies SET status = 'ACTIVE', approved_by = ?, approved_at = ?, updated_at = ?
+        WHERE id = ? AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken),
+    ];
+  } else if (targetEntityType === "SALES_SERVICE_CASE") {
+    if (!approved) return [
+      db.prepare(`UPDATE sales_service_cases SET status = 'IN_PROGRESS', updated_at = ? WHERE id = ? AND status = 'RESOLUTION_SUBMITTED'
+        AND approval_request_id = ? AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, targetEntityId, requestId, requestId, transitionToken),
+      db.prepare(`INSERT INTO sales_service_case_events (id, case_id, event_type, note, actor_employee_id, created_at)
+        SELECT ?, id, 'RESOLUTION_REJECTED', '처리안 결재 반려', ?, ? FROM sales_service_cases WHERE id = ? AND status = 'IN_PROGRESS'
+          AND approval_request_id = ? AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(`service-resolution-rejected:${requestId}`, actorEmployeeId, now, targetEntityId, requestId, requestId, transitionToken),
+    ];
+    const requestDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    return [
+      db.prepare(`INSERT OR IGNORE INTO finance_expense_requests
+        (id, request_kind, title, vendor, amount, requested_date, due_date, account_code, account_name,
+          payment_method, memo, source_type, source_id, status, requester_employee_id, approved_by, approved_at,
+          paid_by, paid_at, journal_status, evidence_required, created_at, updated_at)
+        SELECT 'sales-service-refund:' || service.id, 'PAYMENT', service.case_number || ' 고객 환불', account.name,
+          service.refund_amount, ?, date(service.resolution_due_at / 1000, 'unixepoch'), '', '', 'BANK_TRANSFER',
+          service.resolution_note, 'SALES_SERVICE_REFUND', service.id, 'DRAFT', service.owner_employee_id, '', NULL,
+          '', NULL, 'UNPOSTED', 1, ?, ? FROM sales_service_cases service JOIN sales_accounts account ON account.id = service.account_id
+        WHERE service.id = ? AND service.status = 'RESOLUTION_SUBMITTED' AND service.approval_request_id = ? AND service.refund_amount > 0
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(requestDate, now, now, targetEntityId, requestId, requestId, transitionToken),
+      db.prepare(`INSERT OR IGNORE INTO erp_tasks
+        (id, module, category, title, description, owner_employee_id, due_date, status, priority,
+          destination, source_type, source_id, created_at, updated_at)
+        SELECT 'sales-service-exchange:' || id, 'sales', '교환 납품', case_number || ' 대체 납품', resolution_note,
+          owner_employee_id, date(resolution_due_at / 1000, 'unixepoch'), 'OPEN', priority, 'sales:document',
+          'SALES_SERVICE_EXCHANGE', id, ?, ? FROM sales_service_cases WHERE id = ? AND status = 'RESOLUTION_SUBMITTED'
+          AND approval_request_id = ? AND resolution_type = 'EXCHANGE'
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, now, targetEntityId, requestId, requestId, transitionToken),
+      db.prepare(`INSERT OR IGNORE INTO erp_tasks
+        (id, module, category, title, description, owner_employee_id, due_date, status, priority,
+          destination, source_type, source_id, created_at, updated_at)
+        SELECT 'sales-service-disposition:' || line.id, 'sales', '반품 후속처리', service.case_number || ' ' || line.disposition,
+          service.resolution_note, service.owner_employee_id, date(service.resolution_due_at / 1000, 'unixepoch'),
+          'OPEN', service.priority, 'sales:service', 'SALES_SERVICE_DISPOSITION', line.id, ?, ?
+        FROM sales_service_return_lines line JOIN sales_service_cases service ON service.id = line.case_id
+        WHERE service.id = ? AND service.status = 'RESOLUTION_SUBMITTED' AND service.approval_request_id = ?
+          AND line.disposition <> 'RESTOCK' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(now, now, targetEntityId, requestId, requestId, transitionToken),
+      db.prepare(`UPDATE sales_service_cases SET
+        status = CASE WHEN refund_amount > 0 OR resolution_type = 'EXCHANGE'
+          OR EXISTS (SELECT 1 FROM sales_service_return_lines line WHERE line.case_id = sales_service_cases.id)
+          THEN 'RESOLUTION_APPROVED' ELSE 'RESOLVED' END,
+        finance_request_id = CASE WHEN refund_amount > 0 THEN 'sales-service-refund:' || id ELSE finance_request_id END,
+        resolved_by = CASE WHEN refund_amount = 0 AND resolution_type <> 'EXCHANGE'
+          AND NOT EXISTS (SELECT 1 FROM sales_service_return_lines line WHERE line.case_id = sales_service_cases.id)
+          THEN ? ELSE resolved_by END,
+        resolved_at = CASE WHEN refund_amount = 0 AND resolution_type <> 'EXCHANGE'
+          AND NOT EXISTS (SELECT 1 FROM sales_service_return_lines line WHERE line.case_id = sales_service_cases.id)
+          THEN ? ELSE resolved_at END, updated_at = ?
+        WHERE id = ? AND status = 'RESOLUTION_SUBMITTED' AND approval_request_id = ?
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(actorEmployeeId, now, now, targetEntityId, requestId, requestId, transitionToken),
+      db.prepare(`INSERT INTO sales_service_case_events (id, case_id, event_type, note, actor_employee_id, created_at)
+        SELECT ?, id, 'RESOLUTION_APPROVED', resolution_note, ?, ? FROM sales_service_cases WHERE id = ?
+          AND status IN ('RESOLUTION_APPROVED','RESOLVED') AND approval_request_id = ?
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(`service-resolution-approved:${requestId}`, actorEmployeeId, now, targetEntityId, requestId, requestId, transitionToken),
     ];
   } else if (targetEntityType === "SALES_TARGET_PLAN") {
     if (!approved) return [db.prepare(`UPDATE sales_target_plans SET status = 'DRAFT', approved_by = '', approved_at = NULL, updated_at = ?

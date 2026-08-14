@@ -6,6 +6,7 @@ import SalesPlanningView from "./sales-planning-view";
 import SalesAccount360View from "./sales-account-360-view";
 import SalesPricingGovernance from "./sales-pricing-governance";
 import SalesContractManagement from "./sales-contract-management";
+import SalesServiceManagement from "./sales-service-management";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
@@ -280,6 +281,8 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
     <SalesPricingGovernance refreshKey={data?.documents.length ?? 0} />
 
     <SalesContractManagement refreshKey={data?.documents.filter((item) => item.documentType === "ORDER").length ?? 0} />
+
+    <SalesServiceManagement refreshKey={data?.documents.filter((item) => item.documentType === "DELIVERY").length ?? 0} />
 
     <section className="panel sales-document-flow">
       <header><div><p>QUOTE TO CASH</p><h2>견적·수주·납품·청구·수금</h2></div><span>{data?.documents.length ?? 0}개 문서</span></header>

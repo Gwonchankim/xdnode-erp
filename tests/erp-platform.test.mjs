@@ -1291,3 +1291,51 @@ test("sales contracts require signed evidence, obligations and governed changes 
   assert.match(migration, /idx_sales_contract_number/);
   assert.match(plan, /도입 이전 수주는 기존 운영을 보존/);
 });
+
+test("after-sales service governs SLA, return quantities, evidence, approval and downstream completion", async () => {
+  const [api, service, documents, approval, approvalCenter, operations, workspace, schema, migration, plan] = await Promise.all([
+    read("app/api/sales/service/route.ts"),
+    read("app/sales-service-management.tsx"),
+    read("app/api/documents/route.ts"),
+    read("app/approval-engine.ts"),
+    read("app/approval-center.tsx"),
+    read("app/api/operations/route.ts"),
+    read("app/sales-workspace.tsx"),
+    read("db/schema.ts"),
+    read("drizzle/0050_sales_service_control.sql"),
+    read("docs/sales-service-control-plan.md"),
+  ]);
+  assert.match(api, /status = 'ACTIVE'/);
+  assert.match(api, /활성 SLA가 없어 최초응답과 해결기한을 직접 입력/);
+  assert.match(api, /reserved_milli/);
+  assert.match(api, /quantityMilli > Math\.round\(source\.quantity \* 1000\) - Number\(source\.reserved_milli\)/);
+  assert.match(api, /REMOVE_RETURN_LINE/);
+  assert.match(api, /reservedRefund/);
+  assert.match(api, /SERVICE_EVIDENCE/);
+  assert.match(api, /requestType: "SERVICE_RESOLUTION"/);
+  assert.match(api, /authorizeErpRequest\(db, "finance", "write"\)/);
+  assert.match(api, /'SALES_RETURN_IN'/);
+  assert.match(api, /finance_status !== "PAID"/);
+  assert.match(documents, /entityType === "salesServiceCase"/);
+  assert.match(documents, /고객지원 근거문서는 삭제할 수 없습니다/);
+  assert.match(approval, /SERVICE_POLICY: "고객지원 SLA 승인"/);
+  assert.match(approval, /SERVICE_RESOLUTION: "고객 이슈 처리 승인"/);
+  assert.match(approval, /targetEntityType === "SALES_SERVICE_POLICY"/);
+  assert.match(approval, /targetEntityType === "SALES_SERVICE_CASE"/);
+  assert.match(approval, /'SALES_SERVICE_REFUND'/);
+  assert.match(approval, /'SALES_SERVICE_EXCHANGE'/);
+  assert.match(approval, /'SALES_SERVICE_DISPOSITION'/);
+  assert.match(approvalCenter, /고객지원 SLA 승인/);
+  assert.match(operations, /sales-service-control-risk/);
+  assert.match(service, /고객지원·반품 관리/);
+  assert.match(service, /최초 고객 응답/);
+  assert.match(service, /후속조치 확인 후 종결/);
+  assert.match(workspace, /<SalesServiceManagement/);
+  assert.match(schema, /salesServiceCases/);
+  assert.match(schema, /salesServiceReturnLines/);
+  assert.match(migration, /idx_sales_service_policy_active_priority/);
+  assert.match(migration, /trg_sales_service_return_quantity_limit/);
+  assert.match(migration, /trg_sales_service_refund_amount_limit/);
+  assert.match(plan, /상품 매핑이나 원가는 추정하지 않는다/);
+  assert.match(plan, /동시 요청/);
+});

@@ -88,6 +88,39 @@ export async function ensureErpPlatformSchema(db: D1Database) {
       ON erp_tasks (owner_employee_id, status, due_date)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_tasks_module_status
       ON erp_tasks (module, status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_requests (
+      id TEXT PRIMARY KEY NOT NULL, module TEXT NOT NULL, request_type TEXT NOT NULL,
+      title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', requester_employee_id TEXT NOT NULL,
+      target_entity_type TEXT NOT NULL DEFAULT '', target_entity_id TEXT NOT NULL DEFAULT '',
+      amount INTEGER NOT NULL DEFAULT 0, currency TEXT NOT NULL DEFAULT 'KRW', priority TEXT NOT NULL DEFAULT 'NORMAL',
+      status TEXT NOT NULL DEFAULT 'SUBMITTED', current_step INTEGER NOT NULL DEFAULT 1,
+      due_date TEXT NOT NULL DEFAULT '', metadata_json TEXT NOT NULL DEFAULT '{}', version INTEGER NOT NULL DEFAULT 1,
+      transition_token TEXT NOT NULL DEFAULT '',
+      submitted_at INTEGER NOT NULL, decided_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_requester_status
+      ON erp_approval_requests (requester_employee_id, status, updated_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_module_status
+      ON erp_approval_requests (module, status, updated_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_target
+      ON erp_approval_requests (target_entity_type, target_entity_id)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_steps (
+      id TEXT PRIMARY KEY NOT NULL, request_id TEXT NOT NULL, step_order INTEGER NOT NULL,
+      step_name TEXT NOT NULL, approver_role TEXT NOT NULL, approver_employee_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'WAITING', comment TEXT NOT NULL DEFAULT '', acted_by TEXT NOT NULL DEFAULT '',
+      acted_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_approval_step_request_order
+      ON erp_approval_steps (request_id, step_order)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_step_approver_status
+      ON erp_approval_steps (approver_employee_id, status)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_approval_events (
+      id TEXT PRIMARY KEY NOT NULL, request_id TEXT NOT NULL, step_order INTEGER NOT NULL DEFAULT 0,
+      action TEXT NOT NULL, actor_employee_id TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '',
+      snapshot_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_erp_approval_event_request_created
+      ON erp_approval_events (request_id, created_at)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS erp_sync_runs (
       id TEXT PRIMARY KEY NOT NULL,
       source TEXT NOT NULL,

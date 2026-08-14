@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { companyEmployees } from "../../../hr-company-data";
 import { payrollSeedRecords } from "../../../payroll-seed-data";
+import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type HrBindings = { DB: D1Database };
@@ -254,13 +255,30 @@ export async function PUT(request: Request) {
   if (!/^\d{4}-\d{2}$/.test(period) || !["DRAFT", "REVIEW", "APPROVED", "LOCKED"].includes(status)) {
     return Response.json({ error: "급여월과 처리 상태를 확인해 주세요." }, { status: 400 });
   }
-  const action = ["APPROVED", "LOCKED"].includes(status) ? "approve" : "write";
+  const action = status === "LOCKED" ? "approve" : "write";
   const authorization = await authorizeErpRequest(db, "hr", action);
   if (authorization.response) return authorization.response;
   await syncPayrollRuns();
   const before = await db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>();
   if (!before) return Response.json({ error: "급여월을 찾을 수 없습니다." }, { status: 404 });
   const now = Date.now();
+  if (status === "APPROVED" && before.status !== "APPROVED") {
+    if (before.status !== "REVIEW") return Response.json({ error: "검토 요청 상태의 급여월만 승인 결재를 요청할 수 있습니다." }, { status: 409 });
+    const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests
+      WHERE target_entity_type = 'PAYROLL_RUN' AND target_entity_id = ? ORDER BY created_at DESC LIMIT 1`)
+      .bind(period).first<{ id: string; status: string }>();
+    if (existing && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"].includes(existing.status)) return Response.json({ item: before, approvalSubmitted: true, approvalId: existing.id }, { status: 202 });
+    const netPay = Number(before.net_pay ?? 0);
+    const approval = await createApprovalRequest(db, authorization.principal, {
+      module: "hr", requestType: "PAYROLL_RUN", title: `${period} 급여 승인`,
+      description: `${Number(before.employee_count ?? 0)}명 · 기록상 지급액 ${netPay.toLocaleString("ko-KR")}원`,
+      targetEntityType: "PAYROLL_RUN", targetEntityId: period, amount: netPay,
+      metadata: { period, employeeCount: Number(before.employee_count ?? 0), grossPay: Number(before.gross_pay ?? 0), deductions: Number(before.deductions ?? 0), netPay },
+    });
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_APPROVAL_SUBMITTED", entityType: "payrollRun", entityId: period, before, after: approval });
+    return Response.json({ item: before, approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
+  }
+  if (status === "LOCKED" && before.status !== "APPROVED") return Response.json({ error: "승인 완료된 급여월만 마감 잠금할 수 있습니다." }, { status: 409 });
   await db.prepare(`UPDATE hr_payroll_runs SET status = ?, prepared_by = CASE WHEN ? IN ('REVIEW','APPROVED','LOCKED') THEN ? ELSE prepared_by END,
     reviewed_by = CASE WHEN ? IN ('APPROVED','LOCKED') THEN ? ELSE reviewed_by END,
     approved_by = CASE WHEN ? IN ('APPROVED','LOCKED') THEN ? ELSE '' END,

@@ -793,7 +793,6 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
     event.preventDefault();
     if (!selectedEmployee || !personnelAction) return;
     const data = new FormData(event.currentTarget);
-    const date = String(data.get("effectiveDate")).replaceAll("-", ".");
     const actionType = String(data.get("actionType")) as PersonnelActionType;
     const department = String(data.get("targetDepartment"));
     const position = String(data.get("targetPosition"));
@@ -837,16 +836,12 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
           reason: detail,
         }),
       });
-      const payload = await response.json() as { error?: string };
+      const payload = await response.json() as { error?: string; approvalSubmitted?: boolean };
       if (!response.ok) throw new Error(payload.error || "인사 발령을 저장하지 못했습니다.");
-      const saved = await updateEmployee(selectedEmployee.id, {
-        department: actionType === "인사이동(전보)" ? department : selectedEmployee.department,
-        position: actionType === "승진" || actionType === "강등" ? position : selectedEmployee.position,
-        history: [{ date, type: actionType, detail }, ...selectedEmployee.history],
-      });
-      if (!saved) throw new Error("발령 기록은 저장했지만 인사기록 반영에 실패했습니다. 관리자 확인이 필요합니다.");
       setPersonnelAction(null);
-      showToast(`${actionType} 인사 발령과 변경 이력을 영구 저장했습니다.`);
+      showToast(payload.approvalSubmitted
+        ? `${actionType} 인사 발령을 전자결재로 제출했습니다. 최종 승인 후 인사기록에 반영됩니다.`
+        : `${actionType} 인사 발령을 저장했습니다.`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "인사 발령을 저장하지 못했습니다.");
     }
@@ -1766,7 +1761,7 @@ function TimeAndLeaveView({ employees, onNotify }: { employees: Employee[]; onNo
     </section>
 
     <section className="time-leave-tables">
-      <article className="panel"><div className="table-toolbar"><div><h2>휴가 신청 현황</h2><span>{leaveRequests.length}건 · 0.5일은 50단위로 안전하게 저장됩니다.</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>직원</th><th>종류</th><th>기간</th><th>일수</th><th>사유</th><th>상태</th><th>처리</th></tr></thead><tbody>{loading ? <tr><td colSpan={7} className="table-message">불러오는 중입니다.</td></tr> : leaveRequests.length ? leaveRequests.map((item) => <tr key={item.id}><td>{employeeName(item.employee_id)}</td><td>{leaveTypeLabels[item.leave_type] ?? item.leave_type}</td><td>{item.start_date}~{item.end_date}</td><td>{(item.units / 100).toFixed(1)}일</td><td>{item.reason || "-"}</td><td><StatusPill value={approvalLabels[item.status] ?? item.status} /></td><td>{item.status === "PENDING" ? <div className="row-actions"><button type="button" onClick={() => void decide("leaveRequest", item.id, "APPROVED")}>승인</button><button type="button" className="reject-action" onClick={() => void decide("leaveRequest", item.id, "REJECTED")}>반려</button></div> : "처리 완료"}</td></tr>) : <tr><td colSpan={7} className="empty-cell">등록된 휴가 신청이 없습니다.</td></tr>}</tbody></table></div></article>
+      <article className="panel"><div className="table-toolbar"><div><h2>휴가 신청 현황</h2><span>{leaveRequests.length}건 · 0.5일은 50단위로 안전하게 저장됩니다.</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>직원</th><th>종류</th><th>기간</th><th>일수</th><th>사유</th><th>상태</th><th>처리</th></tr></thead><tbody>{loading ? <tr><td colSpan={7} className="table-message">불러오는 중입니다.</td></tr> : leaveRequests.length ? leaveRequests.map((item) => <tr key={item.id}><td>{employeeName(item.employee_id)}</td><td>{leaveTypeLabels[item.leave_type] ?? item.leave_type}</td><td>{item.start_date}~{item.end_date}</td><td>{(item.units / 100).toFixed(1)}일</td><td>{item.reason || "-"}</td><td><StatusPill value={approvalLabels[item.status] ?? item.status} /></td><td>{item.status === "PENDING" ? <span className="approval-route-note">상단 전자결재에서 처리</span> : "처리 완료"}</td></tr>) : <tr><td colSpan={7} className="empty-cell">등록된 휴가 신청이 없습니다.</td></tr>}</tbody></table></div></article>
       <article className="panel"><div className="table-toolbar"><div><h2>근태 기록 현황</h2><span>{attendanceRecords.length}건 · 출입시스템 연동 전 수기 기록</span></div></div><div className="data-table-wrap"><table className="data-table"><thead><tr><th>직원</th><th>근무일</th><th>형태</th><th>출퇴근</th><th>근무시간</th><th>출처</th><th>상태</th><th>처리</th></tr></thead><tbody>{loading ? <tr><td colSpan={8} className="table-message">불러오는 중입니다.</td></tr> : attendanceRecords.length ? attendanceRecords.map((item) => <tr key={item.id}><td>{employeeName(item.employee_id)}</td><td>{item.work_date}</td><td>{attendanceTypeLabels[item.work_type] ?? item.work_type}</td><td>{item.check_in || "-"}~{item.check_out || "-"}</td><td>{Math.floor(item.minutes_worked / 60)}시간 {item.minutes_worked % 60}분</td><td><span className="manual-source-badge compact">{item.source_type}</span></td><td><StatusPill value={approvalLabels[item.status] ?? item.status} /></td><td>{item.status === "RECORDED" ? <div className="row-actions"><button type="button" onClick={() => void decide("attendance", item.id, "APPROVED")}>확인</button><button type="button" className="reject-action" onClick={() => void decide("attendance", item.id, "REJECTED")}>반려</button></div> : "처리 완료"}</td></tr>) : <tr><td colSpan={8} className="empty-cell">등록된 근태 기록이 없습니다.</td></tr>}</tbody></table></div></article>
     </section>
   </div>;
@@ -1897,13 +1892,15 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
   const [selectedRecord, setSelectedRecord] = useState<PayrollRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
 
   async function updatePayrollStatus(status: PayrollSummary["status"]) {
-    setError("");
+    setError(""); setNotice("");
     const response = await fetch("/api/hr/payroll", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period: month, status }) });
-    const payload = await response.json() as { error?: string };
+    const payload = await response.json() as { error?: string; approvalSubmitted?: boolean };
     if (!response.ok) { setError(payload.error || "급여 처리 상태를 변경하지 못했습니다."); return; }
-    setSummary((current) => current ? { ...current, status } : current);
+    if (payload.approvalSubmitted) setNotice("전자결재를 제출했습니다. 최종 승인 후 급여 상태가 반영됩니다.");
+    else setSummary((current) => current ? { ...current, status } : current);
   }
 
   useEffect(() => {
@@ -1930,7 +1927,8 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
 
   return <div className="page-wrap detail-page payroll-page">
     <button type="button" className="back-button" onClick={onBack}>← 급여월 현황</button>
-    <section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{payrollMonthLabel(month)} 급여 상세</h1><p>직원별 기본급과 모든 수당 항목을 한 표에서 확인합니다. 직원명을 클릭하면 추가 항목과 원본 메모를 볼 수 있습니다.</p></div><div className="payroll-workflow"><span className="payroll-import-badge">{summary ? payrollStatusLabels[summary.status] : "불러오는 중"}</span><select aria-label="급여 처리 상태" value={summary?.status ?? "DRAFT"} onChange={(event) => void updatePayrollStatus(event.target.value as PayrollSummary["status"])} disabled={!summary}><option value="DRAFT">작성 중</option><option value="REVIEW">검토 요청</option><option value="APPROVED">승인 완료</option><option value="LOCKED">마감 잠금</option></select></div></section>
+    <section className="module-hero"><div><p className="eyebrow">MONTHLY PAYROLL DETAIL</p><h1>{payrollMonthLabel(month)} 급여 상세</h1><p>직원별 기본급과 모든 수당 항목을 한 표에서 확인합니다. 직원명을 클릭하면 추가 항목과 원본 메모를 볼 수 있습니다.</p></div><div className="payroll-workflow"><span className="payroll-import-badge">{summary ? payrollStatusLabels[summary.status] : "불러오는 중"}</span><select aria-label="급여 처리 상태" value={summary?.status ?? "DRAFT"} onChange={(event) => void updatePayrollStatus(event.target.value as PayrollSummary["status"])} disabled={!summary}><option value="DRAFT">작성 중</option><option value="REVIEW">검토 요청</option><option value="APPROVED">승인 결재 요청</option><option value="LOCKED">마감 잠금</option></select></div></section>
+    {notice && <div className="finance-control-message" role="status">{notice}</div>}
     <section className="payroll-summary"><div><span>급여 대상</span><strong>{summary ? `${summary.employeeCount}명` : "-"}</strong><small>월별 정규 급여 행</small></div><div><span>지급총액</span><strong>{summary ? formatWon(summary.grossPay) : "-"}</strong><small>기본급·수당·인센티브 포함</small></div><div><span>공제총액</span><strong>{summary ? formatWon(summary.deductions) : "-"}</strong><small>원본 공제 열 합계</small></div><div><span>기록상 지급액</span><strong>{summary ? formatWon(summary.netPay) : "-"}</strong><small>실제 세후 송금액과 다를 수 있음</small></div></section>
     <section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>전체 {records.length}명 · 가로로 이동하면 모든 수당 항목을 확인할 수 있습니다.</span></div><span className="payroll-source-note">인건비 정리 원본 기준</span></div><div className="data-table-wrap payroll-detail-scroll"><table className="data-table payroll-detail-table"><thead><tr>{payrollColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={payrollColumns.length} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={payrollColumns.length} className="table-message error">{error}</td></tr> : records.map((record) => <tr key={record.id}><td><button type="button" className="payroll-person-link" onClick={() => setSelectedRecord(record)}>{record.employeeName}</button></td><td>{record.department ?? "퇴직·미등록"}</td><td>{formatWon(record.basePay)}</td><td>{formatWon(record.mealAllowance)}</td><td>{formatWon(record.childcareAllowance)}</td><td>{formatWon(record.vehicleAllowance)}</td><td>{formatWon(record.incentive)}</td><td>{formatWon(record.bonus)}</td><td>{formatWon(record.annualLeavePay)}</td><td>{formatWon(record.retirementPay)}</td><td>{formatWon(record.deductions)}</td><td>{formatWon(record.netPay)}</td><td><StatusPill value="자료 반영" /></td></tr>)}</tbody></table></div></section>
     {selectedRecord && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedRecord(null)}><section className="payroll-record-modal" role="dialog" aria-modal="true" aria-label={`${selectedRecord.employeeName} 급여 세부 항목`}><div className="modal-header"><div><p className="eyebrow">PAYROLL BREAKDOWN</p><h2>{selectedRecord.employeeName} · {payrollMonthLabel(selectedRecord.yearMonth)}</h2></div><button type="button" className="modal-close" onClick={() => setSelectedRecord(null)}>×</button></div><div className="payroll-record-summary"><div><span>연봉 기준</span><strong>{formatWon(selectedRecord.annualSalary)}</strong></div><div><span>지급총액</span><strong>{formatWon(selectedRecord.grossPay)}</strong></div><div><span>기록상 지급액</span><strong>{formatWon(selectedRecord.netPay)}</strong></div></div><div className="payroll-breakdown-grid">{[

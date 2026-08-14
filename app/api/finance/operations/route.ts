@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 
@@ -187,8 +188,7 @@ export async function PUT(request: Request) {
   const resource = String(body.resource ?? "");
   const id = String(body.id ?? "").trim();
   if (!id) return Response.json({ error: "수정할 항목 ID가 필요합니다." }, { status: 400 });
-  const requiredAction = resource === "close" && String(body.status) === "APPROVED" ? "approve" : "write";
-  const authorization = await authorizeErpRequest(db, "finance", requiredAction);
+  const authorization = await authorizeErpRequest(db, "finance", "write");
   if (authorization.response) return authorization.response;
   const now = Date.now();
 
@@ -197,6 +197,20 @@ export async function PUT(request: Request) {
     if (!before) return Response.json({ error: "마감 업무를 찾을 수 없습니다." }, { status: 404 });
     const status = String(body.status ?? before.status);
     if (!["OPEN", "IN_PROGRESS", "COMPLETED", "APPROVED"].includes(status)) return Response.json({ error: "올바르지 않은 상태입니다." }, { status: 400 });
+    if (status === "APPROVED" && before.status !== "APPROVED") {
+      if (before.status !== "COMPLETED") return Response.json({ error: "완료 처리된 마감 업무만 승인 결재를 요청할 수 있습니다." }, { status: 409 });
+      const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests
+        WHERE target_entity_type = 'FINANCE_CLOSE' AND target_entity_id = ? ORDER BY created_at DESC LIMIT 1`)
+        .bind(id).first<{ id: string; status: string }>();
+      if (existing && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"].includes(existing.status)) return Response.json({ item: toCloseTask(before), approvalSubmitted: true, approvalId: existing.id }, { status: 202 });
+      const approval = await createApprovalRequest(db, authorization.principal, {
+        module: "finance", requestType: "CLOSE", title: `${before.period} ${before.title} 승인`,
+        description: `${before.category} 마감 업무 완료 검토`, targetEntityType: "FINANCE_CLOSE", targetEntityId: id,
+        dueDate: before.period ? `${before.period}-28` : "", metadata: { period: before.period, category: before.category },
+      });
+      await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "CLOSE_APPROVAL_SUBMITTED", entityType: "financeCloseTask", entityId: id, before: toCloseTask(before), after: approval });
+      return Response.json({ item: toCloseTask(before), approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
+    }
     const completedAt = ["COMPLETED", "APPROVED"].includes(status) ? (before.completed_at ?? now) : null;
     const approvedBy = status === "APPROVED" ? authorization.principal.employeeId : "";
     const approvedAt = status === "APPROVED" ? now : null;
@@ -225,9 +239,19 @@ export async function PUT(request: Request) {
     if (!before) return Response.json({ error: "예산 항목을 찾을 수 없습니다." }, { status: 404 });
     const status = String(body.status ?? before.status);
     if (!["DRAFT", "SUBMITTED", "APPROVED"].includes(status)) return Response.json({ error: "올바르지 않은 상태입니다." }, { status: 400 });
-    if (status === "APPROVED") {
-      const approval = await authorizeErpRequest(db, "finance", "approve");
-      if (approval.response) return approval.response;
+    if (status === "APPROVED" && before.status !== "APPROVED") {
+      if (before.status !== "SUBMITTED") return Response.json({ error: "검토 요청 상태의 예산만 승인 결재를 요청할 수 있습니다." }, { status: 409 });
+      const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests
+        WHERE target_entity_type = 'FINANCE_BUDGET' AND target_entity_id = ? ORDER BY created_at DESC LIMIT 1`)
+        .bind(id).first<{ id: string; status: string }>();
+      if (existing && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"].includes(existing.status)) return Response.json({ item: toBudget(before), approvalSubmitted: true, approvalId: existing.id }, { status: 202 });
+      const approval = await createApprovalRequest(db, authorization.principal, {
+        module: "finance", requestType: "BUDGET", title: `${before.fiscal_year}년 ${before.month}월 ${before.account_name} 예산 승인`,
+        description: `${before.department} · ${before.amount.toLocaleString("ko-KR")}원`, targetEntityType: "FINANCE_BUDGET",
+        targetEntityId: id, amount: before.amount, metadata: { fiscalYear: before.fiscal_year, month: before.month, department: before.department, accountCode: before.account_code },
+      });
+      await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "BUDGET_APPROVAL_SUBMITTED", entityType: "budget", entityId: id, before: toBudget(before), after: approval });
+      return Response.json({ item: toBudget(before), approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
     }
     await db.prepare("UPDATE finance_budgets SET status = ?, approved_by = ?, updated_at = ? WHERE id = ?")
       .bind(status, status === "APPROVED" ? authorization.principal.employeeId : "", now, id).run();

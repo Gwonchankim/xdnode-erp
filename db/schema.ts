@@ -1,4 +1,4 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const employeeInterviewRecords = sqliteTable("employee_interview_records", {
   id: text("id").primaryKey(),
@@ -183,6 +183,65 @@ export const erpTasks = sqliteTable("erp_tasks", {
 }, (table) => [
   index("idx_erp_tasks_owner_status_due").on(table.ownerEmployeeId, table.status, table.dueDate),
   index("idx_erp_tasks_module_status").on(table.module, table.status),
+]);
+
+export const erpApprovalRequests = sqliteTable("erp_approval_requests", {
+  id: text("id").primaryKey(),
+  module: text("module").notNull(),
+  requestType: text("request_type").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  requesterEmployeeId: text("requester_employee_id").notNull(),
+  targetEntityType: text("target_entity_type").notNull().default(""),
+  targetEntityId: text("target_entity_id").notNull().default(""),
+  amount: integer("amount").notNull().default(0),
+  currency: text("currency").notNull().default("KRW"),
+  priority: text("priority").notNull().default("NORMAL"),
+  status: text("status").notNull().default("SUBMITTED"),
+  currentStep: integer("current_step").notNull().default(1),
+  dueDate: text("due_date").notNull().default(""),
+  metadataJson: text("metadata_json").notNull().default("{}"),
+  version: integer("version").notNull().default(1),
+  transitionToken: text("transition_token").notNull().default(""),
+  submittedAt: integer("submitted_at").notNull(),
+  decidedAt: integer("decided_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_erp_approval_requester_status").on(table.requesterEmployeeId, table.status, table.updatedAt),
+  index("idx_erp_approval_module_status").on(table.module, table.status, table.updatedAt),
+  index("idx_erp_approval_target").on(table.targetEntityType, table.targetEntityId),
+]);
+
+export const erpApprovalSteps = sqliteTable("erp_approval_steps", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  stepOrder: integer("step_order").notNull(),
+  stepName: text("step_name").notNull(),
+  approverRole: text("approver_role").notNull(),
+  approverEmployeeId: text("approver_employee_id").notNull().default(""),
+  status: text("status").notNull().default("WAITING"),
+  comment: text("comment").notNull().default(""),
+  actedBy: text("acted_by").notNull().default(""),
+  actedAt: integer("acted_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_erp_approval_step_request_order").on(table.requestId, table.stepOrder),
+  index("idx_erp_approval_step_approver_status").on(table.approverEmployeeId, table.status),
+]);
+
+export const erpApprovalEvents = sqliteTable("erp_approval_events", {
+  id: text("id").primaryKey(),
+  requestId: text("request_id").notNull(),
+  stepOrder: integer("step_order").notNull().default(0),
+  action: text("action").notNull(),
+  actorEmployeeId: text("actor_employee_id").notNull(),
+  comment: text("comment").notNull().default(""),
+  snapshotJson: text("snapshot_json").notNull().default("{}"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_erp_approval_event_request_created").on(table.requestId, table.createdAt),
 ]);
 
 export const erpSyncRuns = sqliteTable("erp_sync_runs", {

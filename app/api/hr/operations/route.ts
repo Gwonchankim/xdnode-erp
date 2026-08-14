@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 
 type Bindings = { DB: D1Database };
@@ -79,15 +80,28 @@ export async function POST(request: Request) {
     }
     const beforeState = { department: String(body.fromDepartment ?? ""), position: String(body.fromPosition ?? "") };
     const afterState = { department: String(body.toDepartment ?? ""), position: String(body.toPosition ?? "") };
+    if (!afterState.department || !afterState.position) return Response.json({ error: "발령 후 소속 조직과 직급을 확인해 주세요." }, { status: 400 });
     await db.prepare(`INSERT INTO hr_personnel_actions
       (id, employee_id, action_type, effective_date, order_number, before_json, after_json,
         reason, status, approved_by, approved_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'EFFECTIVE', ?, ?, ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'SUBMITTED', '', NULL, ?, ?)`)
       .bind(id, employeeId, actionType, effectiveDate, String(body.orderNumber ?? ""), JSON.stringify(beforeState),
-        JSON.stringify(afterState), reason, authorization.principal.employeeId, now, now, now).run();
-    const after = { id, employeeId, actionType, effectiveDate, fromDepartment: body.fromDepartment, toDepartment: body.toDepartment, fromPosition: body.fromPosition, toPosition: body.toPosition, reason, status: "EFFECTIVE" };
+        JSON.stringify(afterState), reason, now, now).run();
+    try {
+      await createApprovalRequest(db, authorization.principal, {
+        module: "hr", requestType: "PERSONNEL_ACTION", title: `${employeeId} ${actionType} 승인 요청`,
+        description: `${effectiveDate} 시행 · ${beforeState.department}/${beforeState.position} → ${afterState.department}/${afterState.position}${reason ? ` · ${reason}` : ""}`,
+        targetEntityType: "HR_PERSONNEL_ACTION", targetEntityId: id, dueDate: effectiveDate,
+        priority: actionType === "강등" ? "HIGH" : "NORMAL",
+        metadata: { employeeId, actionType, effectiveDate, beforeState, afterState, reason },
+      });
+    } catch (error) {
+      await db.prepare("DELETE FROM hr_personnel_actions WHERE id = ?").bind(id).run();
+      return Response.json({ error: error instanceof Error ? error.message : "인사 발령 결재선을 만들지 못했습니다." }, { status: 409 });
+    }
+    const after = { id, employeeId, actionType, effectiveDate, fromDepartment: body.fromDepartment, toDepartment: body.toDepartment, fromPosition: body.fromPosition, toPosition: body.toPosition, reason, status: "SUBMITTED" };
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PERSONNEL_ACTION_CREATED", entityType: "personnelAction", entityId: id, after });
-    return Response.json({ item: after }, { status: 201 });
+    return Response.json({ item: after, approvalSubmitted: true }, { status: 202 });
   }
 
   if (resource === "retirement") {
@@ -129,12 +143,17 @@ export async function POST(request: Request) {
         approver_employee_id, decided_at, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDING', '', NULL, ?, ?)`)
       .bind(id, employeeId, leaveType, startDate, endDate, units, reason, now, now).run();
-    const taskId = `leave:${id}`;
-    await db.prepare(`INSERT OR IGNORE INTO erp_tasks
-      (id, module, category, title, description, owner_employee_id, due_date, status, priority,
-        destination, source_type, source_id, created_at, updated_at)
-      VALUES (?, 'hr', '휴가 승인', ?, ?, '', ?, 'OPEN', 'NORMAL', 'hr:schedule', 'RULE', ?, ?, ?)`)
-      .bind(taskId, `${employeeId} 휴가 승인 요청`, `${startDate}~${endDate} · ${leaveType}`, startDate, id, now, now).run();
+    try {
+      await createApprovalRequest(db, authorization.principal, {
+        module: "hr", requestType: "LEAVE_REQUEST", title: `${employeeId} 휴가 승인 요청`,
+        description: `${startDate}~${endDate} · ${leaveType}${reason ? ` · ${reason}` : ""}`,
+        targetEntityType: "HR_LEAVE", targetEntityId: id, dueDate: startDate,
+        metadata: { employeeId, leaveType, startDate, endDate, units, reason },
+      });
+    } catch (error) {
+      await db.prepare("DELETE FROM hr_leave_requests WHERE id = ?").bind(id).run();
+      return Response.json({ error: error instanceof Error ? error.message : "휴가 결재선을 만들지 못했습니다." }, { status: 409 });
+    }
     const after = { id, employeeId, leaveType, startDate, endDate, units, reason, status: "PENDING" };
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "LEAVE_REQUEST_CREATED", entityType: "leaveRequest", entityId: id, after });
     return Response.json({ item: after }, { status: 201 });
@@ -182,6 +201,9 @@ export async function PUT(request: Request) {
   if (resource === "leaveRequest") {
     const before = await db.prepare("SELECT * FROM hr_leave_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
     if (!before) return Response.json({ error: "휴가 신청을 찾을 수 없습니다." }, { status: 404 });
+    const workflow = await db.prepare("SELECT id FROM erp_approval_requests WHERE target_entity_type = 'HR_LEAVE' AND target_entity_id = ? LIMIT 1")
+      .bind(id).first<{ id: string }>();
+    if (workflow) return Response.json({ error: "이 휴가 신청은 상단 전자결재에서 처리해 주세요." }, { status: 409 });
     const status = String(body.status ?? "");
     if (!["APPROVED", "REJECTED", "CANCELLED"].includes(status)) return Response.json({ error: "올바르지 않은 승인 상태입니다." }, { status: 400 });
     await db.batch([

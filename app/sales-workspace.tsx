@@ -77,8 +77,9 @@ export default function SalesWorkspace({ search }: { search: string }) {
 
   async function updateDocumentStatus(id: string, status: string) {
     const response = await fetch("/api/sales", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "document", id, status }) });
-    const result = await response.json() as { error?: string };
+    const result = await response.json() as { error?: string; approvalSubmitted?: boolean };
     if (!response.ok) { setMessage(result.error || "문서 상태를 변경하지 못했습니다."); return; }
+    setMessage(result.approvalSubmitted ? "전자결재를 제출했습니다. 승인 후 문서가 확정됩니다." : "문서 상태를 변경했습니다.");
     await load();
   }
 

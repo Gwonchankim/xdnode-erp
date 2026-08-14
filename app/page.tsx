@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import HRWorkspace from "./hr-workspace";
 import FinanceOperationsCenter from "./finance-operations-center";
 import SalesWorkspace from "./sales-workspace";
+import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
 import { financeHistoricalData } from "./finance-historical-data";
 
@@ -29,6 +30,7 @@ type OperationTask = {
   status: "OPEN" | "IN_PROGRESS" | "WAITING" | "DONE";
   priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
   destination: string;
+  sourceType?: string;
 };
 
 const modules: Array<{
@@ -227,6 +229,7 @@ function formatCompactWon(value: number) {
 
 function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }: { active: ModuleKey; onChange: (module: ModuleKey) => void; onOpenAlert: (alert: ERPAlert) => void; openRequestKey?: number }) {
   const [alertsOpen, setAlertsOpen] = useState(false);
+  const [approvalRequestKey, setApprovalRequestKey] = useState(0);
   const [operationTasks, setOperationTasks] = useState<OperationTask[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
   const [operationsError, setOperationsError] = useState("");
@@ -305,6 +308,12 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   }
 
   function openTask(task: OperationTask) {
+    if (task.destination === "approval:center") {
+      setApprovalRequestKey((value) => value + 1);
+      void updateTask(task, "IN_PROGRESS");
+      setAlertsOpen(false);
+      return;
+    }
     const destination = taskDestination(task);
     if (destination) onOpenAlert({
       id: task.id,
@@ -352,6 +361,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
           <span className="status-dot" />
           <div><strong>Clobe · 2026 데이터</strong><small>8월 14일 수집</small></div>
         </div>
+        <ApprovalCenter openRequestKey={approvalRequestKey} />
         <button
           type="button"
           className="erp-alarm-button"
@@ -385,7 +395,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
                     <h3>{task.title}</h3><span>{task.description}</span>
                     <div className="operation-task-actions">
                       {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>관련 업무 열기 →</button>}
-                      <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>
+                      {task.sourceType !== "APPROVAL" && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
                     </div>
                   </div>
                 </article>
@@ -1351,9 +1361,7 @@ function HrDashboard({ search }: { search: string }) {
 
         <article className="panel approval-panel">
           <PanelHeader eyebrow="Approvals" title="결재 대기" action="모두 보기" />
-          <div className="approval-item"><span className="avatar small">SY</span><div><strong>박서연 · 연차</strong><small>8월 14일 · 1일</small></div><em>연차</em><button>검토</button></div>
-          <div className="approval-item"><span className="avatar small">DY</span><div><strong>이도윤 · 마이너스 연차</strong><small>8월 16일 · 0.5일</small></div><em className="warn">예외</em><button>검토</button></div>
-          <div className="approval-item"><span className="avatar small">HJ</span><div><strong>최유진 · 법인카드</strong><small>증빙 보완 요청</small></div><em>비용</em><button>검토</button></div>
+          <div className="finance-empty">실제 결재 문서는 상단 전자결재 센터에서 권한과 결재선에 따라 표시됩니다.</div>
         </article>
 
         <article className="panel compliance-panel">

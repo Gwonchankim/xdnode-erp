@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { createApprovalRequest } from "../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 
 type Bindings = { DB: D1Database };
@@ -149,10 +150,23 @@ export async function PUT(request: Request) {
     if (!before) return Response.json({ error: "영업 문서를 찾을 수 없습니다." }, { status: 404 });
     const status = String(body.status ?? before.status);
     if (!["DRAFT", "ISSUED", "ACCEPTED", "COMPLETED", "CANCELLED"].includes(status)) return Response.json({ error: "올바르지 않은 문서 상태입니다." }, { status: 400 });
-    if (["ACCEPTED", "COMPLETED"].includes(status)) {
-      const approval = await authorizeErpRequest(db, "sales", "approve");
-      if (approval.response) return approval.response;
+    if (status === "ACCEPTED" && before.status !== "ACCEPTED") {
+      const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests
+        WHERE target_entity_type = 'SALES_DOCUMENT' AND target_entity_id = ?
+        ORDER BY created_at DESC LIMIT 1`).bind(id).first<{ id: string; status: string }>();
+      if (existing && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"].includes(existing.status)) {
+        return Response.json({ item: toSalesDocument(before), approvalSubmitted: true, approvalId: existing.id }, { status: 202 });
+      }
+      const approval = await createApprovalRequest(db, authorization.principal, {
+        module: "sales", requestType: before.document_type, title: `${before.document_number} ${before.document_type} 확정`,
+        description: `영업 문서 v${before.version} · ${before.amount.toLocaleString("ko-KR")}원`,
+        targetEntityType: "SALES_DOCUMENT", targetEntityId: id, amount: before.amount, dueDate: before.due_date,
+        metadata: { documentNumber: before.document_number, documentType: before.document_type, version: before.version },
+      });
+      await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "SALES_DOCUMENT_APPROVAL_SUBMITTED", entityType: "salesDocument", entityId: id, before: toSalesDocument(before), after: approval });
+      return Response.json({ item: toSalesDocument(before), approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
     }
+    if (status === "COMPLETED" && before.status !== "ACCEPTED") return Response.json({ error: "승인 완료된 문서만 완료 처리할 수 있습니다." }, { status: 409 });
     await db.prepare("UPDATE sales_documents SET status = ?, updated_at = ? WHERE id = ?").bind(status, Date.now(), id).run();
     const after = await db.prepare("SELECT * FROM sales_documents WHERE id = ?").bind(id).first<SalesDocumentRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "SALES_DOCUMENT_STATUS_UPDATED", entityType: "salesDocument", entityId: id, before: toSalesDocument(before), after: after ? toSalesDocument(after) : null });

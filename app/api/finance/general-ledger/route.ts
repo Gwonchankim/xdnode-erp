@@ -4,6 +4,7 @@ import { financeCurrentData } from "../../../finance-current-data";
 import { financeHistoricalData } from "../../../finance-historical-data";
 import { ensureFinancePostingSchema } from "../../../finance-posting";
 import { buildLedgerAccountSummaries, generalLedgerAccountKey, type LedgerAccountSummary, type UnifiedLedgerRow } from "../../../finance-general-ledger";
+import {approvedOpeningRows,ensureFinanceOpeningBalanceSchema} from "../../../finance-opening-balance";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -14,6 +15,7 @@ const validDate = (value: string) => /^2026-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]
 
 async function ensureSchemas() {
   await ensureFinancePostingSchema(db);
+  await ensureFinanceOpeningBalanceSchema(db);
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS finance_journal_entries (
       id TEXT PRIMARY KEY NOT NULL, payment_request_id TEXT NOT NULL UNIQUE, voucher_date TEXT NOT NULL,
@@ -80,8 +82,9 @@ export async function GET(request: Request) {
   if (!validDate(from) || !validDate(to) || from > to || to > currentAsOf) {
     return Response.json({ error: `2026-01-01부터 ${currentAsOf} 사이의 조회기간을 선택해 주세요.` }, { status: 400 });
   }
+  const opening=await approvedOpeningRows(db);const openingSource=opening?.rows??financeHistoricalData.trialBalance2025;
   const ytdRows = await ledgerRows("2026-01-01", to); const periodRows = ytdRows.filter((row) => row.voucherDate >= from);
-  const accounts = buildLedgerAccountSummaries(financeHistoricalData.trialBalance2025, ytdRows, from);
+  const accounts = buildLedgerAccountSummaries(openingSource, ytdRows, from);
   const openingDebit = sum(accounts, "openingDebit"); const openingCredit = sum(accounts, "openingCredit");
   const periodDebit = sum(accounts, "periodDebit"); const periodCredit = sum(accounts, "periodCredit");
   const endingDebit = sum(accounts, "endingDebit"); const endingCredit = sum(accounts, "endingCredit");
@@ -103,11 +106,11 @@ export async function GET(request: Request) {
     pagination: { returned: Math.min(filteredRows.length, limit), total: filteredRows.length, limit },
     totals: { openingDebit, openingCredit, openingDifference: openingDebit - openingCredit, periodDebit, periodCredit,
       periodDifference: periodDebit - periodCredit, endingDebit, endingCredit, endingDifference: endingDebit - endingCredit },
-    sources: { opening: { label: from === "2026-01-01" ? "2025 결산후 합계잔액시산표" : "2025 결산 기준선 + 시작일 전 전기 누적",
-      asOf: new Date(new Date(`${from}T00:00:00Z`).valueOf() - 86_400_000).toISOString().slice(0, 10), immutableReference: true },
+    sources: { opening: { label: from === "2026-01-01" ? (opening?"승인된 2026 개시잔액 기준선":"승인 전 2025 결산 참고값") : `${opening?"승인된 기준선":"승인 전 참고값"} + 시작일 전 전기 누적`,
+      asOf: new Date(new Date(`${from}T00:00:00Z`).valueOf() - 86_400_000).toISOString().slice(0, 10), immutableReference: true,official:Boolean(opening),setId:String(opening?.set.id??"") },
       controlledPostingLines: periodRows.filter((row) => row.sourceType === "CONTROLLED_POSTING").length,
       paymentJournalLines: periodRows.filter((row) => row.sourceType === "PAYMENT_JOURNAL").length,
       postedOnly: true, stagedOrClobeRowsIncluded: false },
     controls: { balanced: openingDebit === openingCredit && periodDebit === periodCredit && endingDebit === endingCredit,
-      openingApprovedReference: true, sourceMutation: false, directClobePosting: false } });
+      openingApprovedReference: Boolean(opening), sourceMutation: false, directClobePosting: false } });
 }

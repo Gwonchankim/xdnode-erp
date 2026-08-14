@@ -1494,3 +1494,11 @@ test("general ledger joins both posted ledgers to the immutable 2025 closing bas
   assert.match(page, /GeneralLedgerWorkspace/); assert.match(page, /총계정원장·시산표/);
   assert.match(plan, /지급 전표.*외부 다행 분개/); assert.match(plan, /초안·결재 중·승인 후 미전기/);
 });
+
+test("opening balances require a balanced immutable draft and final electronic approval", async()=>{
+  const[api,server,control,ledger,approval,schema,migration,plan]=await Promise.all([read("app/api/finance/opening-balance/route.ts"),read("app/finance-opening-balance.ts"),read("app/opening-balance-control.tsx"),read("app/api/finance/general-ledger/route.ts"),read("app/approval-engine.ts"),read("db/schema.ts"),read("drizzle/0057_finance_opening_balance.sql"),read("docs/finance-opening-balance-plan.md")]);
+  for(const source of[api,server,schema,migration])for(const table of["finance_opening_balance_sets","finance_opening_balance_lines","finance_opening_balance_events"])assert.match(source,new RegExp(table));
+  assert.match(api,/authorizeErpRequest\(db,"finance","admin"\)/);assert.match(api,/difference_amount/);assert.match(api,/requestType:"OPENING_BALANCE"/);assert.match(server,/crypto\.subtle\.digest\("SHA-256"/);assert.doesNotMatch(api,/UPDATE finance_opening_balance_lines|DELETE FROM finance_opening_balance/);
+  assert.match(approval,/OPENING_BALANCE: "개시잔액 기준선 승인"/);assert.match(approval,/FINANCE_OPENING_BALANCE_SET/);assert.match(ledger,/approvedOpeningRows/);assert.match(ledger,/openingApprovedReference: Boolean\(opening\)/);
+  assert.match(control,/금액 편집 없이 생성/);assert.match(control,/개시잔액 결재 제출/);assert.match(migration,/WHERE `status`='APPROVED'/);assert.match(plan,/승인 전 참고값/);assert.match(plan,/수정과 삭제 API를 제공하지 않는다/);
+});

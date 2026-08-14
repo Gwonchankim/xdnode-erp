@@ -601,6 +601,16 @@ export const financePostingEvents = sqliteTable("finance_posting_events", {
   id: text("id").primaryKey(), batchId: text("batch_id").notNull(), action: text("action").notNull(), fromStatus: text("from_status").notNull().default(""), toStatus: text("to_status").notNull().default(""), actorEmployeeId: text("actor_employee_id").notNull(), note: text("note").notNull().default(""), snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("idx_finance_posting_event_created").on(table.batchId, table.createdAt)]);
 
+export const financeOpeningBalanceSets = sqliteTable("finance_opening_balance_sets", {
+  id:text("id").primaryKey(),fiscalYear:integer("fiscal_year").notNull(),version:integer("version").notNull().default(1),status:text("status").notNull().default("DRAFT"),sourceLabel:text("source_label").notNull(),sourceAsOf:text("source_as_of").notNull(),sourceChecksum:text("source_checksum").notNull(),lineCount:integer("line_count").notNull().default(0),totalDebit:integer("total_debit").notNull().default(0),totalCredit:integer("total_credit").notNull().default(0),differenceAmount:integer("difference_amount").notNull().default(0),approvalRequestId:text("approval_request_id").notNull().default(""),reason:text("reason").notNull().default(""),preparedBy:text("prepared_by").notNull(),approvedBy:text("approved_by").notNull().default(""),submittedAt:integer("submitted_at"),approvedAt:integer("approved_at"),createdAt:integer("created_at").notNull(),updatedAt:integer("updated_at").notNull(),
+},table=>[uniqueIndex("idx_finance_opening_year_version").on(table.fiscalYear,table.version),uniqueIndex("idx_finance_opening_approved_year").on(table.fiscalYear).where(sql`${table.status} = 'APPROVED'`)]);
+export const financeOpeningBalanceLines = sqliteTable("finance_opening_balance_lines", {
+  id:text("id").primaryKey(),setId:text("set_id").notNull(),lineNumber:integer("line_number").notNull(),accountId:text("account_id").notNull().default(""),accountCode:text("account_code").notNull(),accountName:text("account_name").notNull(),accountCategory:text("account_category").notNull(),normalBalance:text("normal_balance").notNull(),debitAmount:integer("debit_amount").notNull().default(0),creditAmount:integer("credit_amount").notNull().default(0),sourceReference:text("source_reference").notNull().default(""),createdAt:integer("created_at").notNull(),
+},table=>[uniqueIndex("idx_finance_opening_line_number").on(table.setId,table.lineNumber),uniqueIndex("idx_finance_opening_line_account").on(table.setId,table.accountCode,table.accountName)]);
+export const financeOpeningBalanceEvents = sqliteTable("finance_opening_balance_events", {
+  id:text("id").primaryKey(),setId:text("set_id").notNull(),action:text("action").notNull(),fromStatus:text("from_status").notNull().default(""),toStatus:text("to_status").notNull().default(""),actorEmployeeId:text("actor_employee_id").notNull(),note:text("note").notNull().default(""),snapshotJson:text("snapshot_json").notNull().default("{}"),createdAt:integer("created_at").notNull(),
+},table=>[index("idx_finance_opening_event_created").on(table.setId,table.createdAt)]);
+
 export const erpDocuments = sqliteTable("erp_documents", {
   id: text("id").primaryKey(),
   module: text("module").notNull(),

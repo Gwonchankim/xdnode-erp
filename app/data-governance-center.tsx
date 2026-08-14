@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import DataIntegrationWorkspace from "./data-integration-workspace";
 
 type Check = { code: string; category: string; status: "PASS" | "WARN" | "FAIL"; title: string; detail: string };
 type Snapshot = { id: string; status: string; fileName: string; sha256: string; byteSize: number; tableCount: number; rowCount: number; requestedBy: string; createdAt: number; verifiedAt: number | null; verificationStatus: string; verificationDetail: string; failureMessage: string; downloadUrl: string };
@@ -38,7 +39,8 @@ async function requestData() {
   return payload;
 }
 
-export default function DataGovernanceCenter({ onClose }: { onClose: () => void }) {
+export default function DataGovernanceCenter({ onClose, initialView = "trust" }: { onClose: () => void; initialView?: "trust" | "integration" }) {
+  const [view, setView] = useState(initialView);
   const [data, setData] = useState<GovernanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
@@ -88,9 +90,11 @@ export default function DataGovernanceCenter({ onClose }: { onClose: () => void 
     <button className="data-governance-backdrop" type="button" aria-label="데이터 통제 센터 닫기" onClick={onClose} />
     <aside className="data-governance-center" role="dialog" aria-modal="true" aria-label="데이터 신뢰성 통제 센터">
       <header className="data-governance-header">
-        <div><p>DATA TRUST &amp; RECOVERY</p><h2>데이터 신뢰성 통제 센터</h2><span>D1 논리 스냅샷, 저장 파일, 감사기록과 보존정책을 관리자 권한으로 점검합니다.</span></div>
+        <div><p>DATA CONTROL CENTER</p><h2>데이터 통제 센터</h2><span>신뢰성·복구와 원천 연동·대사를 관리자 권한으로 관리합니다.</span></div>
         <button type="button" aria-label="닫기" onClick={onClose}>×</button>
       </header>
+      <nav className="data-governance-tabs" aria-label="데이터 통제 영역"><button type="button" className={view === "trust" ? "active" : ""} onClick={() => setView("trust")}>신뢰성·복구</button><button type="button" className={view === "integration" ? "active" : ""} onClick={() => setView("integration")}>연동·대사</button></nav>
+      {view === "integration" ? <DataIntegrationWorkspace /> : <>
       {loading && <div className="data-governance-loading">데이터 통제 현황을 불러오는 중입니다.</div>}
       {error && <div className="data-governance-message error" role="alert">{error}</div>}
       {notice && <div className="data-governance-message" role="status">{notice}</div>}
@@ -159,7 +163,7 @@ export default function DataGovernanceCenter({ onClose }: { onClose: () => void 
             })}
           </div>
         </section>
-      </div>}
+      </div>}</>}
     </aside>
   </>;
 }

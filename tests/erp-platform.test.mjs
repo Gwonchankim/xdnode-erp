@@ -1407,3 +1407,22 @@ test("data governance control center verifies recoverability without automatic r
   assert.match(plan, /실제 복구는 자동 제공하지 않는다/);
   assert.match(plan, /settings:admin/);
 });
+
+test("data integration center reconciles approved snapshots with idempotent reviewed exceptions", async () => {
+  const [api, server, workspace, center, page, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/data-integration/route.ts"), read("app/data-integration.ts"), read("app/data-integration-workspace.tsx"),
+    read("app/data-governance-center.tsx"), read("app/page.tsx"), read("app/api/operations/route.ts"),
+    read("db/schema.ts"), read("drizzle/0053_data_integration_center.sql"), read("docs/data-integration-reconciliation-plan.md"),
+  ]);
+  for (const source of [api, server, schema, migration]) for (const table of ["erp_integration_sources", "erp_integration_exceptions", "erp_sync_run_events"]) assert.match(source, new RegExp(table));
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/);
+  assert.match(api, /crypto\.subtle\.digest\("SHA-256"/);
+  assert.match(api, /CLOBE_FINANCE_2026/); assert.match(api, /ECOUNT_FINANCE_2024/); assert.match(api, /HIWORKS_EMPLOYEES/); assert.match(api, /PAYROLL_EXCEL_2025_2026/);
+  assert.match(api, /idempotency_key/); assert.match(api, /retry_of_run_id/); assert.match(api, /ACCEPT_RISK/); assert.match(api, /note\.length < 5/);
+  assert.match(api, /automaticWrites: 0, externalFetch: false/);
+  assert.doesNotMatch(api, /DELETE FROM finance_bank_transactions|DELETE FROM hr_employee_records|DELETE FROM hr_payroll_records/);
+  assert.match(workspace, /현재 ERP 스냅샷 검증/); assert.match(workspace, /외부 조회 없음/); assert.match(workspace, /자동 덮어쓰기 없음/);
+  assert.match(center, /연동·대사/); assert.match(page, /settings:data-integration/); assert.match(page, /integration-center-attention/);
+  assert.match(operations, /고위험 연동 예외를 해결하거나 근거와 함께 위험 수용/);
+  assert.match(migration, /WHERE `idempotency_key` <> ''/); assert.match(plan, /자동 덮어쓰기/); assert.match(plan, /외부 API를 호출하지 않았는데 수집했다고 표시/);
+});

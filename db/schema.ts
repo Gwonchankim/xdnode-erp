@@ -476,10 +476,56 @@ export const erpSyncRuns = sqliteTable("erp_sync_runs", {
   startedAt: integer("started_at").notNull(),
   completedAt: integer("completed_at"),
   createdAt: integer("created_at").notNull(),
+  sourceId: text("source_id").notNull().default(""),
+  runType: text("run_type").notNull().default("SNAPSHOT"),
+  triggerType: text("trigger_type").notNull().default("SYSTEM"),
+  idempotencyKey: text("idempotency_key").notNull().default(""),
+  sourceChecksum: text("source_checksum").notNull().default(""),
+  receivedCount: integer("received_count").notNull().default(0),
+  insertedCount: integer("inserted_count").notNull().default(0),
+  updatedCount: integer("updated_count").notNull().default(0),
+  duplicateCount: integer("duplicate_count").notNull().default(0),
+  rejectedCount: integer("rejected_count").notNull().default(0),
+  reviewCount: integer("review_count").notNull().default(0),
+  requestedBy: text("requested_by").notNull().default(""),
+  retryOfRunId: text("retry_of_run_id").notNull().default(""),
+  reportJson: text("report_json").notNull().default("{}"),
+  correlationId: text("correlation_id").notNull().default(""),
+  reviewStatus: text("review_status").notNull().default("NOT_REQUIRED"),
+  reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at"),
 }, (table) => [
   index("idx_erp_sync_source_snapshot").on(table.source, table.snapshotDate),
   index("idx_erp_sync_status_created").on(table.status, table.createdAt),
+  uniqueIndex("idx_erp_sync_idempotency").on(table.sourceId, table.runType, table.idempotencyKey).where(sql`${table.idempotencyKey} <> ''`),
+  index("idx_erp_sync_source_status_snapshot").on(table.sourceId, table.status, table.snapshotDate),
+  index("idx_erp_sync_retry").on(table.retryOfRunId, table.createdAt),
 ]);
+
+export const erpIntegrationSources = sqliteTable("erp_integration_sources", {
+  id: text("id").primaryKey(), sourceCode: text("source_code").notNull().unique(), name: text("name").notNull(),
+  category: text("category").notNull(), systemType: text("system_type").notNull(), connectionMode: text("connection_mode").notNull(),
+  scope: text("scope").notNull(), expectedCadence: text("expected_cadence").notNull().default("ON_DEMAND"),
+  expectedHourKst: integer("expected_hour_kst").notNull().default(0), freshnessHours: integer("freshness_hours").notNull().default(0),
+  criticality: text("criticality").notNull().default("NORMAL"), ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true), description: text("description").notNull().default(""),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [index("idx_erp_integration_source_enabled_category").on(table.enabled, table.category)]);
+
+export const erpIntegrationExceptions = sqliteTable("erp_integration_exceptions", {
+  id: text("id").primaryKey(), runId: text("run_id").notNull(), sourceId: text("source_id").notNull(), exceptionKey: text("exception_key").notNull(),
+  exceptionType: text("exception_type").notNull(), severity: text("severity").notNull(), title: text("title").notNull(), detail: text("detail").notNull().default(""),
+  sourceRef: text("source_ref").notNull().default(""), targetRef: text("target_ref").notNull().default(""), sourceAmount: integer("source_amount").notNull().default(0),
+  targetAmount: integer("target_amount").notNull().default(0), differenceAmount: integer("difference_amount").notNull().default(0), status: text("status").notNull().default("OPEN"),
+  suggestedAction: text("suggested_action").notNull().default(""), ownerEmployeeId: text("owner_employee_id").notNull().default(""), resolutionNote: text("resolution_note").notNull().default(""),
+  resolvedBy: text("resolved_by").notNull().default(""), resolvedAt: integer("resolved_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_erp_integration_exception_run_key").on(table.runId, table.exceptionKey), index("idx_erp_integration_exception_status_severity").on(table.status, table.severity, table.createdAt), index("idx_erp_integration_exception_source").on(table.sourceId, table.createdAt)]);
+
+export const erpSyncRunEvents = sqliteTable("erp_sync_run_events", {
+  id: text("id").primaryKey(), runId: text("run_id").notNull(), action: text("action").notNull(), fromStatus: text("from_status").notNull().default(""),
+  toStatus: text("to_status").notNull().default(""), actorEmployeeId: text("actor_employee_id").notNull(), note: text("note").notNull().default(""),
+  snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_erp_sync_run_event_run_created").on(table.runId, table.createdAt)]);
 
 export const erpDocuments = sqliteTable("erp_documents", {
   id: text("id").primaryKey(),

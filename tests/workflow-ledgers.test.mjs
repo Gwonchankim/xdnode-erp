@@ -1157,3 +1157,23 @@ test("data governance ledgers preserve immutable checks, snapshot evidence and r
   assert.equal(db.prepare("SELECT active, disposition FROM erp_retention_policies WHERE id = 'policy-1'").get().active, 0);
   db.close();
 });
+
+test("data integration ledgers preserve idempotency, retry lineage and reviewed exceptions", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO erp_integration_sources (id,source_code,name,category,system_type,connection_mode,scope,created_at,updated_at)
+    VALUES ('source-1','SOURCE_1','테스트 원천','FINANCE','FILE','FILE_SNAPSHOT','테스트',?,?)`).run(now, now);
+  const insertRun = db.prepare(`INSERT INTO erp_sync_runs (id,source,scope,snapshot_date,status,record_count,metrics_json,error_message,started_at,completed_at,created_at,source_id,run_type,idempotency_key,retry_of_run_id,requested_by)
+    VALUES (?,'FILE','테스트','2026-08-14','SUCCEEDED',1,'{}','',?,?,?, 'source-1','RECONCILIATION',?,?, 'gc.kim')`);
+  insertRun.run('run-1', now, now, now, '2026-08-14:hash', '');
+  assert.throws(() => insertRun.run('run-duplicate', now, now, now, '2026-08-14:hash', ''), /UNIQUE constraint failed/);
+  insertRun.run('run-retry', now, now, now, '2026-08-14:hash:retry:run-1', 'run-1');
+  db.prepare(`INSERT INTO erp_integration_exceptions (id,run_id,source_id,exception_key,exception_type,severity,title,status,resolution_note,created_at,updated_at)
+    VALUES ('exception-1','run-1','source-1','count','MISSING','HIGH','건수 불일치','ACCEPTED_RISK','승인된 기간 차이',?,?)`).run(now, now);
+  assert.throws(() => db.prepare(`INSERT INTO erp_integration_exceptions (id,run_id,source_id,exception_key,exception_type,severity,title,created_at,updated_at)
+    VALUES ('exception-2','run-1','source-1','count','MISSING','HIGH','중복',?,?)`).run(now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO erp_sync_run_events (id,run_id,action,actor_employee_id,note,created_at) VALUES ('event-1','run-1','ACCEPT_RISK','gc.kim','승인된 기간 차이',?)`).run(now);
+  assert.equal(db.prepare("SELECT retry_of_run_id FROM erp_sync_runs WHERE id='run-retry'").get().retry_of_run_id, 'run-1');
+  assert.equal(db.prepare("SELECT status FROM erp_integration_exceptions WHERE id='exception-1'").get().status, 'ACCEPTED_RISK');
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_sync_run_events WHERE run_id='run-1'").get().count, 1);
+  db.close();
+});

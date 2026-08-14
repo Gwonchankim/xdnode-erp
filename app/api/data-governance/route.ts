@@ -108,7 +108,7 @@ async function runControlChecks(employeeId: string) {
       ORDER BY snapshot_date DESC, created_at DESC LIMIT 1`).first<{ source: string; snapshot_date: string; status: string; completed_at: number | null }>();
     if (!row) return { status: "WARN", detail: "저장된 외부 연동 실행 이력이 없습니다.", evidence: {} };
     const ageDays = Math.floor((Date.now() - new Date(`${row.snapshot_date}T00:00:00+09:00`).getTime()) / 86_400_000);
-    const status: CheckStatus = row.status !== "SUCCESS" ? "FAIL" : ageDays > 2 ? "WARN" : "PASS";
+    const status: CheckStatus = !["SUCCESS", "SUCCEEDED"].includes(row.status) ? "FAIL" : ageDays > 2 ? "WARN" : "PASS";
     return { status, detail: `${row.source} · ${row.snapshot_date} · ${row.status}${ageDays > 2 ? ` · ${ageDays}일 경과` : ""}`, evidence: { ...row, ageDays } };
   });
   await capture("FINANCE_JOURNAL_BALANCE", "재무", "2026 분개장 차대변", async () => {

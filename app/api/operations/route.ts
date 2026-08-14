@@ -87,7 +87,7 @@ async function seedCurrentOperations() {
     db.prepare(`INSERT INTO erp_sync_runs
       (id, source, scope, snapshot_date, status, record_count, metrics_json,
         error_message, started_at, completed_at, created_at)
-      VALUES (?, 'CLOBE', 'FINANCE_2026', ?, 'SUCCESS', ?, ?, '', ?, ?, ?)
+      VALUES (?, 'CLOBE', 'FINANCE_2026', ?, 'SUCCEEDED', ?, ?, '', ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET snapshot_date = excluded.snapshot_date,
         status = excluded.status, record_count = excluded.record_count,
         metrics_json = excluded.metrics_json, error_message = '',
@@ -1178,6 +1178,11 @@ export async function PUT(request: Request) {
     const control = await db.prepare("SELECT status FROM erp_data_control_runs ORDER BY created_at DESC LIMIT 1")
       .first<{ status: string }>();
     if (control?.status !== "HEALTHY") return Response.json({ error: "데이터 통제 점검이 정상 상태가 된 뒤 업무가 자동 종료됩니다." }, { status: 409 });
+  }
+  if (status === "DONE" && before.id === "integration-center-attention") {
+    const unresolved = await db.prepare(`SELECT COUNT(*) AS count FROM erp_integration_exceptions
+      WHERE status IN ('OPEN','IN_REVIEW') AND severity IN ('HIGH','CRITICAL')`).first<{ count: number }>().catch(() => ({ count: 1 }));
+    if (Number(unresolved?.count ?? 1) > 0) return Response.json({ error: "고위험 연동 예외를 해결하거나 근거와 함께 위험 수용한 뒤 업무가 자동 종료됩니다." }, { status: 409 });
   }
 
   const now = Date.now();

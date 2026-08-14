@@ -210,6 +210,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [dataGovernanceOpen, setDataGovernanceOpen] = useState(false);
+  const [dataGovernanceView, setDataGovernanceView] = useState<"trust" | "integration">("trust");
   const [approvalRequestKey, setApprovalRequestKey] = useState(0);
   const [operationTasks, setOperationTasks] = useState<OperationTask[]>([]);
   const [operationsLoading, setOperationsLoading] = useState(false);
@@ -280,6 +281,13 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
       return;
     }
     if (destination === "settings:data-governance") {
+      setDataGovernanceView("trust");
+      setDataGovernanceOpen(true);
+      setWorkbenchOpen(false);
+      return;
+    }
+    if (destination === "settings:data-integration") {
+      setDataGovernanceView("integration");
       setDataGovernanceOpen(true);
       setWorkbenchOpen(false);
       return;
@@ -311,6 +319,14 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
 
   function openTask(task: OperationTask) {
     if (task.destination === "settings:data-governance") {
+      setDataGovernanceView("trust");
+      setDataGovernanceOpen(true);
+      void updateTask(task, "IN_PROGRESS");
+      setAlertsOpen(false);
+      return;
+    }
+    if (task.destination === "settings:data-integration") {
+      setDataGovernanceView("integration");
       setDataGovernanceOpen(true);
       void updateTask(task, "IN_PROGRESS");
       setAlertsOpen(false);
@@ -374,7 +390,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         <button type="button" className="erp-workbench-button" aria-expanded={workbenchOpen} onClick={() => setWorkbenchOpen(true)}>
           <span aria-hidden="true">✓</span><strong>오늘 업무</strong>
         </button>
-        <button type="button" className="erp-data-governance-button" aria-expanded={dataGovernanceOpen} onClick={() => setDataGovernanceOpen(true)}>
+        <button type="button" className="erp-data-governance-button" aria-expanded={dataGovernanceOpen} onClick={() => { setDataGovernanceView("trust"); setDataGovernanceOpen(true); }}>
           <span aria-hidden="true">◇</span><strong>데이터 통제</strong>
         </button>
         <ApprovalCenter openRequestKey={approvalRequestKey} />
@@ -411,7 +427,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
                     <h3>{task.title}</h3><span>{task.description}</span>
                     <div className="operation-task-actions">
                       {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>{task.module === "finance" && task.sourceType === "SYSTEM_RULE" ? "조치 등록 →" : "관련 업무 열기 →"}</button>}
-                      {task.sourceType !== "APPROVAL" && task.id !== "data-governance-attention" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
+                      {task.sourceType !== "APPROVAL" && task.id !== "data-governance-attention" && task.id !== "integration-center-attention" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
                     </div>
                   </div>
                 </article>
@@ -434,7 +450,7 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
         </>
       )}
       {workbenchOpen && <OperationsWorkbench onClose={() => setWorkbenchOpen(false)} onNavigate={openWorkbenchDestination} />}
-      {dataGovernanceOpen && <DataGovernanceCenter onClose={() => setDataGovernanceOpen(false)} />}
+      {dataGovernanceOpen && <DataGovernanceCenter initialView={dataGovernanceView} onClose={() => setDataGovernanceOpen(false)} />}
     </>
   );
 }

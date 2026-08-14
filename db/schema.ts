@@ -992,6 +992,32 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const financeTaxPeriods = sqliteTable("finance_tax_periods", {
+  period: text("period").primaryKey(),
+  sourceAsOf: text("source_as_of").notNull(),
+  sourceSalesSupply: integer("source_sales_supply").notNull().default(0),
+  sourcePurchaseSupply: integer("source_purchase_supply").notNull().default(0),
+  sourceSalesDocuments: integer("source_sales_documents").notNull().default(0),
+  sourcePurchaseDocuments: integer("source_purchase_documents").notNull().default(0),
+  declaredSalesSupply: integer("declared_sales_supply").notNull().default(0),
+  declaredPurchaseSupply: integer("declared_purchase_supply").notNull().default(0),
+  outputTax: integer("output_tax").notNull().default(0),
+  deductibleInputTax: integer("deductible_input_tax").notNull().default(0),
+  nondeductibleInputTax: integer("nondeductible_input_tax").notNull().default(0),
+  adjustmentTax: integer("adjustment_tax").notNull().default(0),
+  payableTax: integer("payable_tax").notNull().default(0),
+  figuresConfirmed: integer("figures_confirmed", { mode: "boolean" }).notNull().default(false),
+  note: text("note").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"),
+  preparedBy: text("prepared_by").notNull(),
+  reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_tax_status_period").on(table.status, table.period),
+]);
+
 export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   id: text("id").primaryKey(),
   employeeId: text("employee_id").notNull(),

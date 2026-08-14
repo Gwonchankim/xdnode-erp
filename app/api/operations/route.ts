@@ -403,6 +403,30 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const taxPeriod = financeCurrentData.asOf.slice(0, 7);
+    const taxSourceSales = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(taxPeriod)).reduce((sum, row) => sum + row.amount, 0);
+    const taxSourcePurchases = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(taxPeriod)).reduce((sum, row) => sum + row.amount, 0);
+    const [taxRecord, taxEvidence] = await Promise.all([
+      db.prepare("SELECT status, source_as_of, source_sales_supply, source_purchase_supply FROM finance_tax_periods WHERE period = ?").bind(taxPeriod)
+        .first<{ status: string; source_as_of: string; source_sales_supply: number; source_purchase_supply: number }>(),
+      db.prepare(`SELECT COUNT(*) AS count FROM erp_documents WHERE module = 'finance'
+        AND entity_type = 'financeTaxPeriod' AND entity_id = ? AND deleted_at IS NULL`).bind(taxPeriod).first<{ count: number }>(),
+    ]);
+    const sourceChanged = Boolean(taxRecord) && (taxRecord?.source_as_of !== financeCurrentData.asOf
+      || taxRecord?.source_sales_supply !== taxSourceSales || taxRecord?.source_purchase_supply !== taxSourcePurchases);
+    if (taxRecord?.status !== "REVIEWED" || Number(taxEvidence?.count ?? 0) < 1 || sourceChanged) await upsertRuleTask({
+      id: "tax-reconciliation-due", module: "finance", category: "부가세 검토",
+      title: `${taxPeriod} 부가세 원천 대사 필요`,
+      description: `검토 상태 ${taxRecord?.status ?? "미작성"} · 증빙 ${Number(taxEvidence?.count ?? 0)}건${sourceChanged ? " · Clobe 원천 갱신" : ""}입니다. Clobe 공급가액과 홈택스·이카운트 확인값을 대사해 주세요.`,
+      dueDate: today, priority: "HIGH", destination: "finance:tax",
+      sourceId: `${taxPeriod}:${taxRecord?.status ?? "MISSING"}:${Number(taxEvidence?.count ?? 0)}:${sourceChanged ? 1 : 0}`,
+    });
+    else await closeRuleTask("tax-reconciliation-due");
+  } catch {
+    // 부가세 검토 원장이 배포된 뒤부터 월별 통제를 평가합니다.
+  }
+
+  try {
     const receivableRisk = await db.prepare(`WITH invoice_balance AS (
       SELECT invoice.id, invoice.due_date, invoice.amount,
         MAX(0, invoice.amount - COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0)) AS outstanding,

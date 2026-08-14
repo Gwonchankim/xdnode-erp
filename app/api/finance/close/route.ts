@@ -76,7 +76,9 @@ async function seedClose(period: string) {
 
 async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
-  const [bank, unposted, missingEvidence, payroll, inventory] = await Promise.all([
+  const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
+  const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
+  const [bank, unposted, missingEvidence, payroll, inventory, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -102,6 +104,11 @@ async function computeControls(period: string): Promise<CloseControl[]> {
           SELECT 1 FROM inventory_movements movement WHERE movement.source_type = 'PURCHASE_RECEIPT'
             AND movement.source_id = receipt.id AND movement.source_line_key = receipt_line.id)) AS unmapped_count`)
       .bind(like).first<{ negative_count: number; unmapped_count: number }>(),
+    db.prepare(`SELECT tax_period.status, tax_period.source_as_of, tax_period.source_sales_supply, tax_period.source_purchase_supply,
+        (SELECT COUNT(*) FROM erp_documents document WHERE document.module = 'finance'
+          AND document.entity_type = 'financeTaxPeriod' AND document.entity_id = ? AND document.deleted_at IS NULL) AS evidence_count
+      FROM finance_tax_periods tax_period WHERE tax_period.period = ?`).bind(period, period)
+      .first<{ status: string; source_as_of: string; source_sales_supply: number; source_purchase_supply: number; evidence_count: number }>(),
   ]);
   const bankTotal = Number(bank?.total_count ?? 0);
   const bankPending = Number(bank?.pending_count ?? 0);
@@ -122,6 +129,12 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       status: Number(inventory?.negative_count ?? 0) === 0 && Number(inventory?.unmapped_count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `음수재고 ${Number(inventory?.negative_count ?? 0)}건 · 미반영 입고검수 ${Number(inventory?.unmapped_count ?? 0)}건`,
       count: Number(inventory?.negative_count ?? 0) + Number(inventory?.unmapped_count ?? 0) },
+    { key: "TAX_RECONCILIATION", category: "TAX", title: "세금계산서·부가세 검토",
+      status: tax?.status === "REVIEWED" && Number(tax.evidence_count ?? 0) > 0 && tax.source_as_of === financeCurrentData.asOf
+        && tax.source_sales_supply === currentTaxSalesSupply && tax.source_purchase_supply === currentTaxPurchaseSupply ? "PASS" : "FAIL",
+      message: tax ? `${tax.status === "REVIEWED" ? "검토 완료" : "검토 미완료"} · 증빙 ${Number(tax.evidence_count ?? 0)}건${tax.source_as_of !== financeCurrentData.asOf || tax.source_sales_supply !== currentTaxSalesSupply || tax.source_purchase_supply !== currentTaxPurchaseSupply ? " · 원천 갱신 후 재검토 필요" : ""}` : "부가세 검토 원장이 없습니다.",
+      count: tax?.status === "REVIEWED" && Number(tax.evidence_count ?? 0) > 0 && tax.source_as_of === financeCurrentData.asOf
+        && tax.source_sales_supply === currentTaxSalesSupply && tax.source_purchase_supply === currentTaxPurchaseSupply ? 0 : 1 },
   ];
   controls.splice(1, 0, { key: "CLOBE_JOURNAL_BALANCE", category: "JOURNAL", title: "Clobe 분개장 차대변",
     status: period === currentPeriod ? (financeCurrentData.journalSummary.differenceKrw === 0 ? "PASS" : "FAIL") : "REVIEW",
@@ -147,7 +160,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY"];
+  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];
@@ -178,7 +191,7 @@ async function closeState(period: string) {
       ORDER BY created_at DESC`).bind(period).all<DocumentRow>(),
   ]);
   const tasks = tasksResult.results;
-  const manualCategories = new Set(["AR_AP", "TAX", "STATEMENT"]);
+  const manualCategories = new Set(["AR_AP", "STATEMENT"]);
   const manualTasks = tasks.filter((task) => manualCategories.has(task.category)
     || controls.some((control) => control.category === task.category && control.status === "REVIEW"));
   const passCount = controls.filter((control) => control.status === "PASS").length;

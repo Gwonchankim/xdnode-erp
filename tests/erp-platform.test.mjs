@@ -113,6 +113,27 @@ test("inventory control connects accepted receipts and deliveries without invent
   assert.match(plan, /과거 Clobe·이카운트 자료를 임의로 재고수량으로 환산하지 않는다/);
 });
 
+test("VAT review reconciles explicit source and reported figures without inferring tax rates", async () => {
+  const [api, view, page, schema, migration, close, operations, plan] = await Promise.all([
+    read("app/api/finance/tax/route.ts"), read("app/tax-reconciliation-workspace.tsx"), read("app/page.tsx"),
+    read("db/schema.ts"), read("drizzle/0028_tax_reconciliation.sql"), read("app/api/finance/close/route.ts"),
+    read("app/api/operations/route.ts"), read("docs/finance-tax-reconciliation-plan.md"),
+  ]);
+  assert.match(schema, /financeTaxPeriods/);
+  assert.match(migration, /CREATE TABLE `finance_tax_periods`/);
+  assert.match(api, /financeCurrentData\.salesDaily2026\.filter/);
+  assert.match(api, /TAX_RECONCILIATION_SAVED/);
+  assert.match(api, /잠긴 마감월은 부가세 검토값을 변경할 수 없습니다/);
+  assert.match(api, /finance_master_tax_codes WHERE status = 'ACTIVE'/);
+  assert.doesNotMatch(api, /\*\s*0\.1|\/\s*10/);
+  assert.match(view, /공식 신고서가 아니며 과세유형·세율·공제 여부를 자동 추정하지 않습니다/);
+  assert.match(view, /홈택스 또는 이카운트 원본에서 확인했습니다/);
+  assert.match(page, /\["tax", "부가세 검토", "세"\]/);
+  assert.match(close, /TAX_RECONCILIATION/);
+  assert.match(operations, /tax-reconciliation-due/);
+  assert.match(plan, /공식 세무신고를 대신하지 않는 내부 검토 원장/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

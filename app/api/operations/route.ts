@@ -77,10 +77,14 @@ async function seedCurrentOperations() {
   const syncId = `clobe-finance-${financeCurrentData.asOf}`;
   const bankAssets = financeCurrentData.accountSummary.checkingBalanceSum + financeCurrentData.accountSummary.fxBalanceSumKrw;
   const statements = [
-    db.prepare(`INSERT OR IGNORE INTO erp_sync_runs
+    db.prepare(`INSERT INTO erp_sync_runs
       (id, source, scope, snapshot_date, status, record_count, metrics_json,
         error_message, started_at, completed_at, created_at)
-      VALUES (?, 'CLOBE', 'FINANCE_2026', ?, 'SUCCESS', ?, ?, '', ?, ?, ?)`)
+      VALUES (?, 'CLOBE', 'FINANCE_2026', ?, 'SUCCESS', ?, ?, '', ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET snapshot_date = excluded.snapshot_date,
+        status = excluded.status, record_count = excluded.record_count,
+        metrics_json = excluded.metrics_json, error_message = '',
+        completed_at = excluded.completed_at`)
       .bind(syncId, financeCurrentData.asOf, financeCurrentData.journalSummary.lineCount,
         JSON.stringify({
           checkingBalance: financeCurrentData.accountSummary.checkingBalanceSum,
@@ -93,15 +97,23 @@ async function seedCurrentOperations() {
         }), now, now, now),
   ];
   if (financeCurrentData.journalSummary.differenceKrw !== 0) {
-    statements.push(db.prepare(`INSERT OR IGNORE INTO erp_tasks
+    statements.push(db.prepare(`INSERT INTO erp_tasks
       (id, module, category, title, description, owner_employee_id, due_date, status,
         priority, destination, source_type, source_id, created_at, updated_at)
       VALUES (?, 'finance', '장부 점검', ?, ?, 'gc.kim', ?, 'OPEN', 'HIGH',
-        'finance:quality', 'SYSTEM_RULE', ?, ?, ?)`)
+        'finance:quality', 'SYSTEM_RULE', ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET title = excluded.title,
+        description = excluded.description, due_date = excluded.due_date,
+        source_id = excluded.source_id,
+        status = CASE WHEN erp_tasks.status = 'DONE' AND erp_tasks.source_id <> excluded.source_id
+          THEN 'OPEN' ELSE erp_tasks.status END,
+        completed_at = CASE WHEN erp_tasks.status = 'DONE' AND erp_tasks.source_id <> excluded.source_id
+          THEN NULL ELSE erp_tasks.completed_at END,
+        deleted_at = NULL, updated_at = excluded.updated_at`)
       .bind(`journal-difference-${financeCurrentData.asOf}`,
         `분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이 확인`,
         `차변 ${financeCurrentData.journalSummary.debitAmountKrw.toLocaleString("ko-KR")}원 · 대변 ${financeCurrentData.journalSummary.creditAmountKrw.toLocaleString("ko-KR")}원`,
-        financeCurrentData.asOf, syncId, now, now));
+        financeCurrentData.asOf, `${syncId}:${financeCurrentData.journalSummary.differenceKrw}`, now, now));
   } else {
     statements.push(db.prepare(`UPDATE erp_tasks SET status = 'DONE', completed_at = ?, updated_at = ?
       WHERE id = ? AND status <> 'DONE'`)

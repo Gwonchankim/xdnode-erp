@@ -437,6 +437,15 @@ test("system tasks are generated from live workflow state instead of static coun
   assert.match(api, /closeRuleTask/);
 });
 
+test("same-day Clobe corrections refresh sync metrics and reopen changed journal alerts", async () => {
+  const api = await read("app/api/operations/route.ts");
+  assert.match(api, /ON CONFLICT\(id\) DO UPDATE SET snapshot_date = excluded\.snapshot_date/);
+  assert.match(api, /record_count = excluded\.record_count/);
+  assert.match(api, /metrics_json = excluded\.metrics_json/);
+  assert.match(api, /`\$\{syncId\}:\$\{financeCurrentData\.journalSummary\.differenceKrw\}`/);
+  assert.match(api, /erp_tasks\.source_id <> excluded\.source_id[\s\S]*THEN 'OPEN'/);
+});
+
 test("month-end close freezes automatic controls, evidence and a controlled reopen trail", async () => {
   const [api, workspace, engine, documents, operations, schema, migration, page] = await Promise.all([
     read("app/api/finance/close/route.ts"), read("app/finance-close-workspace.tsx"),

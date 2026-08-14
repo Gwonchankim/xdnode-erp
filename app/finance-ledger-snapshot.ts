@@ -43,11 +43,8 @@ async function postedLedgerRows(db: D1Database, asOf: string) {
   return rows;
 }
 
-export async function buildFinanceLedgerSnapshot(db: D1Database, asOf: string) {
-  await ensureFinancePostingSchema(db); await ensureFinanceOpeningBalanceSchema(db);
-  const opening = await approvedOpeningRows(db); const rows = await postedLedgerRows(db, asOf);
-  const openingSource = opening?.rows ?? financeHistoricalData.trialBalance2025;
-  const summaries = buildLedgerAccountSummaries(openingSource, rows, "2026-01-01");
+async function categoryMap(db: D1Database, opening: Awaited<ReturnType<typeof approvedOpeningRows>>,
+  summaries: ReturnType<typeof buildLedgerAccountSummaries>) {
   const masterAccounts = await db.prepare("SELECT code,category FROM finance_master_accounts WHERE status='ACTIVE'")
     .all<{ code: string; category: string }>().catch(() => ({ results: [] }));
   const masterCategories = new Map(masterAccounts.results.map((row) => [row.code, row.category]));
@@ -55,6 +52,15 @@ export async function buildFinanceLedgerSnapshot(db: D1Database, asOf: string) {
   const categories: Record<string, string> = {};
   for (const item of summaries) categories[item.key] = masterCategories.get(item.accountCode)
     ?? openingCategories.get(item.accountCode) ?? openingAccountCategory(item.accountCode, item.accountName);
+  return categories;
+}
+
+export async function buildFinanceLedgerSnapshot(db: D1Database, asOf: string) {
+  await ensureFinancePostingSchema(db); await ensureFinanceOpeningBalanceSchema(db);
+  const opening = await approvedOpeningRows(db); const rows = await postedLedgerRows(db, asOf);
+  const openingSource = opening?.rows ?? financeHistoricalData.trialBalance2025;
+  const summaries = buildLedgerAccountSummaries(openingSource, rows, "2026-01-01");
+  const categories = await categoryMap(db, opening, summaries);
   const statements = buildOperationalFinancialStatements(summaries, categories, Boolean(opening));
   const totals = {
     openingDebit: summaries.reduce((total, row) => total + row.openingDebit, 0),
@@ -73,4 +79,25 @@ export async function buildFinanceLedgerSnapshot(db: D1Database, asOf: string) {
   return { asOf, official: Boolean(opening) && ledgerBalanced && statements.status === "OFFICIAL",
     openingSetId: lineage.openingSetId, openingChecksum: lineage.openingChecksum, lineCount: rows.length,
     totals, difference, statements, ledgerHash: await sha256(lineage) };
+}
+
+export async function buildFinancePeriodStatementSnapshot(db: D1Database, from: string, to: string) {
+  await ensureFinancePostingSchema(db); await ensureFinanceOpeningBalanceSchema(db);
+  const opening = await approvedOpeningRows(db); const rows = await postedLedgerRows(db, to);
+  const openingSource = opening?.rows ?? financeHistoricalData.trialBalance2025;
+  const summaries = buildLedgerAccountSummaries(openingSource, rows, from);
+  const categories = await categoryMap(db, opening, summaries);
+  const statements = buildOperationalFinancialStatements(summaries, categories, Boolean(opening));
+  const periodRows = rows.filter((row) => row.voucherDate >= from);
+  const periodDebit = periodRows.reduce((total, row) => total + row.debitAmount, 0);
+  const periodCredit = periodRows.reduce((total, row) => total + row.creditAmount, 0);
+  const periodUnclassified = summaries.filter((row) => !["ASSET", "LIABILITY", "EQUITY", "REVENUE", "EXPENSE"]
+    .includes(String(categories[row.key] ?? "OTHER").toUpperCase()) && Boolean(row.periodDebit || row.periodCredit));
+  const incomeOfficial = Boolean(opening) && periodDebit === periodCredit && periodUnclassified.length === 0;
+  return { from, to, status: incomeOfficial ? "OFFICIAL" as const : "DRAFT" as const,
+    lineCount: periodRows.length, periodDebit, periodCredit, difference: periodDebit - periodCredit,
+    incomeStatement: { revenue: statements.incomeStatement.revenue, expenses: statements.incomeStatement.expenses,
+      netIncome: statements.incomeStatement.netIncome },
+    quality: { openingOfficial: Boolean(opening), periodBalanced: periodDebit === periodCredit,
+      unclassifiedCount: periodUnclassified.length } };
 }

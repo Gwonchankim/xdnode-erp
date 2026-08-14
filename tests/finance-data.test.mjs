@@ -4,6 +4,7 @@ import test from "node:test";
 import { calculateStraightLineDepreciation } from "../app/fixed-asset-calculation.mjs";
 import { buildLedgerAccountSummaries, buildOperationalFinancialStatements, comparisonDelta,
   completedMonthsInRange, historicalCloseComparison, previousEqualLengthPeriod } from "../app/finance-general-ledger.ts";
+import { evaluateLedgerSnapshotDrift } from "../app/finance-ledger-integrity.ts";
 
 async function loadFinanceData() {
   const source = await readFile(new URL("../app/finance-historical-data.ts", import.meta.url), "utf8");
@@ -146,6 +147,20 @@ test("statement comparisons keep equal-day and completed-month scopes explicit",
   assert.equal(comparison.expenses, comparison.revenue - comparison.netIncome);
   assert.equal(historicalCloseComparison(historical.monthly2025, "2026-08-01", "2026-08-15"), null);
   assert.equal(comparisonDelta(120, 100), 20); assert.equal(comparisonDelta(10, 0), null);
+});
+
+test("ledger integrity drift detects lineage changes even when totals stay equal", () => {
+  const frozen = { asOf: "2026-07-31", ledgerHash: "aaa", lineCount: 20, openingSetId: "open-1",
+    openingChecksum: "checksum-1", totals: { periodDebit: 100, periodCredit: 100 } };
+  const same = evaluateLedgerSnapshotDrift(frozen, { ...frozen });
+  assert.equal(same.drifted, false); assert.equal(same.totalsChanged, false); assert.equal(same.openingChanged, false);
+  const replacedLineage = evaluateLedgerSnapshotDrift(frozen, { ...frozen, ledgerHash: "bbb" });
+  assert.equal(replacedLineage.drifted, true); assert.equal(replacedLineage.totalsChanged, false);
+  const changedOpening = evaluateLedgerSnapshotDrift(frozen, { ...frozen, ledgerHash: "ccc", openingSetId: "open-2" });
+  assert.equal(changedOpening.openingChanged, true);
+  const changedTotals = evaluateLedgerSnapshotDrift(frozen, { ...frozen, ledgerHash: "ddd", lineCount: 22,
+    totals: { periodDebit: 120, periodCredit: 120 } });
+  assert.equal(changedTotals.totalsChanged, true); assert.equal(changedTotals.lineCountDelta, 2);
 });
 
 test("August management-report commerce inputs reconcile without treating supply difference as profit", async () => {

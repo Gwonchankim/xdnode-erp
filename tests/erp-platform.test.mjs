@@ -818,6 +818,22 @@ test("management reports govern structured decisions and convert approved outcom
   assert.match(plan, /최대 한 건/);
 });
 
+test("management reports freeze posted profit comparisons and block submission on close ledger drift", async () => {
+  const [api, workspace, ledger, integrity, plan] = await Promise.all([
+    read("app/api/finance/management-report/route.ts"), read("app/management-report-workspace.tsx"),
+    read("app/finance-ledger-snapshot.ts"), read("app/finance-ledger-integrity.ts"), read("docs/finance-management-statement-integration-plan.md"),
+  ]);
+  assert.match(ledger, /buildFinancePeriodStatementSnapshot/);assert.match(integrity, /evaluateLedgerSnapshotDrift/);
+  assert.match(ledger, /status='POSTED'/);assert.match(ledger, /periodDebit === periodCredit/);
+  assert.match(api, /currentStatement/);assert.match(api, /previousEqualLengthPeriod/);assert.match(api, /historicalCloseComparison/);
+  assert.match(api, /CLOSE_LEDGER_DRIFT/);assert.match(api, /CLOSE_LEDGER_CHECK_FAILED/);assert.match(api, /blockingCount/);assert.match(api, /canSubmit: blockingCount === 0/);
+  assert.match(api, /마감 원장 무결성 차단 항목을 해결/);
+  assert.match(workspace, /전기 완료 손익과 비교/);assert.match(workspace, /2025 동일 완료월/);
+  assert.match(workspace, /snapshot\.quality\.canSubmit === false/);assert.match(workspace, /이 저장본에는 전기 손익 비교가 포함되지 않았습니다/);
+  assert.match(plan, /공급가액과 회계상 손익을 혼동하지 않고/);assert.match(plan, /부분월은 전년 수치를 일할 계산하지 않는다/);
+  assert.match(plan, /서버와 화면 양쪽에서 결재 제출을 막는다/);
+});
+
 test("expense requests require evidence, approval and a unique payment ledger entry", async () => {
   const [schema, migration, api, view, engine] = await Promise.all([
     read("db/schema.ts"), read("drizzle/0014_talented_matthew_murdock.sql"),
@@ -1516,11 +1532,11 @@ test("operational statements and month close freeze only approved posted ledger 
 });
 
 test("statement comparisons disclose source scope and submitted closes detect ledger drift",async()=>{
-  const[api,server,workspace,close,closeWorkspace,plan]=await Promise.all([read("app/api/finance/general-ledger/route.ts"),read("app/finance-general-ledger.ts"),read("app/general-ledger-workspace.tsx"),read("app/api/finance/close/route.ts"),read("app/finance-close-workspace.tsx"),read("docs/finance-comparison-drift-plan.md")]);
+  const[api,server,workspace,close,closeWorkspace,integrity,plan]=await Promise.all([read("app/api/finance/general-ledger/route.ts"),read("app/finance-general-ledger.ts"),read("app/general-ledger-workspace.tsx"),read("app/api/finance/close/route.ts"),read("app/finance-close-workspace.tsx"),read("app/finance-ledger-integrity.ts"),read("docs/finance-comparison-drift-plan.md")]);
   assert.match(server,/previousEqualLengthPeriod/);assert.match(server,/completedMonthsInRange/);assert.match(server,/historicalCloseComparison/);
   assert.match(api,/previousPeriod/);assert.match(api,/priorYearRule/);assert.match(api,/부분월은 일할 계산하지 않습니다/);
   assert.match(workspace,/직전 동일 일수/);assert.match(workspace,/2025 동일 완료월/);assert.match(workspace,/2025 비교값은 매출-순이익 역산/);
-  assert.match(close,/frozen\.ledgerHash !== currentLedger\.ledgerHash/);assert.match(close,/openingChanged/);assert.match(close,/lineCountDelta/);
+  assert.match(close,/evaluateLedgerSnapshotDrift/);assert.match(integrity,/frozen\.ledgerHash !== current\.ledgerHash/);assert.match(integrity,/openingChanged/);assert.match(integrity,/lineCountDelta/);
   assert.match(closeWorkspace,/마감 이후 원장 변동 감지/);assert.match(closeWorkspace,/재개방 결재 요청/);assert.match(close,/재개방 승인이 필요합니다/);
   assert.match(plan,/자동 수정하거나 마감을 자동 재개방하지 않는다/);assert.match(plan,/회계 정확성 자체의 보증이 아니라 원장 계보 무결성/);
 });

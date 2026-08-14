@@ -3,6 +3,10 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reporting";
+import { financeHistoricalData } from "../../../finance-historical-data";
+import { comparisonDelta, historicalCloseComparison, previousEqualLengthPeriod } from "../../../finance-general-ledger";
+import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../../finance-ledger-integrity";
+import { buildFinanceLedgerSnapshot, buildFinancePeriodStatementSnapshot } from "../../../finance-ledger-snapshot";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -33,7 +37,7 @@ type JournalActualRow = { debit_code: string; debit_name: string; credit_code: s
 
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
 const actionStatuses = new Set(["OPEN", "IN_PROGRESS", "WAITING", "DONE"]);
-const sourceSections = new Set(["COMMERCE", "CASH", "RECEIVABLES", "PAYROLL", "BUDGET", "CLOSE", "QUALITY", "GENERAL"]);
+const sourceSections = new Set(["STATEMENT", "COMMERCE", "CASH", "RECEIVABLES", "PAYROLL", "BUDGET", "CLOSE", "QUALITY", "GENERAL"]);
 const decisionTypes = new Set(["BUDGET", "CASH", "SALES", "HR", "RISK", "POLICY", "OTHER"]);
 const decisionOutcomes = new Set(["APPROVED", "DEFERRED", "REJECTED"]);
 
@@ -177,8 +181,10 @@ async function buildSnapshot(period: string) {
   const trend = financeCurrentData.balanceTrend.filter((item) => item.date.startsWith(period));
   const balancePoint = financeCurrentData.balanceTrend.find((item) => item.date <= periodEnd && item.date.startsWith(period)) ?? null;
   const currentCash = period === currentPeriod;
+  const statementFrom = `${period}-01`; const statementTo = currentCash ? financeCurrentData.asOf : periodEnd;
+  const previousRange = previousEqualLengthPeriod(statementFrom, statementTo);
   const cashStatus = !balancePoint ? "MISSING" : (balancePoint.date === periodEnd || (currentCash && balancePoint.date === financeCurrentData.asOf)) ? "CONFIRMED" : "PARTIAL";
-  const [receivables, payroll, budget, close, alertActions] = await Promise.all([
+  const [receivables, payroll, budget, close, alertActions, currentStatement, previousStatement] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS record_count, COALESCE(SUM(outstanding_amount), 0) AS outstanding,
       COALESCE(SUM(CASE WHEN status <> 'COMPLETE' AND (status = 'OVERDUE' OR (due_date <> '' AND due_date < ?)) THEN outstanding_amount ELSE 0 END), 0) AS overdue,
       COALESCE(SUM(CASE WHEN status <> 'COMPLETE' AND due_date = '' THEN 1 ELSE 0 END), 0) AS missing_plan,
@@ -190,14 +196,32 @@ async function buildSnapshot(period: string) {
     }>(),
     budgetSection(period),
     db.prepare(`SELECT period, period_end, status, control_pass_count, control_fail_count,
-      manual_completed_count, manual_total_count, evidence_count, version, updated_at
+      manual_completed_count, manual_total_count, evidence_count, version, snapshot_json, updated_at
       FROM finance_close_runs WHERE period = ?`).bind(period).first<Record<string, string | number>>(),
     buildFinanceAlertReportSnapshot(db, alertCutoff),
+    buildFinancePeriodStatementSnapshot(db, statementFrom, statementTo),
+    previousRange ? buildFinancePeriodStatementSnapshot(db, previousRange.from, previousRange.to) : Promise.resolve(null),
   ]);
+  const priorYearStatement = historicalCloseComparison(financeHistoricalData.monthly2025, statementFrom, statementTo);
+  const frozenClose = close ? safeJson<{ ledgerSnapshot?: LedgerIntegritySnapshot }>(String(close.snapshot_json ?? "{}"), {}).ledgerSnapshot : undefined;
+  let ledgerDrift = { checked: false, drifted: false, checkedAsOf: "", frozenHash: "", currentHash: "",
+    frozenLineCount: 0, currentLineCount: 0, lineCountDelta: 0, totalsChanged: false, openingChanged: false };
+  let ledgerDriftError = "";
+  if (close && String(close.status) !== "OPEN" && frozenClose?.ledgerHash && frozenClose.asOf) {
+    try {
+      const liveLedger = await buildFinanceLedgerSnapshot(db, frozenClose.asOf);
+      ledgerDrift = evaluateLedgerSnapshotDrift(frozenClose, liveLedger);
+    } catch {
+      ledgerDriftError = "동결 원장과 현재 원장의 무결성 비교를 완료하지 못했습니다.";
+    }
+  }
   const receivableStatus = (receivables?.record_count ?? 0) > 0 ? "PARTIAL" : "MISSING";
   const payrollStatus = !payroll ? "MISSING" : ["APPROVED", "LOCKED"].includes(payroll.status) ? "CONFIRMED" : "PARTIAL";
-  const closeStatus = !close ? "MISSING" : close.status === "CLOSED" ? "CONFIRMED" : "REVIEW";
-  const qualityWarnings: Array<{ code: string; section: string; message: string; destination: string }> = [];
+  const closeStatus = !close ? "MISSING" : close.status === "CLOSED" && !ledgerDrift.drifted && !ledgerDriftError ? "CONFIRMED" : "REVIEW";
+  const statementStatus = currentStatement.status === "OFFICIAL" ? "CONFIRMED" : "REVIEW";
+  const qualityWarnings: Array<{ code: string; section: string; message: string; destination: string; blocking?: boolean }> = [];
+  if (statementStatus !== "CONFIRMED") qualityWarnings.push({ code: "OPERATING_STATEMENT_DRAFT", section: "STATEMENT",
+    message: `전기 손익이 검토용입니다(차대변 차이 ${currentStatement.difference.toLocaleString("ko-KR")}원·미분류 ${currentStatement.quality.unclassifiedCount}개).`, destination: "general-ledger" });
   if (cashStatus !== "CONFIRMED") qualityWarnings.push({ code: "CASH_SOURCE", section: "CASH", message: `자금 기준일이 월말과 일치하지 않습니다 (${balancePoint?.date ?? "자료 없음"}).`, destination: "liquidity" });
   if (Number(financeCurrentData.journalSummary.differenceKrw) !== 0) qualityWarnings.push({ code: "JOURNAL_DIFFERENCE", section: "QUALITY", message: `최신 누적 분개장 차대변 ${financeCurrentData.journalSummary.differenceKrw.toLocaleString("ko-KR")}원 차이가 있습니다.`, destination: "quality" });
   if (receivableStatus === "MISSING") qualityWarnings.push({ code: "RECEIVABLE_MISSING", section: "RECEIVABLES", message: "ERP 미수 관리원장이 등록되지 않았습니다.", destination: "receivables" });
@@ -209,10 +233,26 @@ async function buildSnapshot(period: string) {
   if (budget.status !== "CONFIRMED") qualityWarnings.push({ code: "BUDGET_COVERAGE", section: "BUDGET", message: budget.status === "MISSING" ? "해당 월 승인 예산이 없습니다." : `예산 실적 자동 매핑이 ${budget.unmappedCount}개 누락되었습니다.`, destination: "budget" });
   if (budget.alertCount > 0) qualityWarnings.push({ code: "BUDGET_ALERT", section: "BUDGET", message: `예산 허용범위를 벗어난 항목 ${budget.alertCount}개가 있습니다.`, destination: "budget" });
   if (closeStatus !== "CONFIRMED") qualityWarnings.push({ code: "CLOSE_STATUS", section: "CLOSE", message: close ? `월마감 상태가 ${String(close.status)}입니다.` : "해당 월 월마감 원장이 없습니다.", destination: "close" });
+  if (ledgerDrift.drifted) qualityWarnings.push({ code: "CLOSE_LEDGER_DRIFT", section: "CLOSE", blocking: true,
+    message: `마감 제출 후 원장이 변경되었습니다(동결 ${ledgerDrift.frozenLineCount.toLocaleString("ko-KR")}행 → 현재 ${ledgerDrift.currentLineCount.toLocaleString("ko-KR")}행). 재개방 승인과 재마감 전에는 보고서를 제출할 수 없습니다.`, destination: "close" });
+  if (ledgerDriftError) qualityWarnings.push({ code: "CLOSE_LEDGER_CHECK_FAILED", section: "CLOSE", blocking: true,
+    message: `${ledgerDriftError} 비교를 복구하고 보고서 원천을 새로 반영해 주세요.`, destination: "close" });
   if (alertActions.unresolvedCount > 0) qualityWarnings.push({ code: "ALERT_ACTIONS_OPEN", section: "QUALITY",
     message: `${alertCutoff} 기준 미해결 재무 경보 ${alertActions.unresolvedCount}건(중요 ${alertActions.highCriticalUnresolvedCount}건·기한경과 ${alertActions.overdueCount}건)이 있습니다.`, destination: "risk-actions" });
 
   const sections = {
+    statement: { status: statementStatus, from: statementFrom, to: statementTo, lineCount: currentStatement.lineCount,
+      difference: currentStatement.difference, current: currentStatement.incomeStatement,
+      previous: previousStatement ? { from: previousStatement.from, to: previousStatement.to,
+        ...previousStatement.incomeStatement, delta: {
+          revenue: comparisonDelta(currentStatement.incomeStatement.revenue, previousStatement.incomeStatement.revenue),
+          expenses: comparisonDelta(currentStatement.incomeStatement.expenses, previousStatement.incomeStatement.expenses),
+          netIncome: comparisonDelta(currentStatement.incomeStatement.netIncome, previousStatement.incomeStatement.netIncome) } } : null,
+      priorYear: priorYearStatement ? { ...priorYearStatement, delta: {
+        revenue: comparisonDelta(currentStatement.incomeStatement.revenue, priorYearStatement.revenue),
+        expenses: comparisonDelta(currentStatement.incomeStatement.expenses, priorYearStatement.expenses),
+        netIncome: comparisonDelta(currentStatement.incomeStatement.netIncome, priorYearStatement.netIncome) } } : null,
+      comparisonRule: "직전은 동일 일수의 전기 원장, 전년은 완전히 포함된 2025 결산월만 사용하며 부분월은 일할 계산하지 않습니다." },
     commerce: { status: "CONFIRMED", sales, purchases, netSupplyDifference: sales.amount - purchases.amount },
     cash: {
       status: cashStatus, balanceDate: balancePoint?.date ?? null, bankBalanceKrw: balancePoint?.balance ?? null,
@@ -235,8 +275,8 @@ async function buildSnapshot(period: string) {
     close: close ? {
       status: closeStatus, runStatus: close.status, periodEnd: close.period_end, controlPassCount: close.control_pass_count,
       controlFailCount: close.control_fail_count, manualCompletedCount: close.manual_completed_count,
-      manualTotalCount: close.manual_total_count, evidenceCount: close.evidence_count, version: close.version,
-    } : { status: "MISSING", runStatus: null },
+      manualTotalCount: close.manual_total_count, evidenceCount: close.evidence_count, version: close.version, ledgerDrift,
+    } : { status: "MISSING", runStatus: null, ledgerDrift },
     alertActions,
     quality: {
       status: qualityWarnings.length ? "REVIEW" : "CONFIRMED", warningCount: qualityWarnings.length,
@@ -246,6 +286,7 @@ async function buildSnapshot(period: string) {
     },
   };
   const sources = [
+    { key: "statement", label: "ERP 전기 손익", status: statementStatus, asOf: statementTo, destination: "general-ledger", note: `${statementFrom}~${statementTo} · POSTED ${currentStatement.lineCount}행` },
     { key: "commerce", label: "Clobe 세금계산서", status: "CONFIRMED", asOf: financeCurrentData.asOf, destination: "commercial", note: "월 공급가액·문서 건수" },
     { key: "cash", label: "Clobe 은행 잔액", status: cashStatus, asOf: balancePoint?.date ?? "", destination: "liquidity", note: "원화·외화 원화환산 및 대출" },
     { key: "receivables", label: "ERP 미수 관리원장", status: receivableStatus, asOf: receivables?.updated_at ? new Date(receivables.updated_at).toISOString().slice(0, 10) : "", destination: "receivables", note: "사용자 관리잔액" },
@@ -256,6 +297,7 @@ async function buildSnapshot(period: string) {
     { key: "journal", label: "Clobe 분개장 품질", status: financeCurrentData.journalSummary.differenceKrw ? "REVIEW" : "CONFIRMED", asOf: financeCurrentData.asOf, destination: "quality", note: "2026년 최신 누적 품질" },
   ].map((source) => ({ ...source, statusLabel: statusLabel(source.status) }));
   const highlights = [
+    `${statementFrom}~${statementTo} 전기 손익은 매출·수익 ${currentStatement.incomeStatement.revenue.toLocaleString("ko-KR")}원, 비용 ${currentStatement.incomeStatement.expenses.toLocaleString("ko-KR")}원, 순이익 ${currentStatement.incomeStatement.netIncome.toLocaleString("ko-KR")}원입니다.`,
     `${period} 연동 매출 공급가액은 ${sales.amount.toLocaleString("ko-KR")}원, 매입 공급가액은 ${purchases.amount.toLocaleString("ko-KR")}원이며 공급가액 순차이는 ${(sales.amount - purchases.amount).toLocaleString("ko-KR")}원입니다.`,
     balancePoint ? `자금 기준일 ${balancePoint.date}의 은행 잔액 추이 값은 ${balancePoint.balance.toLocaleString("ko-KR")}원입니다.` : "해당 월의 은행 잔액 기준점은 현재 자동 연결되지 않았습니다.",
     payroll ? `급여 실행원장은 ${payroll.employee_count}명, 지급총액 ${payroll.gross_pay.toLocaleString("ko-KR")}원, 실지급 ${payroll.net_pay.toLocaleString("ko-KR")}원입니다.` : "해당 월 급여 실행원장이 아직 연결되지 않았습니다.",
@@ -265,9 +307,11 @@ async function buildSnapshot(period: string) {
   const decisions = qualityWarnings.length
     ? "품질경고별 담당자와 완료기한을 지정하고, 월마감·원천 보완 완료 여부를 다음 경영회의에서 확인합니다."
     : "확정된 월간 지표를 기준으로 다음 달 매출·자금·비용 운영계획을 승인합니다.";
+  const blockingCount = qualityWarnings.filter((warning) => warning.blocking).length;
   return {
     generatedAt: new Date().toISOString(), period, asOf: financeCurrentData.asOf, sections, sources,
-    quality: { warningCount: qualityWarnings.length, requiresAcknowledgement: qualityWarnings.length > 0, warnings: qualityWarnings },
+    quality: { warningCount: qualityWarnings.length, blockingCount, canSubmit: blockingCount === 0,
+      requiresAcknowledgement: qualityWarnings.length > 0, warnings: qualityWarnings },
     autoAnalysis: { highlights, risks, decisions },
   };
 }
@@ -494,8 +538,12 @@ export async function POST(request: Request) {
   if (action === "SUBMIT_REPORT") {
     if (report.status !== "DRAFT") return Response.json({ error: "작성 중인 보고서만 결재를 제출할 수 있습니다." }, { status: 409 });
     if (!report.highlights.trim() || !report.risks.trim() || !report.decisions.trim()) return Response.json({ error: "성과·위험·의사결정 요청을 저장한 뒤 제출해 주세요." }, { status: 409 });
-    const snapshot = safeJson<{ quality?: { requiresAcknowledgement?: boolean; warningCount?: number } }>(report.snapshot_json, {});
+    const snapshot = safeJson<{ quality?: { requiresAcknowledgement?: boolean; warningCount?: number;
+      blockingCount?: number; canSubmit?: boolean } }>(report.snapshot_json, {});
     const acknowledged = Boolean(body.qualityAcknowledged);
+    if (snapshot.quality?.canSubmit === false || Number(snapshot.quality?.blockingCount ?? 0) > 0) {
+      return Response.json({ error: "마감 원장 무결성 차단 항목을 해결한 뒤 보고서를 새로 반영해 주세요." }, { status: 409 });
+    }
     if (snapshot.quality?.requiresAcknowledgement && !acknowledged) return Response.json({ error: "원천 품질경고를 확인한 뒤 제출해 주세요." }, { status: 409 });
     const submission = await db.batch([
       db.prepare(`UPDATE finance_management_reports SET status = 'SUBMITTED', quality_acknowledged = ?,

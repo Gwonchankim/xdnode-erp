@@ -10,20 +10,27 @@ type AlertActionItem = { id: string; title: string; priority: string; status: st
 type Snapshot = {
   period: string; asOf: string; generatedAt: string;
   sections: {
+    statement?: { status: SourceStatus; from: string; to: string; lineCount: number; difference: number;
+      current: { revenue: number; expenses: number; netIncome: number };
+      previous: ({ from: string; to: string; revenue: number; expenses: number; netIncome: number;
+        delta: { revenue: number | null; expenses: number | null; netIncome: number | null } }) | null;
+      priorYear: ({ from: string; to: string; monthCount: number; revenue: number; expenses: number; netIncome: number;
+        delta: { revenue: number | null; expenses: number | null; netIncome: number | null } }) | null; comparisonRule: string };
     commerce: { status: SourceStatus; sales: { amount: number; documentCount: number; partnerCount: number }; purchases: { amount: number; documentCount: number; partnerCount: number }; netSupplyDifference: number };
     cash: { status: SourceStatus; balanceDate: string | null; bankBalanceKrw: number | null; checkingBalanceKrw: number | null; fxBalanceKrw: number | null; loanBalanceKrw: number | null; trend: Array<{ date: string; balance: number }> };
     receivables: { status: SourceStatus; scope: string; recordCount: number; outstandingAmount: number | null; overdueAmount: number | null; missingPlanCount: number | null; updatedAt: number | null };
     payroll: { status: SourceStatus; runStatus: string | null; employeeCount: number | null; grossPay: number | null; deductions: number | null; netPay: number | null; updatedAt: number | null };
     budget: { status: SourceStatus; plan: { id: string; name: string; version: number } | null; lines: number; budget: number; actual: number; variance: number; alertCount: number; unmappedCount: number; mappedCount?: number };
-    close: { status: SourceStatus; runStatus: string | null; periodEnd?: string; controlPassCount?: number; controlFailCount?: number; manualCompletedCount?: number; manualTotalCount?: number; evidenceCount?: number; version?: number };
+    close: { status: SourceStatus; runStatus: string | null; periodEnd?: string; controlPassCount?: number; controlFailCount?: number; manualCompletedCount?: number; manualTotalCount?: number; evidenceCount?: number; version?: number;
+      ledgerDrift?: { checked:boolean;drifted:boolean;checkedAsOf:string;frozenHash:string;currentHash:string;frozenLineCount:number;currentLineCount:number;lineCountDelta:number;totalsChanged:boolean;openingChanged:boolean } };
     alertActions?: { cutoffDate: string; capturedAt: string; totalCount: number; unresolvedCount: number; highCriticalUnresolvedCount: number; reviewCount: number; closedCount: number; overdueCount: number; items: AlertActionItem[] };
     quality: { status: SourceStatus; warningCount: number; journal: { scope: string; lineCount: number; debitAmountKrw: number; creditAmountKrw: number; differenceKrw: number }; warnings: QualityWarning[] };
   };
   sources: Array<{ key: string; label: string; status: SourceStatus; statusLabel: string; asOf: string; destination: string; note: string }>;
-  quality: { warningCount: number; requiresAcknowledgement: boolean; warnings: QualityWarning[] };
+  quality: { warningCount: number; blockingCount?: number; canSubmit?: boolean; requiresAcknowledgement: boolean; warnings: QualityWarning[] };
   autoAnalysis: { highlights: string; risks: string; decisions: string };
 };
-type QualityWarning = { code: string; section: string; message: string; destination: string };
+type QualityWarning = { code: string; section: string; message: string; destination: string; blocking?: boolean };
 type Report = {
   id: string; period: string; version: number; status: ReportStatus; asOf: string; snapshot: Snapshot;
   highlights: string; risks: string; decisions: string; qualityAcknowledged: boolean; revisionReason: string;
@@ -47,12 +54,13 @@ const statusLabels: Record<string, string> = {
   OPEN: "대기", IN_PROGRESS: "진행", WAITING: "외부대기", DONE: "완료",
   PENDING: "결정 대기", DEFERRED: "보류", REJECTED: "반려",
 };
-const sectionLabels: Record<string, string> = { COMMERCE: "매출·매입", CASH: "자금", RECEIVABLES: "미수", PAYROLL: "급여", BUDGET: "예산", CLOSE: "월마감", QUALITY: "데이터 품질", GENERAL: "공통" };
+const sectionLabels: Record<string, string> = { STATEMENT: "전기 손익", COMMERCE: "매출·매입", CASH: "자금", RECEIVABLES: "미수", PAYROLL: "급여", BUDGET: "예산", CLOSE: "월마감", QUALITY: "데이터 품질", GENERAL: "공통" };
 const decisionTypeLabels: Record<string, string> = { BUDGET: "예산", CASH: "자금", SALES: "영업", HR: "인사", RISK: "위험", POLICY: "정책", OTHER: "기타" };
 
 function won(value: number | null | undefined) {
   return value === null || value === undefined ? "미연결" : `${value.toLocaleString("ko-KR")}원`;
 }
+const pct = (value: number | null | undefined) => value === null || value === undefined ? "비교율 없음" : `${value >= 0 ? "+" : ""}${value.toFixed(1)}%`;
 
 function periodLabel(period: string) {
   return `${Number(period.slice(5, 7))}월`;
@@ -178,6 +186,10 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
   if (!snapshot) return <div className="management-report-loading">{message || "경영보고 원천을 불러오지 못했습니다."}</div>;
 
   const { commerce, cash, receivables, payroll, budget, close, quality } = snapshot.sections;
+  const statementConnected = Boolean(snapshot.sections.statement);
+  const statement = snapshot.sections.statement ?? { status: "MISSING" as const, from: `${period}-01`, to: `${period}-01`, lineCount: 0, difference: 0,
+    current: { revenue: 0, expenses: 0, netIncome: 0 }, previous: null, priorYear: null,
+    comparisonRule: "이 저장본은 전기 손익 비교 연계 전에 생성되어 당시 값을 확정할 수 없습니다." };
   const alertActionsConnected = Boolean(snapshot.sections.alertActions);
   const alertActions = snapshot.sections.alertActions ?? { cutoffDate: `${period}-01`, capturedAt: "", totalCount: 0, unresolvedCount: 0, highCriticalUnresolvedCount: 0, reviewCount: 0, closedCount: 0, overdueCount: 0, items: [] };
   return (
@@ -213,7 +225,15 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
         <article className={receivables.status !== "CONFIRMED" ? "warn" : ""}><span>미수 관리잔액</span><strong>{won(receivables.outstandingAmount)}</strong><small>연체 {won(receivables.overdueAmount)} · {receivables.scope}</small></article>
         <article className={payroll.status !== "CONFIRMED" ? "warn" : ""}><span>급여 지급총액</span><strong>{won(payroll.grossPay)}</strong><small>{payroll.employeeCount ?? "-"}명 · 실지급 {won(payroll.netPay)} · {payroll.runStatus ?? "미연결"}</small></article>
         <article className={budget.status !== "CONFIRMED" ? "warn" : ""}><span>예산 대비 실적</span><strong>{won(budget.variance)}</strong><small>비교예산 {won(budget.budget)} · 실적 {won(budget.actual)}</small></article>
-        <article className={close.status !== "CONFIRMED" ? "warn" : ""}><span>월마감 상태</span><strong>{close.runStatus ? statusLabels[close.runStatus] ?? close.runStatus : "미연결"}</strong><small>자동통제 {close.controlPassCount ?? 0} 통과 · {close.controlFailCount ?? 0} 실패 · 증빙 {close.evidenceCount ?? 0}건</small></article>
+        <article className={close.status !== "CONFIRMED" ? "warn" : ""}><span>월마감 상태</span><strong>{close.ledgerDrift?.drifted ? "원장 변동 감지" : close.runStatus ? statusLabels[close.runStatus] ?? close.runStatus : "미연결"}</strong><small>{close.ledgerDrift?.drifted ? `동결 ${close.ledgerDrift.frozenLineCount}행 → 현재 ${close.ledgerDrift.currentLineCount}행` : `자동통제 ${close.controlPassCount ?? 0} 통과 · ${close.controlFailCount ?? 0} 실패 · 증빙 ${close.evidenceCount ?? 0}건`}</small></article>
+      </section>
+
+      <section className={`panel management-statement-panel ${statement.status.toLowerCase()}`}>
+        <header><div><p>POSTED PROFIT &amp; LOSS</p><h2>전기 완료 손익과 비교</h2><span>{statement.from}–{statement.to} · 승인 개시잔액 + POSTED {statement.lineCount.toLocaleString("ko-KR")}행</span></div><button type="button" onClick={() => onNavigate("general-ledger")}>총계정원장 →</button></header>
+        {!statementConnected&&<p className="management-statement-legacy">이 저장본에는 전기 손익 비교가 포함되지 않았습니다. 승인본은 보존되며 새 버전부터 비교 원천이 동결됩니다.</p>}
+        <div className="management-statement-summary"><article><small>매출·수익</small><strong>{statementConnected?won(statement.current.revenue):"미연결"}</strong></article><article><small>비용</small><strong>{statementConnected?won(statement.current.expenses):"미연결"}</strong></article><article className={statement.current.netIncome < 0 ? "loss" : "profit"}><small>순이익</small><strong>{statementConnected?won(statement.current.netIncome):"미연결"}</strong></article></div>
+        <div className="management-statement-comparison"><div className="head"><span>지표</span><span>현재</span><span>직전 동일 일수<small>{statement.previous ? `${statement.previous.from}–${statement.previous.to}` : "비교 불가"}</small></span><span>2025 동일 완료월<small>{statement.priorYear ? `${statement.priorYear.from}–${statement.priorYear.to}` : "완료월 없음"}</small></span></div>{([['revenue','매출·수익'],['expenses','비용'],['netIncome','순이익']] as const).map(([key,label])=><div key={key}><strong>{label}</strong><span>{won(statement.current[key])}</span><span>{statement.previous?<>{won(statement.previous[key])}<small>{pct(statement.previous.delta[key])}</small></>:"—"}</span><span>{statement.priorYear?<>{won(statement.priorYear[key])}<small>{pct(statement.priorYear.delta[key])}</small></>:"—"}</span></div>)}</div>
+        <footer><span>{statement.comparisonRule}</span><em>{statement.status === "CONFIRMED" ? "전기 손익 확인" : `검토 필요 · 차대변 차이 ${won(statement.difference)}`}</em></footer>
       </section>
 
       <section className="management-report-grid">
@@ -294,8 +314,9 @@ export default function ManagementReportWorkspace({ onNavigate }: { onNavigate: 
       {selected && <section className="management-report-submit">
         <div><p>APPROVAL GATE</p><h2>{selected.status === "DRAFT" ? "경영보고 결재 제출" : `현재 상태 · ${statusLabels[selected.status]}`}</h2><span>제출하면 수치·원천·문안은 변경되지 않습니다. 수정이 필요하면 승인본에서 새 버전을 만드세요.</span></div>
         {selected.status === "DRAFT" && <div>
+          {snapshot.quality.canSubmit === false && <p className="management-report-submit-blocked">마감 원장 변동을 해결하고 보고서 원천을 새로 반영해야 제출할 수 있습니다.</p>}
           {snapshot.quality.requiresAcknowledgement && <label><input type="checkbox" checked={qualityAcknowledged} onChange={(event) => setQualityAcknowledged(event.target.checked)} /> 품질경고 {snapshot.quality.warningCount}건과 원천 제한을 확인했습니다.</label>}
-          <button type="button" disabled={busy || (snapshot.quality.requiresAcknowledgement && !qualityAcknowledged)} onClick={() => void run("SUBMIT_REPORT", { reportId: selected.id, qualityAcknowledged })}>재무 검토·대표 승인 요청</button>
+          <button type="button" disabled={busy || snapshot.quality.canSubmit === false || (snapshot.quality.requiresAcknowledgement && !qualityAcknowledged)} onClick={() => void run("SUBMIT_REPORT", { reportId: selected.id, qualityAcknowledged })}>재무 검토·대표 승인 요청</button>
         </div>}
         {selected.status === "APPROVED" && <div className="approved-stamp"><strong>APPROVED</strong><span>{selected.approvedBy} · {selected.approvedAt ? new Date(selected.approvedAt).toLocaleString("ko-KR") : "승인 완료"}</span></div>}
       </section>}

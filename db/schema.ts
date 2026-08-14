@@ -548,6 +548,39 @@ export const erpDataImportEvents = sqliteTable("erp_data_import_events", {
   actorEmployeeId: text("actor_employee_id").notNull(), note: text("note").notNull().default(""), snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
 }, (table) => [index("idx_erp_data_import_event_batch_created").on(table.batchId, table.createdAt)]);
 
+export const financeImportMappingSets = sqliteTable("finance_import_mapping_sets", {
+  id: text("id").primaryKey(), sourceId: text("source_id").notNull(), name: text("name").notNull(), dataType: text("data_type").notNull(), version: integer("version").notNull().default(1),
+  status: text("status").notNull().default("DRAFT"), fieldMappingJson: text("field_mapping_json").notNull().default("{}"), approvalRequestId: text("approval_request_id").notNull().default(""),
+  createdBy: text("created_by").notNull(), approvedBy: text("approved_by").notNull().default(""), submittedAt: integer("submitted_at"), approvedAt: integer("approved_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_finance_import_mapping_version").on(table.sourceId, table.dataType, table.version),
+  uniqueIndex("idx_finance_import_mapping_active").on(table.sourceId, table.dataType).where(sql`${table.status} = 'ACTIVE'`),
+  index("idx_finance_import_mapping_status").on(table.status, table.updatedAt),
+]);
+
+export const financeImportMappingRules = sqliteTable("finance_import_mapping_rules", {
+  id: text("id").primaryKey(), mappingSetId: text("mapping_set_id").notNull(), dimensionType: text("dimension_type").notNull(), sourceKey: text("source_key").notNull(), sourceLabel: text("source_label").notNull().default(""),
+  targetId: text("target_id").notNull().default(""), targetCode: text("target_code").notNull().default(""), targetLabel: text("target_label").notNull().default(""), mappingMethod: text("mapping_method").notNull().default("MANUAL"),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_import_rule_key").on(table.mappingSetId, table.dimensionType, table.sourceKey), index("idx_finance_import_rule_target").on(table.dimensionType, table.targetId)]);
+
+export const financeImportValidations = sqliteTable("finance_import_validations", {
+  id: text("id").primaryKey(), batchId: text("batch_id").notNull(), mappingSetId: text("mapping_set_id").notNull(), dataType: text("data_type").notNull(), status: text("status").notNull(),
+  rowCount: integer("row_count").notNull().default(0), validCount: integer("valid_count").notNull().default(0), invalidCount: integer("invalid_count").notNull().default(0), accountMappedCount: integer("account_mapped_count").notNull().default(0),
+  partnerMappedCount: integer("partner_mapped_count").notNull().default(0), departmentMappedCount: integer("department_mapped_count").notNull().default(0), totalDebit: integer("total_debit").notNull().default(0), totalCredit: integer("total_credit").notNull().default(0),
+  differenceAmount: integer("difference_amount").notNull().default(0), resultJson: text("result_json").notNull().default("{}"), createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_finance_import_validation_batch_created").on(table.batchId, table.createdAt)]);
+
+export const financeImportCanonicalRows = sqliteTable("finance_import_canonical_rows", {
+  id: text("id").primaryKey(), validationId: text("validation_id").notNull(), batchId: text("batch_id").notNull(), rowNumber: integer("row_number").notNull(), recordType: text("record_type").notNull(), recordKey: text("record_key").notNull().default(""),
+  canonicalJson: text("canonical_json").notNull().default("{}"), validationStatus: text("validation_status").notNull(), issuesJson: text("issues_json").notNull().default("[]"), sourceChecksum: text("source_checksum").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_import_canonical_row").on(table.validationId, table.rowNumber), index("idx_finance_import_canonical_batch_status").on(table.batchId, table.validationStatus)]);
+
+export const financeImportMappingEvents = sqliteTable("finance_import_mapping_events", {
+  id: text("id").primaryKey(), mappingSetId: text("mapping_set_id").notNull(), action: text("action").notNull(), fromStatus: text("from_status").notNull().default(""), toStatus: text("to_status").notNull().default(""),
+  actorEmployeeId: text("actor_employee_id").notNull(), note: text("note").notNull().default(""), snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_finance_import_mapping_event_created").on(table.mappingSetId, table.createdAt)]);
+
 export const erpDocuments = sqliteTable("erp_documents", {
   id: text("id").primaryKey(),
   module: text("module").notNull(),

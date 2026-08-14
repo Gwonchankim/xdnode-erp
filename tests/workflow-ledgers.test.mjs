@@ -1197,3 +1197,27 @@ test("data intake ledgers reject duplicate originals and preserve row and event 
   assert.match(plan.map((row) => row.detail).join(' '), /idx_erp_data_import_row_validation/);
   db.close();
 });
+
+test("finance import mapping ledgers preserve one active version and validation lineage", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertSet = db.prepare(`INSERT INTO finance_import_mapping_sets (id,source_id,name,data_type,version,status,field_mapping_json,created_by,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+  insertSet.run('mapping-1','ecount-finance-2025','2025 분개장','JOURNAL',1,'ACTIVE','{}','gc.kim',now,now);
+  assert.throws(() => insertSet.run('mapping-2','ecount-finance-2025','중복 활성','JOURNAL',2,'ACTIVE','{}','gc.kim',now,now), /UNIQUE constraint failed/);
+  insertSet.run('mapping-2','ecount-finance-2025','차기 초안','JOURNAL',2,'DRAFT','{}','gc.kim',now,now);
+  const insertRule = db.prepare(`INSERT INTO finance_import_mapping_rules (id,mapping_set_id,dimension_type,source_key,source_label,target_id,target_code,target_label,created_by,created_at,updated_at)
+    VALUES (?,'mapping-2','ACCOUNT','10300','보통예금','account-10300','10300','보통예금','gc.kim',?,?)`);
+  insertRule.run('rule-1',now,now); assert.throws(() => insertRule.run('rule-2',now,now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_import_validations (id,batch_id,mapping_set_id,data_type,status,row_count,valid_count,invalid_count,total_debit,total_credit,difference_amount,created_by,created_at)
+    VALUES ('validation-1','batch-finance','mapping-1','JOURNAL','PASSED',2,2,0,10000,10000,0,'gc.kim',?)`).run(now);
+  const insertCanonical = db.prepare(`INSERT INTO finance_import_canonical_rows (id,validation_id,batch_id,row_number,record_type,record_key,canonical_json,validation_status,source_checksum,created_at)
+    VALUES (?,'validation-1','batch-finance',2,'JOURNAL','V-1:1','{}','VALID','row-hash',?)`);
+  insertCanonical.run('canonical-1',now); assert.throws(() => insertCanonical.run('canonical-2',now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_import_mapping_events (id,mapping_set_id,action,from_status,to_status,actor_employee_id,note,created_at)
+    VALUES ('mapping-event-1','mapping-1','BATCH_VALIDATED','ACTIVE','ACTIVE','gc.kim','차대변 일치',?)`).run(now);
+  assert.equal(db.prepare("SELECT difference_amount FROM finance_import_validations WHERE id='validation-1'").get().difference_amount, 0);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM finance_import_mapping_events WHERE mapping_set_id='mapping-1'").get().count, 1);
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM finance_import_validations WHERE batch_id=? ORDER BY created_at DESC").all('batch-finance');
+  assert.match(plan.map((row) => row.detail).join(' '), /idx_finance_import_validation_batch_created/);
+  db.close();
+});

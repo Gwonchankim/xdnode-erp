@@ -1444,3 +1444,18 @@ test("controlled data intake stages immutable originals before approval and expl
   assert.match(workspace, /원본 보관·검증/); assert.match(workspace, /결재 제출/); assert.match(workspace, /승인본 반영/); assert.match(integration, /DataIntakeWorkspace/);
   assert.match(plan, /자동 반영하지 않는다/); assert.match(plan, /실제 업무 원장 반영은 API 계약과 계정 매핑이 확정될 때까지 차단/);
 });
+
+test("finance import mappings are versioned, approval-gated and balance-blocking", async () => {
+  const [api, server, workspace, integration, approval, schema, migration, plan] = await Promise.all([
+    read("app/api/finance/import-mappings/route.ts"), read("app/finance-import-mapping.ts"), read("app/finance-import-mapping-workspace.tsx"),
+    read("app/data-integration-workspace.tsx"), read("app/approval-engine.ts"), read("db/schema.ts"),
+    read("drizzle/0055_finance_import_mapping.sql"), read("docs/finance-import-mapping-plan.md"),
+  ]);
+  for (const source of [api, server, schema, migration]) for (const table of ["finance_import_mapping_sets", "finance_import_mapping_rules", "finance_import_validations", "finance_import_canonical_rows", "finance_import_mapping_events"]) assert.match(source, new RegExp(table));
+  assert.match(api, /authorizeErpRequest\(db, "settings", "admin"\)/); assert.match(api, /requestType: "IMPORT_MAPPING"/); assert.match(api, /status='ACTIVE'/);
+  assert.match(api, /분개장 차변·대변/); assert.match(api, /기간 차변·대변/); assert.match(api, /파일 내부 거래 ID 중복/); assert.match(api, /은행계좌 또는 GL 미연결/);
+  assert.match(api, /mapping_method.*MANUAL/); assert.match(api, /exactMatchOnly: true/); assert.match(api, /directPosting: false/);
+  assert.match(approval, /IMPORT_MAPPING: "재무 파일 매핑 승인"/); assert.match(approval, /targetEntityType === "FINANCE_IMPORT_MAPPING_SET"/); assert.match(approval, /status='SUPERSEDED'/);
+  assert.match(workspace, /자동 유사매칭 없음/); assert.match(workspace, /차대변 1원 차이도/); assert.match(workspace, /운영 총계정원장이 아닌 검증용 스테이징/); assert.match(integration, /FinanceImportMappingWorkspace/);
+  assert.match(migration, /WHERE `status` = 'ACTIVE'/); assert.match(plan, /명칭 유사도 자동 병합은 하지 않는다/); assert.match(plan, /운영 총계정원장 전기를 의미하지 않는다/);
+});

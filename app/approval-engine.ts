@@ -188,6 +188,20 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
     return [db.prepare(`UPDATE finance_close_tasks SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
       AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
       .bind(approved ? "APPROVED" : "OPEN", approved ? actorEmployeeId : "", approved ? now : null, now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "FINANCE_CLOSE_RUN") {
+    return [db.prepare(`UPDATE finance_close_runs SET status = ?, closed_by = ?, closed_at = ?, updated_at = ? WHERE period = ?
+      AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(approved ? "CLOSED" : "OPEN", approved ? actorEmployeeId : "", approved ? now : null,
+        now, targetEntityId, requestId, transitionToken)];
+  } else if (targetEntityType === "FINANCE_CLOSE_REOPEN") {
+    if (!approved) return [db.prepare(`UPDATE finance_close_runs SET updated_at = updated_at WHERE period = ? AND status = 'CLOSED'
+      AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(targetEntityId, requestId, transitionToken)];
+    return [db.prepare(`UPDATE finance_close_runs SET status = 'OPEN', reopened_by = ?, reopened_at = ?,
+      reopened_reason = COALESCE((SELECT json_extract(metadata_json, '$.reopenedReason') FROM erp_approval_requests WHERE id = ?), ''),
+      version = version + 1, updated_at = ? WHERE period = ? AND status = 'CLOSED'
+      AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+      .bind(actorEmployeeId, now, requestId, now, targetEntityId, requestId, transitionToken)];
   } else if (targetEntityType === "FINANCE_EXPENSE") {
     return [db.prepare(`UPDATE finance_expense_requests SET status = ?, approved_by = ?, approved_at = ?, updated_at = ? WHERE id = ?
       AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)

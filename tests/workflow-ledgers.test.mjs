@@ -210,3 +210,40 @@ test("cash forecast settings persist and daily scenario snapshots remain unique"
     WHERE as_of = ? AND scenario = ?`).all("2026-08-14", "CONSERVATIVE");
   assert.ok(plan.some((row) => String(row.detail).includes("idx_finance_cash_forecast_snapshot_asof_scenario")));
 });
+
+test("month-end close runs preserve a frozen snapshot and versioned reopen history", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const snapshot = JSON.stringify({
+    period: "2026-08",
+    controls: [{ key: "BANK_RECONCILIATION", status: "PASS", count: 0 }],
+    evidenceCount: 2,
+  });
+  const insert = db.prepare(`INSERT INTO finance_close_runs
+    (period, period_end, status, control_pass_count, control_fail_count,
+      manual_completed_count, manual_total_count, evidence_count, snapshot_json,
+      submitted_by, submitted_at, created_at, updated_at)
+    VALUES (?, ?, 'SUBMITTED', 5, 0, 3, 3, 2, ?, 'gc.kim', ?, ?, ?)`);
+  insert.run("2026-08", "2026-08-31", snapshot, now, now, now);
+  assert.throws(() => insert.run("2026-08", "2026-08-31", snapshot, now, now, now), /UNIQUE constraint failed/);
+
+  db.prepare(`UPDATE finance_close_runs SET status = 'CLOSED', closed_by = ?, closed_at = ?, updated_at = ?
+    WHERE period = ? AND status = 'SUBMITTED'`).run("gc.kim", now + 1, now + 1, "2026-08");
+  const closed = db.prepare("SELECT * FROM finance_close_runs WHERE period = ?").get("2026-08");
+  assert.equal(closed.status, "CLOSED");
+  assert.equal(closed.snapshot_json, snapshot);
+  assert.equal(closed.version, 1);
+
+  db.prepare(`UPDATE finance_close_runs SET status = 'OPEN', reopened_by = ?, reopened_at = ?,
+    reopened_reason = ?, version = version + 1, updated_at = ? WHERE period = ? AND status = 'CLOSED'`)
+    .run("gc.kim", now + 2, "결산 수정분 반영", now + 2, "2026-08");
+  const reopened = db.prepare("SELECT * FROM finance_close_runs WHERE period = ?").get("2026-08");
+  assert.equal(reopened.status, "OPEN");
+  assert.equal(reopened.version, 2);
+  assert.equal(reopened.reopened_reason, "결산 수정분 반영");
+  assert.equal(reopened.snapshot_json, snapshot);
+
+  db.exec("PRAGMA optimize");
+  const indexes = db.prepare("PRAGMA index_list(finance_close_runs)").all();
+  assert.ok(indexes.some((row) => row.name === "idx_finance_close_run_status_period"));
+});

@@ -467,6 +467,30 @@ export const financeCloseTasks = sqliteTable("finance_close_tasks", {
   index("idx_finance_close_period_status").on(table.period, table.status),
 ]);
 
+export const financeCloseRuns = sqliteTable("finance_close_runs", {
+  period: text("period").primaryKey(),
+  periodEnd: text("period_end").notNull(),
+  status: text("status").notNull().default("OPEN"),
+  controlPassCount: integer("control_pass_count").notNull().default(0),
+  controlFailCount: integer("control_fail_count").notNull().default(0),
+  manualCompletedCount: integer("manual_completed_count").notNull().default(0),
+  manualTotalCount: integer("manual_total_count").notNull().default(0),
+  evidenceCount: integer("evidence_count").notNull().default(0),
+  snapshotJson: text("snapshot_json").notNull().default("{}"),
+  submittedBy: text("submitted_by").notNull().default(""),
+  submittedAt: integer("submitted_at"),
+  closedBy: text("closed_by").notNull().default(""),
+  closedAt: integer("closed_at"),
+  reopenedBy: text("reopened_by").notNull().default(""),
+  reopenedAt: integer("reopened_at"),
+  reopenedReason: text("reopened_reason").notNull().default(""),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  index("idx_finance_close_run_status_period").on(table.status, table.period),
+]);
+
 export const financeBudgets = sqliteTable("finance_budgets", {
   id: text("id").primaryKey(),
   fiscalYear: integer("fiscal_year").notNull(),

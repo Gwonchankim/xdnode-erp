@@ -208,9 +208,9 @@ test("purchase-to-pay requires an approved order, accepted receipt and matched i
 });
 
 test("cash reconciliation imports real Clobe transaction IDs and keeps confirmation human-controlled", async () => {
-  const [api, workspace, page, operations, schema, seed] = await Promise.all([
+  const [api, workspace, page, closeApi, schema, seed] = await Promise.all([
     read("app/api/finance/reconciliation/route.ts"), read("app/cash-reconciliation-workspace.tsx"),
-    read("app/page.tsx"), read("app/api/finance/operations/route.ts"), read("db/schema.ts"),
+    read("app/page.tsx"), read("app/api/finance/close/route.ts"), read("db/schema.ts"),
     read("app/finance-bank-transactions.ts"),
   ]);
   assert.match(api, /finance_bank_transactions/);
@@ -221,8 +221,8 @@ test("cash reconciliation imports real Clobe transaction IDs and keeps confirmat
   assert.match(workspace, /후보는 자동 제시하되 확정은 사용자가 수행합니다/);
   assert.match(workspace, /부분 배분/);
   assert.match(page, /"reconciliation", "자금 대사"/);
-  assert.match(operations, /미대사 은행 거래/);
-  assert.match(operations, /미대사 은행 거래 .*건을 먼저 처리/);
+  assert.match(closeApi, /match_row\.status = 'CONFIRMED'/);
+  assert.match(closeApi, /미대사.*건/);
   assert.match(schema, /idx_finance_cash_match_unique_source/);
   assert.equal((seed.match(/"transactionId"/g) ?? []).length, 155);
   assert.doesNotMatch(seed, /accountNumber/);
@@ -235,6 +235,39 @@ test("system tasks are generated from live workflow state instead of static coun
   assert.match(api, /status !== "LOCKED"/);
   assert.match(api, /differenceKrw !== 0/);
   assert.match(api, /closeRuleTask/);
+});
+
+test("month-end close freezes automatic controls, evidence and a controlled reopen trail", async () => {
+  const [api, workspace, engine, documents, operations, schema, migration, page] = await Promise.all([
+    read("app/api/finance/close/route.ts"), read("app/finance-close-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/api/documents/route.ts"),
+    read("app/api/operations/route.ts"), read("db/schema.ts"),
+    read("drizzle/0021_amusing_sway.sql"), read("app/page.tsx"),
+  ]);
+  assert.match(api, /match_row\.status = 'CONFIRMED'/);
+  assert.match(api, /journalSummary\.differenceKrw/);
+  assert.match(api, /status <> 'POSTED'/);
+  assert.match(api, /expense\.evidence_required = 1/);
+  assert.match(api, /payroll\?\.status === "LOCKED"/);
+  assert.match(api, /action === "SUBMIT_CLOSE"/);
+  assert.match(api, /snapshot_json = \?/);
+  assert.match(api, /targetEntityType: "FINANCE_CLOSE_RUN"/);
+  assert.match(api, /action === "REQUEST_REOPEN"/);
+  assert.match(api, /targetEntityType: "FINANCE_CLOSE_REOPEN"/);
+  assert.match(engine, /targetEntityType === "FINANCE_CLOSE_RUN"/);
+  assert.match(engine, /targetEntityType === "FINANCE_CLOSE_REOPEN"/);
+  assert.match(documents, /entityType === "financeCloseRun"/);
+  assert.match(documents, /closeRun\.status !== "OPEN"/);
+  assert.match(operations, /month-close-controls/);
+  assert.match(operations, /destination: "finance:close"/);
+  assert.match(workspace, /월마감 통제센터/);
+  assert.match(workspace, /마감 증빙/);
+  assert.match(workspace, /재개방 결재 요청/);
+  assert.match(schema, /financeCloseRuns/);
+  assert.match(schema, /idx_finance_close_run_status_period/);
+  assert.match(migration, /finance_close_runs/);
+  assert.match(migration, /idx_finance_close_run_status_period/);
+  assert.match(page, /"close", "월마감 통제"/);
 });
 
 test("shared approval engine persists request, ordered steps and immutable events", async () => {
@@ -267,12 +300,12 @@ test("approval transitions require module approval rights and optimistic concurr
 });
 
 test("final approvals update linked HR, finance and sales records in the guarded batch", async () => {
-  const [engine, approvalApi, hr, payroll, finance, sales] = await Promise.all([
+  const [engine, approvalApi, hr, payroll, finance, closeApi, sales] = await Promise.all([
     read("app/approval-engine.ts"), read("app/api/approvals/route.ts"),
     read("app/api/hr/operations/route.ts"), read("app/api/hr/payroll/route.ts"),
-    read("app/api/finance/operations/route.ts"), read("app/api/sales/route.ts"),
+    read("app/api/finance/operations/route.ts"), read("app/api/finance/close/route.ts"), read("app/api/sales/route.ts"),
   ]);
-  for (const entity of ["HR_LEAVE", "HR_PERSONNEL_ACTION", "PAYROLL_RUN", "FINANCE_BUDGET", "FINANCE_CLOSE", "SALES_DOCUMENT"]) assert.match(engine, new RegExp(entity));
+  for (const entity of ["HR_LEAVE", "HR_PERSONNEL_ACTION", "PAYROLL_RUN", "FINANCE_BUDGET", "FINANCE_CLOSE", "FINANCE_CLOSE_RUN", "FINANCE_CLOSE_REOPEN", "SALES_DOCUMENT"]) assert.match(engine, new RegExp(entity));
   assert.match(approvalApi, /buildApprovalOutcomeStatements/);
   assert.match(engine, /transition_token = \?/);
   assert.match(hr, /requestType: "LEAVE_REQUEST"/);
@@ -282,7 +315,7 @@ test("final approvals update linked HR, finance and sales records in the guarded
   assert.match(engine, /history_json = json_insert/);
   assert.match(payroll, /requestType: "PAYROLL_RUN"/);
   assert.match(finance, /requestType: "BUDGET"/);
-  assert.match(finance, /requestType: "CLOSE"/);
+  assert.match(closeApi, /requestType: "CLOSE"/);
   assert.match(sales, /targetEntityType: "SALES_DOCUMENT"/);
 });
 

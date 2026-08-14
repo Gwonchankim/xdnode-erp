@@ -80,6 +80,11 @@ export async function POST(request: Request) {
   }
   const authorization = await authorizeErpRequest(db, moduleName, "write");
   if (authorization.response) return authorization.response;
+  if (moduleName === "finance" && entityType === "financeCloseRun") {
+    const closeRun = await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(entityId).first<{ status: string }>();
+    if (!closeRun) return Response.json({ error: "월마감 실행 원장을 먼저 생성해 주세요." }, { status: 404 });
+    if (closeRun.status !== "OPEN") return Response.json({ error: "제출 또는 잠금된 월마감의 증빙은 변경할 수 없습니다." }, { status: 409 });
+  }
   if (file.size > 25 * 1024 * 1024) return Response.json({ error: "파일은 25MB 이하만 저장할 수 있습니다." }, { status: 413 });
   const contentType = file.type || "application/octet-stream";
   if (!allowedTypes.has(contentType)) return Response.json({ error: "PDF, DOCX, XLSX, PNG, JPG, TXT, CSV 파일만 저장할 수 있습니다." }, { status: 415 });
@@ -115,6 +120,10 @@ export async function DELETE(request: Request) {
   if (!row || !allowedModules.has(row.module as ErpModule)) return Response.json({ error: "삭제할 문서를 찾을 수 없습니다." }, { status: 404 });
   const authorization = await authorizeErpRequest(db, row.module as ErpModule, "delete");
   if (authorization.response) return authorization.response;
+  if (row.module === "finance" && row.entity_type === "financeCloseRun") {
+    const closeRun = await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(row.entity_id).first<{ status: string }>();
+    if (closeRun?.status !== "OPEN") return Response.json({ error: "제출 또는 잠금된 월마감의 증빙은 삭제할 수 없습니다." }, { status: 409 });
+  }
   const deletedAt = Date.now();
   await db.prepare("UPDATE erp_documents SET deleted_at = ? WHERE id = ?").bind(deletedAt, id).run();
   await writeErpAudit(db, { principal: authorization.principal, module: row.module as ErpModule, action: "DOCUMENT_SOFT_DELETED", entityType: row.entity_type, entityId: row.entity_id, before: toDocument(row), after: { deletedAt }, reason: "원본 파일은 복구를 위해 보존" });

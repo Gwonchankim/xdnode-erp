@@ -254,6 +254,27 @@ async function seedStateDrivenOperations() {
   } catch {
     // 자금예측을 처음 열기 전에는 스냅샷 테이블이 없을 수 있으므로 규칙 평가를 다음 조회로 미룹니다.
   }
+
+  try {
+    const closeRun = await db.prepare(`SELECT period, period_end, status, control_fail_count,
+      manual_completed_count, manual_total_count, evidence_count FROM finance_close_runs
+      WHERE period = ? ORDER BY updated_at DESC LIMIT 1`).bind(financeCurrentData.asOf.slice(0, 7)).first<{
+        period: string; period_end: string; status: string; control_fail_count: number;
+        manual_completed_count: number; manual_total_count: number; evidence_count: number;
+      }>();
+    const closeIncomplete = closeRun && closeRun.status === "OPEN"
+      && (closeRun.control_fail_count > 0 || closeRun.manual_completed_count < closeRun.manual_total_count || closeRun.evidence_count === 0);
+    if (closeIncomplete && closeRun) await upsertRuleTask({
+      id: "month-close-controls", module: "finance", category: "월마감",
+      title: `${closeRun.period} 월마감 통제 ${closeRun.control_fail_count}건 확인`,
+      description: `자동 통제 실패 ${closeRun.control_fail_count}건 · 수동 검토 ${closeRun.manual_completed_count}/${closeRun.manual_total_count} · 증빙 ${closeRun.evidence_count}건입니다.`,
+      dueDate: closeRun.period_end, priority: closeRun.control_fail_count > 0 ? "HIGH" : "NORMAL",
+      destination: "finance:close", sourceId: `${closeRun.period}:${closeRun.control_fail_count}:${closeRun.manual_completed_count}:${closeRun.evidence_count}`,
+    });
+    else await closeRuleTask("month-close-controls");
+  } catch {
+    // 월마감 통제 화면을 처음 열기 전에는 실행 원장이 없을 수 있으므로 다음 조회로 미룹니다.
+  }
 }
 
 export async function GET() {

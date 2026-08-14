@@ -65,6 +65,15 @@ async function ensureSchema() {
       evidence_document_id TEXT NOT NULL DEFAULT '', completed_at INTEGER, approved_by TEXT NOT NULL DEFAULT '',
       approved_at INTEGER, reopened_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS finance_close_runs (
+      period TEXT PRIMARY KEY NOT NULL, period_end TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'OPEN',
+      control_pass_count INTEGER NOT NULL DEFAULT 0, control_fail_count INTEGER NOT NULL DEFAULT 0,
+      manual_completed_count INTEGER NOT NULL DEFAULT 0, manual_total_count INTEGER NOT NULL DEFAULT 0,
+      evidence_count INTEGER NOT NULL DEFAULT 0, snapshot_json TEXT NOT NULL DEFAULT '{}',
+      submitted_by TEXT NOT NULL DEFAULT '', submitted_at INTEGER, closed_by TEXT NOT NULL DEFAULT '', closed_at INTEGER,
+      reopened_by TEXT NOT NULL DEFAULT '', reopened_at INTEGER, reopened_reason TEXT NOT NULL DEFAULT '',
+      version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
     db.prepare(`CREATE TABLE IF NOT EXISTS finance_budgets (
       id TEXT PRIMARY KEY NOT NULL, fiscal_year INTEGER NOT NULL, month INTEGER NOT NULL, department TEXT NOT NULL,
       account_code TEXT NOT NULL, account_name TEXT NOT NULL, amount INTEGER NOT NULL,
@@ -102,6 +111,7 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_reconciliation_status_date ON finance_reconciliations(status, transaction_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_cash_forecast_scenario_date ON finance_cash_forecast_items(scenario, expected_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_close_period_status ON finance_close_tasks(period, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_close_run_status_period ON finance_close_runs(status, period)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_budgets_year_month_department ON finance_budgets(fiscal_year, month, department)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_expense_status_due ON finance_expense_requests(status, due_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_expense_requester_created ON finance_expense_requests(requester_employee_id, created_at)"),
@@ -313,33 +323,13 @@ export async function PUT(request: Request) {
     const before = await db.prepare("SELECT * FROM finance_close_tasks WHERE id = ?").bind(id).first<CloseRow>();
     if (!before) return Response.json({ error: "마감 업무를 찾을 수 없습니다." }, { status: 404 });
     const status = String(body.status ?? before.status);
-    if (!["OPEN", "IN_PROGRESS", "COMPLETED", "APPROVED"].includes(status)) return Response.json({ error: "올바르지 않은 상태입니다." }, { status: 400 });
-    if (before.category === "BANK" && ["COMPLETED", "APPROVED"].includes(status)) {
-      const pending = await db.prepare(`SELECT COUNT(*) AS count FROM finance_bank_transactions transaction_row
-        WHERE transaction_row.currency = 'KRW' AND transaction_row.transaction_date LIKE ?
-          AND transaction_row.amount > COALESCE((SELECT SUM(match_row.matched_amount)
-            FROM finance_cash_matches match_row WHERE match_row.bank_transaction_id = transaction_row.id
-              AND match_row.status = 'CONFIRMED'), 0)`)
-        .bind(`${before.period}-%`).first<{ count: number }>();
-      if ((pending?.count ?? 0) > 0) return Response.json({ error: `미대사 은행 거래 ${pending?.count ?? 0}건을 먼저 처리해 주세요.` }, { status: 409 });
-    }
-    if (status === "APPROVED" && before.status !== "APPROVED") {
-      if (before.status !== "COMPLETED") return Response.json({ error: "완료 처리된 마감 업무만 승인 결재를 요청할 수 있습니다." }, { status: 409 });
-      const existing = await db.prepare(`SELECT id, status FROM erp_approval_requests
-        WHERE target_entity_type = 'FINANCE_CLOSE' AND target_entity_id = ? ORDER BY created_at DESC LIMIT 1`)
-        .bind(id).first<{ id: string; status: string }>();
-      if (existing && ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"].includes(existing.status)) return Response.json({ item: toCloseTask(before), approvalSubmitted: true, approvalId: existing.id }, { status: 202 });
-      const approval = await createApprovalRequest(db, authorization.principal, {
-        module: "finance", requestType: "CLOSE", title: `${before.period} ${before.title} 승인`,
-        description: `${before.category} 마감 업무 완료 검토`, targetEntityType: "FINANCE_CLOSE", targetEntityId: id,
-        dueDate: before.period ? `${before.period}-28` : "", metadata: { period: before.period, category: before.category },
-      });
-      await writeErpAudit(db, { principal: authorization.principal, module: "finance", action: "CLOSE_APPROVAL_SUBMITTED", entityType: "financeCloseTask", entityId: id, before: toCloseTask(before), after: approval });
-      return Response.json({ item: toCloseTask(before), approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
-    }
-    const completedAt = ["COMPLETED", "APPROVED"].includes(status) ? (before.completed_at ?? now) : null;
-    const approvedBy = status === "APPROVED" ? authorization.principal.employeeId : "";
-    const approvedAt = status === "APPROVED" ? now : null;
+    if (!["OPEN", "IN_PROGRESS", "COMPLETED"].includes(status)) return Response.json({ error: "월마감 전체 승인은 월마감 통제 화면에서 제출해 주세요." }, { status: 400 });
+    const closeRun = await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(before.period).first<{ status: string }>();
+    if (closeRun && ["SUBMITTED", "CLOSED"].includes(closeRun.status)) return Response.json({ error: "제출 또는 잠금된 마감월의 업무는 수정할 수 없습니다." }, { status: 409 });
+    if (["BANK", "JOURNAL", "EVIDENCE", "PAYROLL"].includes(before.category)) return Response.json({ error: "자동 통제 업무는 월마감 통제 화면에서 원장 상태에 따라 갱신됩니다." }, { status: 409 });
+    const completedAt = status === "COMPLETED" ? (before.completed_at ?? now) : null;
+    const approvedBy = "";
+    const approvedAt = null;
     await db.prepare(`UPDATE finance_close_tasks SET status = ?, owner_employee_id = ?, completed_at = ?,
       approved_by = ?, approved_at = ?, reopened_reason = ?, updated_at = ? WHERE id = ?`)
       .bind(status, String(body.ownerEmployeeId ?? before.owner_employee_id), completedAt, approvedBy, approvedAt,

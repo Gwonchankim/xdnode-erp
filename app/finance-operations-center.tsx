@@ -262,7 +262,7 @@ export default function FinanceOperationsCenter() {
         <header><div><p>MONTH-END CLOSE</p><h2>월마감 체크리스트</h2></div><span>{data?.closeTasks[0]?.period ?? financeCurrentData.asOf.slice(0, 7)}</span></header>
         <div className="finance-close-progress"><i><b style={{ width: `${data?.closeTasks.length ? closeCompleted / data.closeTasks.length * 100 : 0}%` }} /></i><strong>{data?.closeTasks.length ? Math.round(closeCompleted / data.closeTasks.length * 100) : 0}%</strong></div>
         <div className="finance-close-list">
-          {(data?.closeTasks ?? []).map((item) => <div key={item.id}><span>{["COMPLETED", "APPROVED"].includes(item.status) ? "✓" : "·"}</span><p><strong>{item.title}</strong><small>{item.category}</small></p><select aria-label={`${item.title} 상태`} value={item.status} onChange={(event) => void updateStatus("close", item.id, event.target.value)}><option value="OPEN">미착수</option><option value="IN_PROGRESS">진행 중</option><option value="COMPLETED">완료</option><option value="APPROVED">승인</option></select></div>)}
+          {(data?.closeTasks ?? []).map((item) => { const automated = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL"].includes(item.category); return <div key={item.id}><span>{["COMPLETED", "APPROVED"].includes(item.status) ? "✓" : "·"}</span><p><strong>{item.title}</strong><small>{item.category}{automated ? " · 자동 통제" : ""}</small></p><select disabled={automated} aria-label={`${item.title} 상태`} value={item.status === "APPROVED" ? "COMPLETED" : item.status} onChange={(event) => void updateStatus("close", item.id, event.target.value)}><option value="OPEN">미착수</option><option value="IN_PROGRESS">진행 중</option><option value="COMPLETED">완료</option></select></div>; })}
         </div>
       </article>
 

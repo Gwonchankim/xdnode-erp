@@ -16,10 +16,11 @@ type AuditData = {
 };
 
 const moduleLabel: Record<string, string> = { ALL: "전체", operations: "운영", finance: "재무회계", hr: "HR", recruitment: "채용", sales: "영업", settings: "설정" };
-const today = new Date();
-const defaultTo = today.toISOString().slice(0, 10);
-const ninetyDaysAgo = new Date(today); ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-const defaultFrom = ninetyDaysAgo.toISOString().slice(0, 10);
+function seoulDate(value: Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
+}
+const defaultTo = seoulDate(new Date());
+const defaultFrom = seoulDate(new Date(Date.now() - 90 * 86_400_000));
 
 function readable(value: string) {
   return value.toLowerCase().split("_").map((part) => part ? part[0].toUpperCase() + part.slice(1) : part).join(" ");

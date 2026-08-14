@@ -91,7 +91,7 @@ export default function DataGovernanceCenter({ onClose, initialView = "trust" }:
     <button className="data-governance-backdrop" type="button" aria-label="데이터 통제 센터 닫기" onClick={onClose} />
     <aside className="data-governance-center" role="dialog" aria-modal="true" aria-label="데이터 신뢰성 통제 센터">
       <header className="data-governance-header">
-        <div><p>DATA CONTROL CENTER</p><h2>데이터 통제 센터</h2><span>신뢰성·복구와 원천 연동·대사를 관리자 권한으로 관리합니다.</span></div>
+        <div><p>DATA CONTROL CENTER</p><h2>데이터 통제 센터</h2><span>신뢰성·복구, 원천 연동·대사와 감사·변경이력을 관리자 권한으로 관리합니다.</span></div>
         <button type="button" aria-label="닫기" onClick={onClose}>×</button>
       </header>
       <nav className="data-governance-tabs" aria-label="데이터 통제 영역"><button type="button" className={view === "trust" ? "active" : ""} onClick={() => setView("trust")}>신뢰성·복구</button><button type="button" className={view === "integration" ? "active" : ""} onClick={() => setView("integration")}>연동·대사</button><button type="button" className={view === "audit" ? "active" : ""} onClick={() => setView("audit")}>감사·변경이력</button></nav>

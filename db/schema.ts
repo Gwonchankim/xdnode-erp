@@ -467,6 +467,48 @@ export const financeCashForecastSettings = sqliteTable("finance_cash_forecast_se
   updatedAt: integer("updated_at").notNull(),
 });
 
+export const financeAlertCases = sqliteTable("finance_alert_cases", {
+  id: text("id").primaryKey(),
+  taskId: text("task_id").notNull(),
+  taskSourceId: text("task_source_id").notNull(),
+  sourceDestination: text("source_destination").notNull().default(""),
+  titleSnapshot: text("title_snapshot").notNull(),
+  descriptionSnapshot: text("description_snapshot").notNull().default(""),
+  prioritySnapshot: text("priority_snapshot").notNull().default("NORMAL"),
+  ownerEmployeeId: text("owner_employee_id").notNull().default(""),
+  dueDate: text("due_date").notNull().default(""),
+  status: text("status").notNull().default("OPEN"),
+  rootCause: text("root_cause").notNull().default(""),
+  impactAssessment: text("impact_assessment").notNull().default(""),
+  actionPlan: text("action_plan").notNull().default(""),
+  resolutionSummary: text("resolution_summary").notNull().default(""),
+  submittedBy: text("submitted_by").notNull().default(""),
+  submittedAt: integer("submitted_at"),
+  reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at"),
+  reviewComment: text("review_comment").notNull().default(""),
+  version: integer("version").notNull().default(1),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+  closedAt: integer("closed_at"),
+}, (table) => [
+  uniqueIndex("idx_finance_alert_case_task_source").on(table.taskId, table.taskSourceId),
+  index("idx_finance_alert_case_status_due").on(table.status, table.dueDate),
+  index("idx_finance_alert_case_owner_status").on(table.ownerEmployeeId, table.status),
+]);
+
+export const financeAlertCaseEvents = sqliteTable("finance_alert_case_events", {
+  id: text("id").primaryKey(),
+  caseId: text("case_id").notNull(),
+  action: text("action").notNull(),
+  actorEmployeeId: text("actor_employee_id").notNull(),
+  comment: text("comment").notNull().default(""),
+  snapshotJson: text("snapshot_json").notNull().default("{}"),
+  createdAt: integer("created_at").notNull(),
+}, (table) => [
+  index("idx_finance_alert_case_event_case_created").on(table.caseId, table.createdAt),
+]);
+
 export const financeCashForecastSnapshots = sqliteTable("finance_cash_forecast_snapshots", {
   id: text("id").primaryKey(),
   asOf: text("as_of").notNull(),

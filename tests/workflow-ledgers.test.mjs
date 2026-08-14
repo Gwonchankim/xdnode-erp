@@ -637,3 +637,26 @@ test("incentive cumulative settlement and month-close queries compile against th
     "2026-08", "2026-08", "2026-08", "2026-08", "2026-08",
   ));
 });
+
+test("financial alert cases stay unique per task source and preserve append-only events", async () => {
+  const db = await migratedDatabase();
+  const now = Date.now();
+  const insertCase = db.prepare(`INSERT INTO finance_alert_cases
+    (id, task_id, task_source_id, source_destination, title_snapshot, description_snapshot,
+      priority_snapshot, owner_employee_id, due_date, status, created_at, updated_at)
+    VALUES (?, 'finance-risk-alert', 'snapshot-2026-08-14', 'finance:liquidity', '유동성 경보',
+      '정책 기준 확인 필요', 'HIGH', 'gc.kim', '2026-08-15', 'OPEN', ?, ?)`);
+  insertCase.run("alert-case-1", now, now);
+  assert.throws(() => insertCase.run("alert-case-duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_alert_case_events
+    (id, case_id, action, actor_employee_id, comment, snapshot_json, created_at)
+    VALUES (?, 'alert-case-1', ?, 'gc.kim', ?, ?, ?)`)
+    .run("alert-event-1", "ACTION_SAVED", "담당자 지정", '{"from":"OPEN","to":"IN_PROGRESS"}', now);
+  db.prepare(`INSERT INTO finance_alert_case_events
+    (id, case_id, action, actor_employee_id, comment, snapshot_json, created_at)
+    VALUES (?, 'alert-case-1', ?, 'gc.kim', ?, ?, ?)`)
+    .run("alert-event-2", "REVIEW_REQUESTED", "근거 첨부 완료", '{"from":"IN_PROGRESS","to":"REVIEW"}', now + 1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM finance_alert_case_events WHERE case_id = 'alert-case-1'").get().count, 2);
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM finance_alert_cases WHERE status = 'OPEN' ORDER BY due_date").all();
+  assert.ok(plan.some((row) => String(row.detail).includes("idx_finance_alert_case_status_due")));
+});

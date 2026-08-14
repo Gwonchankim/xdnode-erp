@@ -868,3 +868,34 @@ test("debt management keeps Clobe balances immutable and routes schedules throug
   assert.match(documents, /활성 계약 또는 확정된 약정 검토에 사용된 근거문서/);
   assert.match(page, /"debt", "차입금·상환·약정"/);
 });
+
+test("financial system alerts require evidence, finance review and controlled closure", async () => {
+  const [api, view, server, operations, documents, schema, migration, page, plan] = await Promise.all([
+    read("app/api/finance/alert-actions/route.ts"), read("app/finance-alert-action-center.tsx"),
+    read("app/finance-alert-actions-server.ts"), read("app/api/operations/route.ts"),
+    read("app/api/documents/route.ts"), read("db/schema.ts"),
+    read("drizzle/0036_finance_alert_actions.sql"), read("app/page.tsx"),
+    read("docs/finance-alert-action-plan.md"),
+  ]);
+  for (const table of ["finance_alert_cases", "finance_alert_case_events"]) {
+    assert.match(api, new RegExp(table));
+    assert.match(migration, new RegExp(table));
+  }
+  for (const model of ["financeAlertCases", "financeAlertCaseEvents"]) assert.match(schema, new RegExp(model));
+  assert.match(api, /authorizeErpRequest\(db, "finance", permission\)/);
+  assert.match(api, /\["APPROVE", "REJECT", "REOPEN"\].*"approve"/);
+  assert.match(api, /rootCause\.length < 5/);
+  assert.match(api, /evidenceCount\(caseId\) < 1/);
+  assert.match(api, /CLOSURE_APPROVED/);
+  assert.match(api, /db\.batch\(\[/);
+  assert.match(server, /status = 'CLOSED'/);
+  assert.match(operations, /hasClosedFinanceAlertCase/);
+  assert.match(operations, /중요 재무 경보는 조치계획·근거자료·재무 승인/);
+  assert.match(documents, /financeAlertCase/);
+  assert.match(documents, /감사 이력 보호/);
+  assert.match(view, /재무 경보 조치센터/);
+  assert.match(view, /증빙 확인·종료 검토 요청/);
+  assert.match(page, /"risk-actions", "재무 경보 조치"/);
+  assert.match(page, /"조치 등록 →"/);
+  assert.match(plan, /OPEN → IN_PROGRESS → REVIEW → CLOSED/);
+});

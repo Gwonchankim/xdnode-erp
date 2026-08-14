@@ -35,6 +35,7 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /자금·채권채무/);
   assert.match(html, /원장·데이터 점검/);
   assert.match(html, /회사 재무정책/);
+  assert.match(html, /재무 경보 조치/);
   assert.match(html, /매입·매출 분석/);
   assert.match(html, /외상·미수 관리/);
   assert.match(html, /차입금·상환·약정/);

@@ -19,6 +19,7 @@ import ExpenseControlWorkspace from "./expense-control-workspace";
 import DebtManagementWorkspace from "./debt-management-workspace";
 import DailyTreasuryWorkspace from "./daily-treasury-workspace";
 import FinanceRiskPolicyWorkspace from "./finance-risk-policy-workspace";
+import FinanceAlertActionCenter from "./finance-alert-action-center";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
@@ -50,6 +51,7 @@ type OperationTask = {
   priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
   destination: string;
   sourceType?: string;
+  sourceId?: string;
 };
 
 type TreasuryOverviewSnapshot = {
@@ -117,10 +119,10 @@ const financeChecks = [
 ];
 
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality" | "policy";
+type FinanceWorkspaceView = "overview" | "risk-actions" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality" | "policy";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
-  "overview", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
+  "overview", "risk-actions", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
   "project-costing", "expense-control", "debt", "reconciliation", "forecast", "budget", "close", "master",
   "commercial", "receivables", "statements", "liquidity", "quality", "policy",
 ]);
@@ -289,7 +291,9 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
       setAlertsOpen(false);
       return;
     }
-    const destination = taskDestination(task);
+    const destination = task.module === "finance" && task.sourceType === "SYSTEM_RULE"
+      ? { module: "finance" as const, financeView: "risk-actions" as const }
+      : taskDestination(task);
     if (destination) onOpenAlert({
       id: task.id,
       category: task.category,
@@ -369,8 +373,8 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
                     <p><em>{task.category} · {task.priority}</em><time>{task.dueDate || "기한 없음"}</time></p>
                     <h3>{task.title}</h3><span>{task.description}</span>
                     <div className="operation-task-actions">
-                      {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>관련 업무 열기 →</button>}
-                      {task.sourceType !== "APPROVAL" && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
+                      {task.destination && <button type="button" className="erp-alarm-action" onClick={() => openTask(task)}>{task.module === "finance" && task.sourceType === "SYSTEM_RULE" ? "조치 등록 →" : "관련 업무 열기 →"}</button>}
+                      {task.sourceType !== "APPROVAL" && !(task.module === "finance" && task.sourceType === "SYSTEM_RULE") && <button type="button" className="erp-alarm-dismiss" onClick={() => void updateTask(task, "DONE")}>완료 처리</button>}
                     </div>
                   </div>
                 </article>
@@ -817,7 +821,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   }, [normalizedSearch]);
 
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
-    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["daily-report", "일일 자금일보", "일"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
+    { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["risk-actions", "재무 경보 조치", "경"], ["daily-report", "일일 자금일보", "일"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["expense-control", "법인카드·지출증빙", "증"], ["inventory", "재고·상품원가", "재"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
     { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"], ["policy", "회사 재무정책", "설"]] },
@@ -896,7 +900,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
               {displayedFinanceTasks.map((task) => (
                 <article className={`finance-alert-card ${task.priority === "CRITICAL" ? "critical" : task.priority === "HIGH" ? "warning" : "info"}`} key={task.id}>
                   <span>{task.category} · {task.priority}</span><strong>{task.title}</strong><p>{task.description}</p>
-                  <button type="button" onClick={() => setWorkspace(financeDestinationView(task.destination))}>관련 업무 열기 →</button>
+                  <button type="button" onClick={() => setWorkspace(task.sourceType === "SYSTEM_RULE" ? "risk-actions" : financeDestinationView(task.destination))}>{task.sourceType === "SYSTEM_RULE" ? "조치 등록 →" : "관련 업무 열기 →"}</button>
                 </article>
               ))}
               {financeOverview.loading && displayedFinanceTasks.length === 0 && (
@@ -1175,6 +1179,13 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             </div>
           </section>
         </>
+      )}
+
+      {workspace === "risk-actions" && (
+        <FinanceAlertActionCenter onNavigate={(destination) => {
+          const next = financeDestinationView(destination);
+          setWorkspace(next === "risk-actions" ? "overview" : next);
+        }} />
       )}
 
       {workspace === "quality" && (

@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { authorizeErpRequest, writeErpAudit } from "../../erp-platform";
 import type { ErpModule } from "../../erp-platform";
+import { ensureFinanceAlertActionSchema } from "../../finance-alert-actions-server";
 
 type Bindings = { DB: D1Database; HR_AUDIO: R2Bucket };
 const bindings = env as unknown as Bindings;
@@ -85,6 +86,12 @@ export async function POST(request: Request) {
     if (!closeRun) return Response.json({ error: "월마감 실행 원장을 먼저 생성해 주세요." }, { status: 404 });
     if (closeRun.status !== "OPEN") return Response.json({ error: "제출 또는 잠금된 월마감의 증빙은 변경할 수 없습니다." }, { status: 409 });
   }
+  if (moduleName === "finance" && entityType === "financeAlertCase") {
+    await ensureFinanceAlertActionSchema(db);
+    const alertCase = await db.prepare("SELECT status FROM finance_alert_cases WHERE id = ?").bind(entityId).first<{ status: string }>();
+    if (!alertCase) return Response.json({ error: "재무 경보 조치 원장을 먼저 생성해 주세요." }, { status: 404 });
+    if (!["OPEN", "IN_PROGRESS"].includes(alertCase.status)) return Response.json({ error: "종료 검토 중이거나 종료된 경보에는 근거자료를 추가할 수 없습니다." }, { status: 409 });
+  }
   if (moduleName === "finance" && entityType === "financeDebtFacility") {
     const facility = await db.prepare("SELECT status FROM finance_debt_facilities WHERE id = ?").bind(entityId).first<{ status: string }>();
     if (!facility) return Response.json({ error: "차입계약 원장을 먼저 등록해 주세요." }, { status: 404 });
@@ -133,6 +140,13 @@ export async function DELETE(request: Request) {
   if (row.module === "finance" && row.entity_type === "financeCloseRun") {
     const closeRun = await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(row.entity_id).first<{ status: string }>();
     if (closeRun?.status !== "OPEN") return Response.json({ error: "제출 또는 잠금된 월마감의 증빙은 삭제할 수 없습니다." }, { status: 409 });
+  }
+  if (row.module === "finance" && row.entity_type === "financeAlertCase") {
+    await ensureFinanceAlertActionSchema(db);
+    const alertCase = await db.prepare("SELECT status FROM finance_alert_cases WHERE id = ?").bind(row.entity_id).first<{ status: string }>();
+    if (alertCase && ["REVIEW", "CLOSED"].includes(alertCase.status)) {
+      return Response.json({ error: "검토 또는 종료에 사용된 경보 근거자료는 감사 이력 보호를 위해 삭제할 수 없습니다." }, { status: 409 });
+    }
   }
   if (row.module === "finance" && row.entity_type === "financeExpense") {
     const reviewed = await db.prepare(`SELECT evidence_status FROM finance_expense_controls

@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { financeCurrentData } from "../../finance-current-data";
 import { buildAccountRiskModel } from "../../finance-decision-model";
 import { loadFinanceRiskPolicy } from "../../finance-risk-policy-server";
+import { hasClosedFinanceAlertCase } from "../../finance-alert-actions-server";
 import { authorizeErpRequest, safeJson, writeErpAudit } from "../../erp-platform";
 
 type Bindings = { DB: D1Database };
@@ -147,6 +148,10 @@ async function upsertRuleTask(input: {
 
 async function closeRuleTask(id: string) {
   const now = Date.now();
+  const task = await db.prepare("SELECT module, source_type, source_id FROM erp_tasks WHERE id = ? AND deleted_at IS NULL")
+    .bind(id).first<{ module: string; source_type: string; source_id: string }>();
+  if (task?.module === "finance" && task.source_type === "SYSTEM_RULE"
+    && !await hasClosedFinanceAlertCase(db, id, task.source_id)) return;
   await db.prepare(`UPDATE erp_tasks SET status = 'DONE', completed_at = COALESCE(completed_at, ?), updated_at = ?
     WHERE id = ? AND status <> 'DONE' AND deleted_at IS NULL`).bind(now, now, id).run();
 }
@@ -811,7 +816,6 @@ export async function POST(request: Request) {
   if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     return Response.json({ error: "기한은 YYYY-MM-DD 형식으로 입력해 주세요." }, { status: 400 });
   }
-
   const now = Date.now();
   const task = {
     id: crypto.randomUUID(), module: taskModule, category, title, description, ownerEmployeeId,
@@ -857,6 +861,10 @@ export async function PUT(request: Request) {
   }
   if (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     return Response.json({ error: "기한은 YYYY-MM-DD 형식으로 입력해 주세요." }, { status: 400 });
+  }
+  if (status === "DONE" && before.module === "finance" && before.source_type === "SYSTEM_RULE"
+    && !await hasClosedFinanceAlertCase(db, before.id, before.source_id)) {
+    return Response.json({ error: "중요 재무 경보는 조치계획·근거자료·재무 승인을 완료한 뒤 종료할 수 있습니다." }, { status: 409 });
   }
 
   const now = Date.now();

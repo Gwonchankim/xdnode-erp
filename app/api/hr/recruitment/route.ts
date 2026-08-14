@@ -74,6 +74,7 @@ async function ensureSchema() {
     db.prepare(`CREATE TABLE IF NOT EXISTS applicant_interview_recordings (
       id TEXT PRIMARY KEY, applicant_id TEXT NOT NULL, recorded_at TEXT NOT NULL,
       audio_key TEXT NOT NULL, audio_content_type TEXT NOT NULL, audio_file_name TEXT NOT NULL,
+      consent_confirmed_by TEXT NOT NULL DEFAULT '', consent_confirmed_at INTEGER,
       created_at INTEGER NOT NULL
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_applicant_interview_recordings_applicant_created

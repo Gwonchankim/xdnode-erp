@@ -1216,3 +1216,30 @@ button { color: inherit; }
 .performance-control-note { margin: 16px 0 0; color: #71717a; font-size: 9px; text-align: right; }
 @media (max-width: 1100px) { .performance-layout { grid-template-columns: 1fr; }.performance-participants > div { max-height: 320px; }.performance-cycle-form { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 720px) { .performance-hero-actions, .performance-stage-bar { align-items: stretch; flex-direction: column; }.performance-hero-actions select { min-width: 0; }.performance-cycle-form, .performance-goal-form, .performance-review-score, .performance-inline-form { grid-template-columns: 1fr; }.performance-cycle-form .wide, .performance-goal-form .wide, .performance-inline-form .wide, .performance-inline-form > button { grid-column: 1; } }
+.recording-consent { display: flex; align-items: flex-start; gap: 10px; padding: 13px 15px; border: 1px solid #d4d4d8; border-radius: 18px; background: #fafafa; color: #3f3f46; font-size: 12px; font-weight: 700; line-height: 1.55; }
+.recording-consent input { width: 17px; height: 17px; margin: 1px 0 0; accent-color: #18181b; flex: 0 0 auto; }
+.audio-transcription-control { display: grid; gap: 12px; margin-top: 14px; padding: 16px; border: 1px solid #d4d4d8; border-radius: 22px; background: #f7f7f8; }
+.audio-transcription-control > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.audio-transcription-control > header div { display: grid; gap: 3px; }
+.audio-transcription-control > header strong { font-size: 13px; color: #18181b; }
+.audio-transcription-control > header small { color: #71717a; font-size: 10px; }
+.audio-transcription-control > header em { padding: 6px 10px; border-radius: 999px; background: #e4e4e7; color: #3f3f46; font-size: 9px; font-style: normal; font-weight: 900; }
+.audio-transcription-control > header em.completed { color: #065f46; background: #d1fae5; }
+.audio-transcription-control > header em.failed, .audio-transcription-control > header em.quota_exceeded { color: #9f1239; background: #ffe4e6; }
+.audio-transcription-control > button, .audio-transcription-review > button { min-height: 40px; padding: 0 16px; border: 0; border-radius: 15px; background: #18181b; color: #fff; font-size: 11px; font-weight: 900; cursor: pointer; }
+.audio-transcription-control button:disabled { opacity: .45; cursor: not-allowed; }
+.audio-transcription-consent { display: flex; align-items: flex-start; gap: 9px; color: #52525b; font-size: 10px; font-weight: 700; line-height: 1.5; }
+.audio-transcription-consent input { width: 16px; height: 16px; margin: 1px 0 0; accent-color: #18181b; flex: 0 0 auto; }
+.audio-transcription-review { display: grid; gap: 10px; }
+.audio-transcription-review details { padding: 11px 13px; border-radius: 15px; background: #fff; }
+.audio-transcription-review summary { cursor: pointer; font-size: 10px; font-weight: 900; }
+.audio-transcription-review details p, .audio-transcription-reviewed p { white-space: pre-wrap; color: #3f3f46; font-size: 11px; line-height: 1.7; }
+.audio-transcription-review label { display: grid; gap: 6px; color: #52525b; font-size: 10px; font-weight: 800; }
+.audio-transcription-review textarea, .audio-transcription-review input { width: 100%; box-sizing: border-box; border: 1px solid #d4d4d8; border-radius: 15px; background: #fff; padding: 11px 13px; color: #18181b; font: inherit; }
+.audio-transcription-review textarea { min-height: 120px; resize: vertical; line-height: 1.65; }
+.audio-transcription-reviewed { padding: 13px; border-radius: 16px; background: #fff; }
+.audio-transcription-reviewed span { color: #065f46; font-size: 10px; font-weight: 900; }
+.audio-transcription-reviewed small { color: #71717a; font-size: 9px; }
+.audio-transcription-error { margin: 0; color: #be123c; font-size: 10px; font-weight: 800; }
+.audio-transcription-message { margin: 0; color: #3f3f46; font-size: 10px; font-weight: 800; }
+@media (max-width: 720px) { .audio-transcription-control > header { align-items: flex-start; flex-direction: column; } }

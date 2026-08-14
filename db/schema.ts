@@ -10,6 +10,8 @@ export const employeeInterviewRecords = sqliteTable("employee_interview_records"
   audioKey: text("audio_key"),
   audioContentType: text("audio_content_type"),
   audioFileName: text("audio_file_name"),
+  consentConfirmedBy: text("consent_confirmed_by").notNull().default(""),
+  consentConfirmedAt: integer("consent_confirmed_at"),
   createdAt: integer("created_at").notNull(),
 }, (table) => [
   index("idx_employee_interview_records_employee_created").on(table.employeeId, table.createdAt),
@@ -22,9 +24,43 @@ export const applicantInterviewRecordings = sqliteTable("applicant_interview_rec
   audioKey: text("audio_key").notNull(),
   audioContentType: text("audio_content_type").notNull(),
   audioFileName: text("audio_file_name").notNull(),
+  consentConfirmedBy: text("consent_confirmed_by").notNull().default(""),
+  consentConfirmedAt: integer("consent_confirmed_at"),
   createdAt: integer("created_at").notNull(),
 }, (table) => [
   index("idx_applicant_interview_recordings_applicant_created").on(table.applicantId, table.createdAt),
+]);
+
+export const hrAudioTranscriptions = sqliteTable("hr_audio_transcriptions", {
+  id: text("id").primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  audioKeySnapshot: text("audio_key_snapshot").notNull(),
+  audioContentType: text("audio_content_type").notNull(),
+  status: text("status").notNull().default("PROCESSING"),
+  model: text("model").notNull(),
+  language: text("language").notNull().default("ko"),
+  transcript: text("transcript").notNull().default(""),
+  vtt: text("vtt").notNull().default(""),
+  wordCount: integer("word_count").notNull().default(0),
+  errorCode: text("error_code").notNull().default(""),
+  errorMessage: text("error_message").notNull().default(""),
+  attempt: integer("attempt").notNull().default(1),
+  consentConfirmedBy: text("consent_confirmed_by").notNull(),
+  consentConfirmedAt: integer("consent_confirmed_at").notNull(),
+  requestedBy: text("requested_by").notNull(),
+  requestedAt: integer("requested_at").notNull(),
+  completedAt: integer("completed_at"),
+  reviewedText: text("reviewed_text").notNull().default(""),
+  reviewNote: text("review_note").notNull().default(""),
+  reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_hr_audio_transcription_entity_attempt").on(table.entityType, table.entityId, table.attempt),
+  index("idx_hr_audio_transcription_entity_created").on(table.entityType, table.entityId, table.createdAt),
+  index("idx_hr_audio_transcription_status_updated").on(table.status, table.updatedAt),
 ]);
 
 export const hrOrganizationLeaders = sqliteTable("hr_organization_leaders", {

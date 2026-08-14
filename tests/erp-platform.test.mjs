@@ -1339,3 +1339,34 @@ test("after-sales service governs SLA, return quantities, evidence, approval and
   assert.match(plan, /상품 매핑이나 원가는 추정하지 않는다/);
   assert.match(plan, /동시 요청/);
 });
+
+test("HR audio transcription separates consent, AI attempts and one-time human review", async () => {
+  const [api, control, employeeApi, applicantApi, workspace, schema, migration, plan] = await Promise.all([
+    read("app/api/hr/transcriptions/route.ts"),
+    read("app/audio-transcription-control.tsx"),
+    read("app/api/hr/interviews/route.ts"),
+    read("app/api/hr/applicant-interview-recordings/route.ts"),
+    read("app/hr-workspace.tsx"),
+    read("db/schema.ts"),
+    read("drizzle/0051_hr_audio_transcriptions.sql"),
+    read("docs/hr-audio-transcription-plan.md"),
+  ]);
+  assert.match(api, /@cf\/openai\/whisper-large-v3-turbo/);
+  assert.match(api, /consentConfirmed !== true/);
+  assert.match(api, /authorizeErpRequest\(bindings\.DB, entityModules\[entityType\], "write"\)/);
+  assert.match(api, /audio\.size > 10 \* 1024 \* 1024/);
+  assert.match(api, /QUOTA_EXCEEDED/);
+  assert.match(api, /reviewed_at IS NULL/);
+  assert.match(api, /HR_AUDIO_TRANSCRIBED/);
+  assert.match(api, /HR_AUDIO_TRANSCRIPTION_REVIEWED/);
+  assert.match(control, /Cloudflare Workers AI로 전송/);
+  assert.match(control, /사용자 검토 확정/);
+  assert.match(employeeApi, /녹음 당사자의 동의 확인/);
+  assert.match(applicantApi, /지원자의 동의 확인/);
+  assert.match(workspace, /실시간 전사 초안/);
+  assert.match(workspace, /<AudioTranscriptionControl entityType="EMPLOYEE_INTERVIEW"/);
+  assert.match(workspace, /<AudioTranscriptionControl entityType="APPLICANT_INTERVIEW"/);
+  assert.match(schema, /hrAudioTranscriptions/);
+  assert.match(migration, /idx_hr_audio_transcription_entity_attempt/);
+  assert.match(plan, /AI 원문은 수정하지 않고 사용자 검토본을 별도 필드/);
+});

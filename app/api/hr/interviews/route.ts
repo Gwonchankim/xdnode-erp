@@ -10,6 +10,8 @@ type InterviewRow = {
   audio_key: string | null;
   audio_content_type: string | null;
   audio_file_name: string | null;
+  consent_confirmed_by: string;
+  consent_confirmed_at: number | null;
   created_at: number;
 };
 
@@ -31,6 +33,8 @@ async function ensureSchema() {
       audio_key TEXT,
       audio_content_type TEXT,
       audio_file_name TEXT,
+      consent_confirmed_by TEXT NOT NULL DEFAULT '',
+      consent_confirmed_at INTEGER,
       created_at INTEGER NOT NULL
     )`),
     bindings.DB.prepare(`CREATE INDEX IF NOT EXISTS idx_employee_interview_records_employee_created
@@ -47,6 +51,7 @@ function toRecord(row: InterviewRow) {
     memo: row.memo,
     audioFileName: row.audio_file_name,
     audioUrl: row.audio_key ? `/api/hr/interviews?audioId=${encodeURIComponent(row.id)}` : null,
+    consentConfirmed: Boolean(row.consent_confirmed_at),
     createdAt: row.created_at,
   };
 }
@@ -91,12 +96,16 @@ export async function POST(request: Request) {
   const transcript = String(form.get("transcript") ?? "").trim();
   const memo = String(form.get("memo") ?? "").trim();
   const audio = form.get("audio");
+  const consentConfirmed = String(form.get("consentConfirmed") ?? "") === "true";
 
   if (!employeeId || !interviewAt || (!transcript && !memo && !(audio instanceof File && audio.size))) {
     return Response.json({ error: "면담일시와 전사기록, 메모 또는 녹음 중 하나가 필요합니다." }, { status: 400 });
   }
   if (audio instanceof File && audio.size > 25 * 1024 * 1024) {
     return Response.json({ error: "녹음 파일은 25MB 이하만 저장할 수 있습니다." }, { status: 413 });
+  }
+  if (audio instanceof File && audio.size && !consentConfirmed) {
+    return Response.json({ error: "음성녹음 저장에는 녹음 당사자의 동의 확인이 필요합니다." }, { status: 400 });
   }
 
   const id = crypto.randomUUID();
@@ -114,9 +123,11 @@ export async function POST(request: Request) {
 
   const createdAt = Date.now();
   await bindings.DB.prepare(`INSERT INTO employee_interview_records
-    (id, employee_id, interview_at, transcript, memo, audio_key, audio_content_type, audio_file_name, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, employeeId, interviewAt, transcript, memo, audioKey, audioContentType, audioFileName, createdAt)
+    (id, employee_id, interview_at, transcript, memo, audio_key, audio_content_type, audio_file_name,
+      consent_confirmed_by, consent_confirmed_at, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(id, employeeId, interviewAt, transcript, memo, audioKey, audioContentType, audioFileName,
+      audioKey ? authorization.principal.employeeId : "", audioKey ? createdAt : null, createdAt)
     .run();
 
   await writeErpAudit(bindings.DB, {
@@ -125,7 +136,7 @@ export async function POST(request: Request) {
     action: "EMPLOYEE_INTERVIEW_RECORDED",
     entityType: "employeeInterview",
     entityId: id,
-    after: { employeeId, interviewAt, hasTranscript: Boolean(transcript), hasMemo: Boolean(memo), hasAudio: Boolean(audioKey) },
+    after: { employeeId, interviewAt, hasTranscript: Boolean(transcript), hasMemo: Boolean(memo), hasAudio: Boolean(audioKey), consentConfirmed: Boolean(audioKey) },
   });
 
   return Response.json({ record: toRecord({
@@ -137,6 +148,8 @@ export async function POST(request: Request) {
     audio_key: audioKey,
     audio_content_type: audioContentType,
     audio_file_name: audioFileName,
+    consent_confirmed_by: audioKey ? authorization.principal.employeeId : "",
+    consent_confirmed_at: audioKey ? createdAt : null,
     created_at: createdAt,
   }) }, { status: 201 });
 }

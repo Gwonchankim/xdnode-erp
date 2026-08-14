@@ -8,6 +8,7 @@ import RecruitmentRequisitionView from "./recruitment-requisition-view";
 import PerformanceManagementView from "./performance-management-view";
 import TrainingManagementView from "./training-management-view";
 import HrAnalyticsView from "./hr-analytics-view";
+import AudioTranscriptionControl from "./audio-transcription-control";
 
 export default function HRWorkspace({ requestedView = "dashboard", navigationRequestKey = 0 }: { requestedView?: string; navigationRequestKey?: number }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -395,6 +396,7 @@ type EmployeeInterviewRecord = {
   memo: string;
   audioFileName: string | null;
   audioUrl: string | null;
+  consentConfirmed: boolean;
   createdAt: number;
 };
 
@@ -404,6 +406,7 @@ type ApplicantInterviewRecording = {
   recordedAt: string;
   audioFileName: string;
   audioUrl: string;
+  consentConfirmed: boolean;
   createdAt: number;
 };
 
@@ -1658,6 +1661,7 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [message, setMessage] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1686,6 +1690,7 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
 
   async function startRecording() {
     setMessage("");
+    if (!consentConfirmed) { setMessage("녹음 당사자의 동의를 확인한 뒤 녹음을 시작해 주세요."); return; }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setMessage("이 브라우저에서는 음성 녹음을 지원하지 않습니다. 전사문과 메모를 직접 입력해 주세요.");
       return;
@@ -1761,6 +1766,7 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
     form.append("interviewAt", interviewAt);
     form.append("transcript", transcript);
     form.append("memo", memo);
+    form.append("consentConfirmed", String(consentConfirmed));
     if (audioBlob) {
       const extension = audioBlob.type.includes("mp4") ? "m4a" : "webm";
       form.append("audio", new File([audioBlob], `interview-${employee.id}-${Date.now()}.${extension}`, { type: audioBlob.type }));
@@ -1774,6 +1780,7 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
       setTranscript("");
       setMemo("");
       setAudioBlob(null);
+      setConsentConfirmed(false);
       if (audioPreviewUrl) URL.revokeObjectURL(audioPreviewUrl);
       setAudioPreviewUrl(null);
       setMessage("면담 기록을 저장했습니다.");
@@ -1787,12 +1794,13 @@ function EmployeeInterviewLog({ employee }: { employee: Employee }) {
   return <section className="panel interview-log-card">
     <div className="detail-card-heading"><div><p className="eyebrow">INTERVIEW LOG</p><h2>면담 기록</h2></div><span>{records.length}건</span></div>
     <form className="interview-log-form" onSubmit={saveRecord}>
+      <label className="recording-consent"><input type="checkbox" checked={consentConfirmed} disabled={recording} onChange={(event) => setConsentConfirmed(event.target.checked)} /><span>면담 당사자에게 녹음 목적과 보관 사실을 안내하고 동의를 확인했습니다.</span></label>
       <div className="interview-log-top"><label><span>면담일시</span><input required type="datetime-local" value={interviewAt} onChange={(event) => setInterviewAt(event.target.value)} /></label><div className="recording-controls"><span>음성녹음</span><button type="button" className={recording ? "recording" : ""} onClick={recording ? stopRecording : startRecording}>{recording ? "■ 녹음 종료" : "● 녹음 시작"}</button>{audioPreviewUrl && <audio controls src={audioPreviewUrl}>녹음 미리듣기</audio>}</div></div>
-      <div className="interview-text-grid"><label><span>AI 전사기록</span><textarea value={transcript} onChange={(event) => { setTranscript(event.target.value); recognizedTextRef.current = event.target.value; }} placeholder="녹음을 시작하면 지원되는 브라우저에서 한국어 음성이 자동으로 전사됩니다. 직접 수정할 수도 있습니다." /></label><label><span>사용자 메모</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="면담 요약, 후속 조치, 확인할 내용을 기록하세요." /></label></div>
+      <div className="interview-text-grid"><label><span>실시간 전사 초안</span><textarea value={transcript} onChange={(event) => { setTranscript(event.target.value); recognizedTextRef.current = event.target.value; }} placeholder="지원되는 브라우저에서는 녹음 중 초안이 표시됩니다. 저장 후 서버 AI 전사와 사용자 검토본을 별도로 만들 수 있습니다." /></label><label><span>사용자 메모</span><textarea value={memo} onChange={(event) => setMemo(event.target.value)} placeholder="면담 요약, 후속 조치, 확인할 내용을 기록하세요." /></label></div>
       {message && <p className="interview-log-message">{message}</p>}
       <div className="interview-log-actions"><small>녹음 파일과 기록은 이 직원의 인사기록에 안전하게 저장됩니다.</small><button type="submit" className="primary-button" disabled={saving || recording}>{saving ? "저장 중…" : "면담 기록 저장"}</button></div>
     </form>
-    <div className="interview-record-list">{loading ? <p className="interview-empty">면담 기록을 불러오는 중입니다.</p> : records.length ? records.map((record) => <article key={record.id}><div><strong>{new Date(record.interviewAt).toLocaleString("ko-KR")}</strong><small>{record.audioFileName ? "음성녹음 포함" : "텍스트 기록"}</small></div>{record.audioUrl && <audio controls src={record.audioUrl}>면담 녹음</audio>}<section><span>AI 전사기록</span><p>{record.transcript || "전사기록 없음"}</p></section><section><span>사용자 메모</span><p>{record.memo || "메모 없음"}</p></section></article>) : <p className="interview-empty">아직 등록된 면담 기록이 없습니다.</p>}</div>
+    <div className="interview-record-list">{loading ? <p className="interview-empty">면담 기록을 불러오는 중입니다.</p> : records.length ? records.map((record) => <article key={record.id}><div><strong>{new Date(record.interviewAt).toLocaleString("ko-KR")}</strong><small>{record.audioFileName ? `음성녹음 포함 · 동의 ${record.consentConfirmed ? "확인" : "기록 없음"}` : "텍스트 기록"}</small></div>{record.audioUrl && <audio controls src={record.audioUrl}>면담 녹음</audio>}<section><span>저장 전사·사용자 기록</span><p>{record.transcript || "전사기록 없음"}</p></section><section><span>사용자 메모</span><p>{record.memo || "메모 없음"}</p></section>{record.audioUrl && <AudioTranscriptionControl entityType="EMPLOYEE_INTERVIEW" entityId={record.id} />}</article>) : <p className="interview-empty">아직 등록된 면담 기록이 없습니다.</p>}</div>
   </section>;
 }
 
@@ -2226,6 +2234,7 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
   const [recording, setRecording] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
   const [message, setMessage] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -2255,6 +2264,7 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
 
   async function startRecording() {
     setMessage("");
+    if (!consentConfirmed) { setMessage("지원자의 녹음 동의를 확인한 뒤 녹음을 시작해 주세요."); return; }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
       setMessage("이 브라우저에서는 음성 녹음을 지원하지 않습니다.");
       return;
@@ -2302,6 +2312,7 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
     const form = new FormData();
     form.append("applicantId", applicantId);
     form.append("recordedAt", recordedAt);
+    form.append("consentConfirmed", String(consentConfirmed));
     form.append("audio", new File([audioBlob], `applicant-interview-${Date.now()}.${extension}`, { type: audioBlob.type }));
     try {
       const response = await fetch("/api/hr/applicant-interview-recordings", { method: "POST", body: form });
@@ -2310,6 +2321,7 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
       setRecordings((items) => [data.recording as ApplicantInterviewRecording, ...items]);
       setRecordedAt(localNow());
       setAudioBlob(null);
+      setConsentConfirmed(false);
       if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
       previewUrlRef.current = null;
       setPreviewUrl(null);
@@ -2323,11 +2335,12 @@ function ApplicantInterviewRecorder({ applicantId }: { applicantId: string }) {
 
   return <section className="applicant-interview-recorder">
     <div className="applicant-recording-heading"><div><p className="eyebrow">INTERVIEW RECORDING</p><h3>면접 녹음</h3></div><span>{recordings.length}건</span></div>
+    <label className="recording-consent"><input type="checkbox" checked={consentConfirmed} disabled={recording} onChange={(event) => setConsentConfirmed(event.target.checked)} /><span>지원자에게 면접 녹음 목적과 보관 사실을 안내하고 동의를 확인했습니다.</span></label>
     <label className="applicant-recorded-at"><span>녹음일시</span><input type="datetime-local" value={recordedAt} onChange={(event) => setRecordedAt(event.target.value)} /></label>
     <div className="applicant-recording-controls"><button type="button" className={recording ? "recording" : ""} onClick={recording ? stopRecording : startRecording}>{recording ? "■ 녹음 종료" : "● 녹음 시작"}</button>{previewUrl && <audio controls src={previewUrl}>면접 녹음 미리듣기</audio>}</div>
     {message && <p className="applicant-recording-message">{message}</p>}
     <button type="button" className="primary-button applicant-recording-save" disabled={!audioBlob || recording || saving} onClick={saveRecording}>{saving ? "저장 중…" : "면접 녹음 저장"}</button>
-    <div className="applicant-recording-list">{loading ? <p>면접 녹음을 불러오는 중입니다.</p> : recordings.length ? recordings.map((item) => <article key={item.id}><div><strong>{new Date(item.recordedAt).toLocaleString("ko-KR")}</strong><small>{item.audioFileName}</small></div><audio controls src={item.audioUrl}>저장된 면접 녹음</audio></article>) : <p>아직 저장된 면접 녹음이 없습니다.</p>}</div>
+    <div className="applicant-recording-list">{loading ? <p>면접 녹음을 불러오는 중입니다.</p> : recordings.length ? recordings.map((item) => <article key={item.id}><div><strong>{new Date(item.recordedAt).toLocaleString("ko-KR")}</strong><small>{item.audioFileName} · 동의 {item.consentConfirmed ? "확인" : "기록 없음"}</small></div><audio controls src={item.audioUrl}>저장된 면접 녹음</audio><AudioTranscriptionControl entityType="APPLICANT_INTERVIEW" entityId={item.id} /></article>) : <p>아직 저장된 면접 녹음이 없습니다.</p>}</div>
   </section>;
 }
 

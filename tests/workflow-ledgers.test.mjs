@@ -1104,3 +1104,24 @@ test("sales service ledgers keep one active SLA per priority and unique return r
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sales_service_case_events WHERE case_id = 'service-case-1'").get().count, 0);
   db.close();
 });
+
+test("HR audio transcription ledger preserves attempts and locks each human review", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insert = db.prepare(`INSERT INTO hr_audio_transcriptions
+    (id, entity_type, entity_id, audio_key_snapshot, audio_content_type, status, model, language,
+      transcript, vtt, word_count, error_code, error_message, attempt, consent_confirmed_by, consent_confirmed_at,
+      requested_by, requested_at, completed_at, reviewed_text, review_note, reviewed_by, reviewed_at, created_at, updated_at)
+    VALUES (?, 'EMPLOYEE_INTERVIEW', 'employee-interview-1', 'hr-interviews/employee-1/audio.webm', 'audio/webm', ?,
+      '@cf/openai/whisper-large-v3-turbo', 'ko', ?, '', 4, '', '', ?, 'gc.kim', ?, 'gc.kim', ?, ?, '', '', '', NULL, ?, ?)`);
+  insert.run("transcription-1", "FAILED", "", 1, now, now, now, now, now);
+  assert.throws(() => insert.run("transcription-duplicate", "FAILED", "", 1, now, now, now, now, now), /UNIQUE constraint failed/);
+  insert.run("transcription-2", "COMPLETED", "테스트 면담 전사", 2, now, now, now, now, now);
+  const firstReview = db.prepare(`UPDATE hr_audio_transcriptions SET reviewed_text = '검토된 면담 전사', review_note = '고유명사 확인',
+    reviewed_by = 'gc.kim', reviewed_at = ?, updated_at = ? WHERE id = 'transcription-2' AND status = 'COMPLETED' AND reviewed_at IS NULL`).run(now, now);
+  const secondReview = db.prepare(`UPDATE hr_audio_transcriptions SET reviewed_text = '다시 덮어쓰기', reviewed_by = 'gc.kim', reviewed_at = ?, updated_at = ?
+    WHERE id = 'transcription-2' AND status = 'COMPLETED' AND reviewed_at IS NULL`).run(now + 1, now + 1);
+  assert.equal(firstReview.changes, 1);
+  assert.equal(secondReview.changes, 0);
+  assert.equal(db.prepare("SELECT attempt, transcript, reviewed_text FROM hr_audio_transcriptions WHERE id = 'transcription-2'").get().reviewed_text, "검토된 면담 전사");
+  db.close();
+});

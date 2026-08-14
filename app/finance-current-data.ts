@@ -12035,7 +12035,7 @@ export const financeCurrentData = {
       "type": "FX",
       "currency": "USD",
       "balance": 400.69,
-      "krwBalance": 566976
+      "krwBalance": 566936
     },
     {
       "id": 162645,
@@ -12085,14 +12085,14 @@ export const financeCurrentData = {
       "type": "FX",
       "currency": "USD",
       "balance": 1114410,
-      "krwBalance": 1576890150
+      "krwBalance": 1576778709
     }
   ],
   "accountSummary": {
     "checkingBalanceSum": 55190218,
     "savingsBalanceSum": 0,
     "loanBalanceSum": 1768750005,
-    "fxBalanceSumKrw": 1577457126,
+    "fxBalanceSumKrw": 1577345645,
     "fundBalanceSumKrw": 0
   },
   "journalSummary": {
@@ -12112,7 +12112,7 @@ export const financeCurrentData = {
   "balanceTrend": [
     {
       "date": "2026-08-14",
-      "balance": 1632647344
+      "balance": 1632535863
     },
     {
       "date": "2026-08-13",

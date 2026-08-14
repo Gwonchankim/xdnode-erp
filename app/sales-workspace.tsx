@@ -7,12 +7,19 @@ type Account = { id: string; name: string; businessNumber: string; industry: str
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
 type SalesDocument = { id: string; opportunityId: string; opportunityTitle: string; accountName: string; documentType: string; documentNumber: string; version: number; amount: number; status: string; issuedDate: string; dueDate: string; reservedAmount: number; collectedAmount: number; outstandingAmount: number; linkedInvoiceId: string; linkedInvoiceNumber: string };
 type SalesData = { dataStatus: { crm: string; incentive: string }; accounts: Account[]; opportunities: Opportunity[]; documents: SalesDocument[]; incentiveRules: Array<{ id: string; name: string; version: number; status: string }> };
+type Contact = { id: string; accountId: string; name: string; title: string; email: string; phone: string; isPrimary: boolean; status: string; createdBy: string; createdAt: number };
+type Activity = { id: string; opportunityId: string; contactId: string; contactName: string; activityType: string; occurredAt: string; summary: string; nextAction: string; nextActionDate: string; createdBy: string; createdAt: number };
+type StageHistory = { id: string; opportunityId: string; fromStage: string; toStage: string; reason: string; changedBy: string; changedAt: number };
+type CrmData = { opportunity: Opportunity; contacts: Contact[]; activities: Activity[]; stageHistory: StageHistory[] };
 
 const stageLabels: Record<string, string> = { LEAD: "리드", DISCOVERY: "요구 확인", PROPOSAL: "제안", CONTRACT: "계약 협의", WON: "수주", LOST: "실주" };
 const dataLabels: Record<string, string> = { MANUAL: "수기 관리", NOT_CONNECTED: "미연결", APPROVED: "승인 규칙", UNVERIFIED: "규칙 미확정" };
 const salesDocumentLabels: Record<string, string> = { QUOTE: "견적", ORDER: "수주", DELIVERY: "납품", INVOICE: "청구", PAYMENT: "수금" };
 const salesDocumentStatusLabels: Record<string, string> = { DRAFT: "작성 중", ISSUED: "발행", ACCEPTED: "확정", COMPLETED: "완료", CANCELLED: "취소" };
+const activityLabels: Record<string, string> = { CALL: "전화", EMAIL: "이메일", MEETING: "회의", NOTE: "메모" };
+const nextStage: Record<string, string> = { LEAD: "DISCOVERY", DISCOVERY: "PROPOSAL", PROPOSAL: "CONTRACT", CONTRACT: "WON" };
 const currency = (value: number) => `₩${value.toLocaleString("ko-KR")}`;
+const localDateTime = () => { const date = new Date(); date.setMinutes(date.getMinutes() - date.getTimezoneOffset()); return date.toISOString().slice(0, 16); };
 const availableDocumentStatuses = (document: SalesDocument) => document.documentType === "PAYMENT" && document.status === "ACCEPTED"
   ? [["ACCEPTED", "확정"], ["COMPLETED", "완료"]]
   : document.documentType === "PAYMENT" && document.status === "COMPLETED"
@@ -25,6 +32,10 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   const [accountDraft, setAccountDraft] = useState({ name: "", businessNumber: "", industry: "", memo: "" });
   const [opportunityDraft, setOpportunityDraft] = useState({ accountId: "", title: "", leadType: "OUTBOUND", stage: "LEAD", expectedRevenue: "", expectedCost: "", probability: "10", expectedCloseDate: "", nextAction: "", nextActionDate: "" });
   const [documentDraft, setDocumentDraft] = useState({ opportunityId: "", documentType: "QUOTE", invoiceDocumentId: "", documentNumber: "", amount: "", issuedDate: "", dueDate: "" });
+  const [selectedOpportunityId, setSelectedOpportunityId] = useState("");
+  const [crm, setCrm] = useState<CrmData | null>(null);
+  const [contactDraft, setContactDraft] = useState({ name: "", title: "", email: "", phone: "", isPrimary: false });
+  const [activityDraft, setActivityDraft] = useState({ activityType: "CALL", contactId: "", occurredAt: localDateTime(), summary: "", nextAction: "", nextActionDate: "" });
   const opportunityPanelRef = useRef<HTMLElement>(null);
   const opportunityTitleRef = useRef<HTMLInputElement>(null);
 
@@ -38,6 +49,17 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       if (!documentDraft.opportunityId && result.opportunities[0]) setDocumentDraft((current) => ({ ...current, opportunityId: result.opportunities[0].id }));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "영업 데이터를 불러오지 못했습니다.");
+    }
+  }
+  async function loadCrm(opportunityId: string) {
+    try {
+      const response = await fetch(`/api/sales/crm?opportunityId=${encodeURIComponent(opportunityId)}`);
+      const result = await response.json() as CrmData & { error?: string };
+      if (!response.ok) throw new Error(result.error || "영업 상세를 불러오지 못했습니다.");
+      setCrm(result);
+      setSelectedOpportunityId(opportunityId);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "영업 상세를 불러오지 못했습니다.");
     }
   }
   // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
@@ -71,10 +93,36 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   }
 
   async function updateStage(id: string, stage: string) {
-    const response = await fetch("/api/sales", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage }) });
+    const reasonLabel = stage === "LOST" ? "실주 사유를 10자 이상 입력해 주세요." : "단계 변경 근거를 5자 이상 입력해 주세요.";
+    const reason = window.prompt(reasonLabel, "");
+    if (reason === null) return;
+    const response = await fetch("/api/sales", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id, stage, reason }) });
     const result = await response.json() as { error?: string };
     if (!response.ok) { setMessage(result.error || "단계를 변경하지 못했습니다."); return; }
     await load();
+    if (selectedOpportunityId === id) await loadCrm(id);
+  }
+
+  async function createContact(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!crm) return;
+    const response = await fetch("/api/sales/crm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "contact", accountId: crm.opportunity.accountId, ...contactDraft }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "고객 담당자를 저장하지 못했습니다."); return; }
+    setContactDraft({ name: "", title: "", email: "", phone: "", isPrimary: false });
+    setMessage("고객 담당자를 등록했습니다.");
+    await loadCrm(selectedOpportunityId);
+  }
+
+  async function createActivity(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!crm) return;
+    const response = await fetch("/api/sales/crm", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "activity", opportunityId: selectedOpportunityId, ...activityDraft }) });
+    const result = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(result.error || "영업 활동을 저장하지 못했습니다."); return; }
+    setActivityDraft({ activityType: "CALL", contactId: "", occurredAt: localDateTime(), summary: "", nextAction: "", nextActionDate: "" });
+    setMessage("영업 활동과 다음 행동을 기록했습니다.");
+    await Promise.all([load(), loadCrm(selectedOpportunityId)]);
   }
 
   async function createDocument(event: FormEvent<HTMLFormElement>) {
@@ -130,10 +178,32 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
 
     <section className="panel sales-live-pipeline">
       <header><div><p>PIPELINE</p><h2>실제 영업 파이프라인</h2></div><span>{opportunities.length}건</span></header>
-      <div className="sales-pipeline-row head"><span>거래처 / 영업 건</span><span>단계</span><span>예상 매출</span><span>예상 이익</span><span>확률</span><span>예정일</span></div>
-      {opportunities.map((item) => <div className="sales-pipeline-row" key={item.id}><p><strong>{item.accountName}</strong><small>{item.title}</small></p><select value={item.stage} onChange={(event) => void updateStage(item.id, event.target.value)}>{Object.entries(stageLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><b>{currency(item.expectedRevenue)}</b><span>{currency(item.expectedRevenue - item.expectedCost)}</span><span>{item.probability}%</span><time>{item.expectedCloseDate || "미정"}</time></div>)}
+      <div className="sales-pipeline-row head"><span>거래처 / 영업 건</span><span>단계</span><span>예상 매출</span><span>예상 이익</span><span>확률</span><span>예정일</span><span>접점</span></div>
+      {opportunities.map((item) => {
+        const stageOptions = item.status === "OPEN" ? [item.stage, nextStage[item.stage], "LOST"].filter(Boolean) : [item.stage];
+        return <div className={`sales-pipeline-row ${selectedOpportunityId === item.id ? "selected" : ""}`} key={item.id}><p><strong>{item.accountName}</strong><small>{item.title}</small></p><select value={item.stage} onChange={(event) => void updateStage(item.id, event.target.value)}>{stageOptions.map((value) => <option value={value} key={value}>{stageLabels[value]}</option>)}</select><b>{currency(item.expectedRevenue)}</b><span>{currency(item.expectedRevenue - item.expectedCost)}</span><span>{item.probability}%</span><time>{item.expectedCloseDate || "미정"}</time><button type="button" onClick={() => void loadCrm(item.id)}>상세</button></div>;
+      })}
       {!opportunities.length && <div className="finance-empty">등록된 영업 기회가 없습니다. 위에서 거래처와 영업 건을 먼저 등록해 주세요.</div>}
     </section>
+
+    {crm && <section className="panel sales-crm-detail">
+      <header><div><p>CRM LEDGER</p><h2>{crm.opportunity.accountName} · {crm.opportunity.title}</h2><span>{stageLabels[crm.opportunity.stage]} · 다음 행동 {crm.opportunity.nextAction || "미지정"}{crm.opportunity.nextActionDate ? ` (${crm.opportunity.nextActionDate})` : ""}</span></div><button type="button" onClick={() => { setCrm(null); setSelectedOpportunityId(""); }}>닫기</button></header>
+      <div className="sales-crm-grid">
+        <article>
+          <h3>고객 담당자</h3>
+          <form onSubmit={createContact}><label>이름<input required value={contactDraft.name} onChange={(event) => setContactDraft({ ...contactDraft, name: event.target.value })} /></label><label>직책<input value={contactDraft.title} onChange={(event) => setContactDraft({ ...contactDraft, title: event.target.value })} /></label><label>이메일<input type="email" value={contactDraft.email} onChange={(event) => setContactDraft({ ...contactDraft, email: event.target.value })} /></label><label>연락처<input value={contactDraft.phone} onChange={(event) => setContactDraft({ ...contactDraft, phone: event.target.value })} /></label><label className="sales-crm-check"><input type="checkbox" checked={contactDraft.isPrimary} onChange={(event) => setContactDraft({ ...contactDraft, isPrimary: event.target.checked })} />대표 담당자</label><button type="submit">+ 담당자 등록</button></form>
+          <div className="sales-contact-list">{crm.contacts.map((contact) => <div key={contact.id}><strong>{contact.name}{contact.isPrimary ? " · 대표" : ""}</strong><span>{contact.title || "직책 미입력"}</span><small>{contact.email || contact.phone}</small></div>)}{!crm.contacts.length && <p>등록된 고객 담당자가 없습니다.</p>}</div>
+        </article>
+        <article>
+          <h3>영업 활동 기록</h3>
+          <form onSubmit={createActivity}><label>종류<select value={activityDraft.activityType} onChange={(event) => setActivityDraft({ ...activityDraft, activityType: event.target.value })}>{Object.entries(activityLabels).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label><label>고객 담당자<select value={activityDraft.contactId} onChange={(event) => setActivityDraft({ ...activityDraft, contactId: event.target.value })}><option value="">선택 안 함</option>{crm.contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name} · {contact.title}</option>)}</select></label><label>발생 일시<input required type="datetime-local" value={activityDraft.occurredAt} onChange={(event) => setActivityDraft({ ...activityDraft, occurredAt: event.target.value })} /></label><label className="wide">상담 내용<textarea required minLength={5} value={activityDraft.summary} onChange={(event) => setActivityDraft({ ...activityDraft, summary: event.target.value })} /></label><label>다음 행동<input value={activityDraft.nextAction} onChange={(event) => setActivityDraft({ ...activityDraft, nextAction: event.target.value })} /></label><label>다음 행동 기한<input type="date" value={activityDraft.nextActionDate} onChange={(event) => setActivityDraft({ ...activityDraft, nextActionDate: event.target.value })} /></label><button type="submit">+ 활동 기록</button></form>
+        </article>
+      </div>
+      <div className="sales-crm-ledgers">
+        <article><h3>활동 타임라인</h3>{crm.activities.map((activity) => <div key={activity.id}><time>{activity.occurredAt.replace("T", " ")}</time><strong>{activityLabels[activity.activityType]}{activity.contactName ? ` · ${activity.contactName}` : ""}</strong><p>{activity.summary}</p>{activity.nextAction && <small>다음 행동: {activity.nextAction} · {activity.nextActionDate}</small>}</div>)}{!crm.activities.length && <p>아직 기록된 영업 활동이 없습니다.</p>}</article>
+        <article><h3>단계 변경 이력</h3>{crm.stageHistory.map((history) => <div key={history.id}><time>{new Date(history.changedAt).toLocaleString("ko-KR")}</time><strong>{history.fromStage ? `${stageLabels[history.fromStage]} → ` : ""}{stageLabels[history.toStage]}</strong><p>{history.reason}</p></div>)}{!crm.stageHistory.length && <p>단계 변경 이력이 없습니다.</p>}</article>
+      </div>
+    </section>}
 
     <section className="panel sales-document-flow">
       <header><div><p>QUOTE TO CASH</p><h2>견적·수주·납품·청구·수금</h2></div><span>{data?.documents.length ?? 0}개 문서</span></header>

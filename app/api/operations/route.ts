@@ -675,6 +675,28 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const opportunities = await db.prepare(`SELECT id, title, status, next_action, next_action_date, updated_at
+      FROM sales_opportunities WHERE deleted_at IS NULL`).all<{
+        id: string; title: string; status: string; next_action: string; next_action_date: string; updated_at: number;
+      }>();
+    for (const opportunity of opportunities.results) {
+      const taskId = `sales-follow-up:${opportunity.id}`;
+      if (opportunity.status === "OPEN" && (!opportunity.next_action || !opportunity.next_action_date || opportunity.next_action_date < today)) {
+        const missing = !opportunity.next_action || !opportunity.next_action_date;
+        await upsertRuleTask({
+          id: taskId, module: "sales", category: "영업 후속조치",
+          title: `${opportunity.title} ${missing ? "다음 행동 지정" : "후속기한 경과"}`,
+          description: missing ? "진행 중인 영업기회에 다음 행동과 기한을 함께 지정해 주세요." : `${opportunity.next_action} 기한이 ${opportunity.next_action_date}에 경과했습니다. 고객 접점 결과와 새 기한을 기록해 주세요.`,
+          dueDate: opportunity.next_action_date || today, priority: opportunity.next_action_date && opportunity.next_action_date < today ? "HIGH" : "NORMAL",
+          destination: "sales:opportunity", sourceId: `${opportunity.id}:${opportunity.next_action_date}:${opportunity.updated_at}`,
+        });
+      } else await closeRuleTask(taskId);
+    }
+  } catch {
+    // 영업 CRM 원장이 배포된 뒤부터 다음 행동 누락·기한 경과를 평가합니다.
+  }
+
+  try {
     const [facilities, debtRisk] = await Promise.all([
       db.prepare("SELECT source_account_id, maturity_date, next_covenant_review_date, status FROM finance_debt_facilities WHERE status IN ('DRAFT','ACTIVE')")
         .all<{ source_account_id: string; maturity_date: string; next_covenant_review_date: string; status: string }>(),

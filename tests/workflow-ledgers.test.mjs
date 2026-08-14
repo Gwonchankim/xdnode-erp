@@ -818,3 +818,24 @@ test("HR analytics reports preserve immutable period versions", async () => {
   assert.ok(indexes.some((row) => row.name === "idx_hr_analytics_report_period_version" && row.unique === 1));
   db.close();
 });
+
+test("sales CRM keeps contacts unique and activities and stage changes append-only", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertContact = db.prepare(`INSERT INTO sales_account_contacts
+    (id, account_id, contact_key, name, title, email, phone, is_primary, status, created_by, created_at, updated_at)
+    VALUES (?, 'account-1', 'email:customer@example.com', '홍길동', '과장', 'customer@example.com', '', 1, 'ACTIVE', 'gc.kim', ?, ?)`);
+  insertContact.run("contact-1", now, now);
+  assert.throws(() => insertContact.run("contact-duplicate", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO sales_opportunity_activities
+    (id, opportunity_id, contact_id, activity_type, occurred_at, summary, next_action, next_action_date, created_by, created_at)
+    VALUES ('activity-1', 'opportunity-1', 'contact-1', 'MEETING', '2026-08-14T10:00', '요구사항 확인 회의', '제안서 발송', '2026-08-17', 'gc.kim', ?)`)
+    .run(now);
+  db.prepare(`INSERT INTO sales_opportunity_stage_history
+    (id, opportunity_id, from_stage, to_stage, reason, changed_by, changed_at)
+    VALUES ('history-1', 'opportunity-1', 'LEAD', 'DISCOVERY', '고객 요구사항 확인 완료', 'gc.kim', ?)`)
+    .run(now);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sales_opportunity_activities WHERE opportunity_id = 'opportunity-1'").get().count, 1);
+  const indexes = db.prepare("PRAGMA index_list(sales_account_contacts)").all();
+  assert.ok(indexes.some((row) => row.name === "idx_sales_contact_account_key" && row.unique === 1));
+  db.close();
+});

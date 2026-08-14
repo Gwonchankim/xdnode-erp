@@ -40,12 +40,28 @@ async function ensureSchema() {
       id TEXT PRIMARY KEY NOT NULL, payment_document_id TEXT NOT NULL, invoice_document_id TEXT NOT NULL,
       amount INTEGER NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_account_contacts (
+      id TEXT PRIMARY KEY NOT NULL, account_id TEXT NOT NULL, contact_key TEXT NOT NULL, name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+      is_primary INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ACTIVE', created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_opportunity_activities (
+      id TEXT PRIMARY KEY NOT NULL, opportunity_id TEXT NOT NULL, contact_id TEXT NOT NULL DEFAULT '',
+      activity_type TEXT NOT NULL, occurred_at TEXT NOT NULL, summary TEXT NOT NULL,
+      next_action TEXT NOT NULL DEFAULT '', next_action_date TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL, created_at INTEGER NOT NULL)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_opportunity_stage_history (
+      id TEXT PRIMARY KEY NOT NULL, opportunity_id TEXT NOT NULL, from_stage TEXT NOT NULL DEFAULT '',
+      to_stage TEXT NOT NULL, reason TEXT NOT NULL, changed_by TEXT NOT NULL, changed_at INTEGER NOT NULL)`),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_accounts_owner_status ON sales_accounts(owner_employee_id, status)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_opportunities_owner_stage ON sales_opportunities(owner_employee_id, stage)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_documents_opportunity_type ON sales_documents(opportunity_id, document_type)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_documents_status_due ON sales_documents(status, due_date)"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_payment_allocation_payment ON sales_payment_allocations(payment_document_id)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_payment_allocation_invoice ON sales_payment_allocations(invoice_document_id)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_contact_account_key ON sales_account_contacts(account_id, contact_key)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_contact_account_status ON sales_account_contacts(account_id, status)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_activity_opportunity_occurred ON sales_opportunity_activities(opportunity_id, occurred_at)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_stage_history_opportunity_changed ON sales_opportunity_stage_history(opportunity_id, changed_at)"),
   ]);
 }
 
@@ -138,13 +154,19 @@ export async function POST(request: Request) {
     const expectedCost = Number(body.expectedCost ?? 0);
     const account = await db.prepare("SELECT id, name FROM sales_accounts WHERE id = ? AND deleted_at IS NULL").bind(accountId).first<{ id: string; name: string }>();
     if (!account || !title || !Number.isFinite(expectedRevenue) || expectedRevenue < 0 || !Number.isFinite(expectedCost) || expectedCost < 0) return Response.json({ error: "거래처·영업 건명·금액을 확인해 주세요." }, { status: 400 });
-    await db.prepare(`INSERT INTO sales_opportunities
-      (id, account_id, title, owner_employee_id, stage, lead_type, expected_revenue, expected_cost, probability,
-        expected_close_date, next_action, next_action_date, status, created_at, updated_at, deleted_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, NULL)`)
-      .bind(id, accountId, title, authorization.principal.employeeId, String(body.stage ?? "LEAD"), String(body.leadType ?? "OUTBOUND"),
-        Math.round(expectedRevenue), Math.round(expectedCost), Math.min(100, Math.max(0, Number(body.probability ?? 10))),
-        String(body.expectedCloseDate ?? ""), String(body.nextAction ?? ""), String(body.nextActionDate ?? ""), now, now).run();
+    await db.batch([
+      db.prepare(`INSERT INTO sales_opportunities
+        (id, account_id, title, owner_employee_id, stage, lead_type, expected_revenue, expected_cost, probability,
+          expected_close_date, next_action, next_action_date, status, created_at, updated_at, deleted_at)
+        VALUES (?, ?, ?, ?, 'LEAD', ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, NULL)`)
+        .bind(id, accountId, title, authorization.principal.employeeId, String(body.leadType ?? "OUTBOUND"),
+          Math.round(expectedRevenue), Math.round(expectedCost), Math.min(100, Math.max(0, Number(body.probability ?? 10))),
+          String(body.expectedCloseDate ?? ""), String(body.nextAction ?? ""), String(body.nextActionDate ?? ""), now, now),
+      db.prepare(`INSERT INTO sales_opportunity_stage_history
+        (id, opportunity_id, from_stage, to_stage, reason, changed_by, changed_at)
+        VALUES (?, ?, '', 'LEAD', '영업 기회 등록', ?, ?)`)
+        .bind(crypto.randomUUID(), id, authorization.principal.employeeId, now),
+    ]);
     const row = await db.prepare("SELECT * FROM sales_opportunities WHERE id = ?").bind(id).first<OpportunityRow>();
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "OPPORTUNITY_CREATED", entityType: "salesOpportunity", entityId: id, after: row ? toOpportunity(row, account.name) : body });
     return Response.json({ item: row ? toOpportunity(row, account.name) : null }, { status: 201 });
@@ -256,10 +278,33 @@ export async function PUT(request: Request) {
   if (!before) return Response.json({ error: "영업 건을 찾을 수 없습니다." }, { status: 404 });
   const stage = String(body.stage ?? before.stage);
   if (!["LEAD", "DISCOVERY", "PROPOSAL", "CONTRACT", "WON", "LOST"].includes(stage)) return Response.json({ error: "올바르지 않은 영업 단계입니다." }, { status: 400 });
+  if (stage === before.stage) return Response.json({ item: toOpportunity(before) });
+  if (before.status !== "OPEN") return Response.json({ error: "종결된 영업기회는 일반 단계변경으로 되돌릴 수 없습니다." }, { status: 409 });
+  const nextStage: Record<string, string> = { LEAD: "DISCOVERY", DISCOVERY: "PROPOSAL", PROPOSAL: "CONTRACT", CONTRACT: "WON" };
+  if (stage !== "LOST" && nextStage[before.stage] !== stage) return Response.json({ error: "영업 단계는 다음 단계로만 이동할 수 있습니다." }, { status: 409 });
+  const reason = String(body.reason ?? "").trim().slice(0, 1000);
+  if (reason.length < (stage === "LOST" ? 10 : 5)) return Response.json({ error: stage === "LOST" ? "실주 사유를 10자 이상 입력해 주세요." : "단계 변경 근거를 5자 이상 입력해 주세요." }, { status: 400 });
+  if (stage === "WON") {
+    const acceptedOrder = await db.prepare(`SELECT id FROM sales_documents WHERE opportunity_id = ?
+      AND document_type = 'ORDER' AND status IN ('ACCEPTED', 'COMPLETED') LIMIT 1`).bind(id).first<{ id: string }>();
+    if (!acceptedOrder) return Response.json({ error: "승인·완료된 수주 문서가 있어야 수주 단계로 전환할 수 있습니다." }, { status: 409 });
+  }
   const status = ["WON", "LOST"].includes(stage) ? "CLOSED" : "OPEN";
-  await db.prepare("UPDATE sales_opportunities SET stage = ?, status = ?, next_action = ?, next_action_date = ?, updated_at = ? WHERE id = ?")
-    .bind(stage, status, String(body.nextAction ?? before.next_action), String(body.nextActionDate ?? before.next_action_date), Date.now(), id).run();
+  const changedAt = Date.now(); const nextAction = status === "CLOSED" ? "" : String(body.nextAction ?? before.next_action);
+  const nextActionDate = status === "CLOSED" ? "" : String(body.nextActionDate ?? before.next_action_date);
+  const transition = await db.batch([
+    db.prepare("UPDATE sales_opportunities SET stage = ?, status = ?, next_action = ?, next_action_date = ?, updated_at = ? WHERE id = ? AND stage = ? AND status = 'OPEN'")
+      .bind(stage, status, nextAction, nextActionDate, changedAt, id, before.stage),
+    db.prepare(`INSERT INTO sales_opportunity_stage_history
+      (id, opportunity_id, from_stage, to_stage, reason, changed_by, changed_at)
+      SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS
+        (SELECT 1 FROM sales_opportunities WHERE id = ? AND stage = ? AND updated_at = ?)`)
+      .bind(crypto.randomUUID(), id, before.stage, stage, reason, authorization.principal.employeeId, changedAt, id, stage, changedAt),
+  ]);
+  if ((transition[0].meta.changes ?? 0) < 1 || (transition[1].meta.changes ?? 0) < 1) {
+    return Response.json({ error: "다른 사용자가 영업 단계를 변경했습니다. 새로고침 후 다시 확인해 주세요." }, { status: 409 });
+  }
   const after = await db.prepare("SELECT * FROM sales_opportunities WHERE id = ?").bind(id).first<OpportunityRow>();
-  await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "OPPORTUNITY_UPDATED", entityType: "salesOpportunity", entityId: id, before: toOpportunity(before), after: after ? toOpportunity(after) : null });
+  await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "OPPORTUNITY_STAGE_CHANGED", entityType: "salesOpportunity", entityId: id, before: toOpportunity(before), after: after ? toOpportunity(after) : null, reason });
   return Response.json({ item: after ? toOpportunity(after) : null });
 }

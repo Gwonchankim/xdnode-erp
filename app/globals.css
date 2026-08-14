@@ -1895,12 +1895,42 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .sales-account-list > div em { font-style: normal; font-weight: 900; }
 .sales-account-list > p { padding: 20px 0; color: #71717a; text-align: center; font-size: 10px; }
 .sales-live-pipeline { overflow: hidden; }
-.sales-pipeline-row { min-height: 58px; padding: 0 18px; display: grid; grid-template-columns: minmax(170px, 1.4fr) 110px 1fr 1fr .55fr .8fr; gap: 12px; align-items: center; border-top: 1px solid #ececee; font-size: 10px; }
+.sales-pipeline-row { min-height: 58px; padding: 0 18px; display: grid; grid-template-columns: minmax(170px, 1.4fr) 110px 1fr 1fr .55fr .8fr 56px; gap: 12px; align-items: center; border-top: 1px solid #ececee; font-size: 10px; }
 .sales-pipeline-row.head { min-height: 40px; color: #71717a; background: #f4f4f5; font-size: 9px; font-weight: 800; }
+.sales-pipeline-row.selected { background: #fff7ed; }
 .sales-pipeline-row p { margin: 0; }
 .sales-pipeline-row p strong, .sales-pipeline-row p small { display: block; }
 .sales-pipeline-row p small { margin-top: 3px; color: #71717a; }
 .sales-pipeline-row select { height: 34px; font-size: 9px; }
+.sales-pipeline-row > button, .sales-crm-detail header > button { height: 34px; padding: 0 11px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 9px; font-weight: 900; cursor: pointer; }
+.sales-crm-detail { overflow: hidden; }
+.sales-crm-detail > header { min-height: 80px; padding: 17px 20px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #e4e4e7; }
+.sales-crm-detail header p { margin: 0 0 6px; color: #f97316; letter-spacing: .12em; font-size: 9px; font-weight: 900; }
+.sales-crm-detail header h2 { margin: 0 0 5px; font-size: 19px; }
+.sales-crm-detail header span { color: #71717a; font-size: 10px; }
+.sales-crm-grid, .sales-crm-ledgers { display: grid; grid-template-columns: .8fr 1.2fr; }
+.sales-crm-grid > article, .sales-crm-ledgers > article { min-width: 0; padding: 18px 20px; }
+.sales-crm-grid > article + article, .sales-crm-ledgers > article + article { border-left: 1px solid #e4e4e7; }
+.sales-crm-grid h3, .sales-crm-ledgers h3 { margin: 0 0 14px; font-size: 15px; }
+.sales-crm-grid form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.sales-crm-grid label { min-width: 0; display: grid; gap: 5px; color: #71717a; font-size: 9px; font-weight: 800; }
+.sales-crm-grid label.wide { grid-column: 1 / -1; }
+.sales-crm-grid input, .sales-crm-grid select, .sales-crm-grid textarea { min-width: 0; padding: 0 10px; background: #fff; border: 1px solid #d4d4d8; border-radius: 12px; font: inherit; }
+.sales-crm-grid input, .sales-crm-grid select { height: 38px; }
+.sales-crm-grid textarea { min-height: 82px; padding-top: 9px; resize: vertical; }
+.sales-crm-grid .sales-crm-check { grid-template-columns: auto 1fr; align-items: center; align-self: end; height: 38px; }
+.sales-crm-grid .sales-crm-check input { width: 16px; height: 16px; }
+.sales-crm-grid form > button { align-self: end; height: 38px; padding: 0 13px; color: #fff; background: #18181b; border: 0; border-radius: 12px; font-size: 9px; font-weight: 900; cursor: pointer; }
+.sales-contact-list { margin-top: 14px; display: grid; gap: 7px; }
+.sales-contact-list > div { padding: 11px 12px; display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; background: #fafafa; border: 1px solid #e4e4e7; border-radius: 14px; }
+.sales-contact-list strong, .sales-contact-list span, .sales-contact-list small { font-size: 9px; }
+.sales-contact-list small { grid-column: 1 / -1; color: #71717a; }
+.sales-crm-ledgers { border-top: 1px solid #e4e4e7; background: #fafafa; }
+.sales-crm-ledgers article > div { padding: 11px 0; display: grid; grid-template-columns: 116px minmax(0, 1fr); gap: 4px 10px; border-top: 1px solid #e4e4e7; }
+.sales-crm-ledgers time, .sales-crm-ledgers small { color: #71717a; font-size: 9px; }
+.sales-crm-ledgers strong { font-size: 10px; }
+.sales-crm-ledgers p { grid-column: 2; margin: 0; font-size: 10px; line-height: 1.5; }
+.sales-crm-ledgers small { grid-column: 2; }
 .incentive-governance { grid-template-columns: 1.3fr .7fr; }
 .incentive-warning { margin: 16px 18px 0; padding: 12px 14px; color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; border-radius: 14px; font-size: 10px; line-height: 1.45; }
 .incentive-sandbox-body { padding: 16px 18px 20px; display: grid; grid-template-columns: repeat(3, 1fr) minmax(150px, .8fr); gap: 10px; align-items: end; }
@@ -1926,6 +1956,8 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 @media (max-width: 1100px) {
   .sales-live-metrics { grid-template-columns: repeat(2, 1fr); }
   .sales-live-grid, .incentive-governance { grid-template-columns: 1fr; }
+  .sales-crm-grid, .sales-crm-ledgers { grid-template-columns: 1fr; }
+  .sales-crm-grid > article + article, .sales-crm-ledgers > article + article { border-left: 0; border-top: 1px solid #e4e4e7; }
   .sales-document-form { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {

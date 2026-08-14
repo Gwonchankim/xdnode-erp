@@ -1116,3 +1116,31 @@ test("HR analytics aggregates ledgers without exposing employee identifiers", as
   assert.match(migration, /idx_hr_analytics_report_period_version/);
   assert.match(plan, /급여와 성과평가 집계는 HR 관리자 또는 최고관리자에게만 제공/);
 });
+
+test("sales CRM preserves customer activities and governs stage transitions", async () => {
+  const [sales, crm, view, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/sales/route.ts"), read("app/api/sales/crm/route.ts"), read("app/sales-workspace.tsx"),
+    read("app/api/operations/route.ts"), read("db/schema.ts"), read("drizzle/0044_sales_crm_governance.sql"),
+    read("docs/sales-crm-governance-plan.md"),
+  ]);
+  assert.match(sales, /nextStage\[before\.stage\] !== stage/);
+  assert.match(sales, /실주 사유를 10자 이상 입력해 주세요/);
+  assert.match(sales, /document_type = 'ORDER' AND status IN \('ACCEPTED', 'COMPLETED'\)/);
+  assert.match(sales, /OPPORTUNITY_STAGE_CHANGED/);
+  assert.match(sales, /transition\[0\]\.meta\.changes/);
+  assert.match(crm, /authorizeErpRequest\(db, "sales", "read"\)/);
+  assert.match(crm, /authorizeErpRequest\(db, "sales", "write"\)/);
+  assert.match(crm, /ACCOUNT_CONTACT_CREATED/);
+  assert.match(crm, /OPPORTUNITY_ACTIVITY_RECORDED/);
+  assert.match(crm, /WHERE id = \? AND account_id = \? AND status = 'ACTIVE'/);
+  assert.match(view, /고객 담당자/);
+  assert.match(view, /영업 활동 기록/);
+  assert.match(view, /단계 변경 이력/);
+  assert.match(operations, /sales-follow-up:\$\{opportunity\.id\}/);
+  assert.match(operations, /destination: "sales:opportunity"/);
+  assert.match(schema, /salesAccountContacts/);
+  assert.match(schema, /salesOpportunityActivities/);
+  assert.match(schema, /salesOpportunityStageHistory/);
+  assert.match(migration, /idx_sales_contact_account_key/);
+  assert.match(plan, /리드 → 요구 확인 → 제안 → 계약 협의 → 수주/);
+});

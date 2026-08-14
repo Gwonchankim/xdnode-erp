@@ -1602,6 +1602,29 @@ export const salesOpportunities = sqliteTable("sales_opportunities", {
   index("idx_sales_opportunities_account").on(table.accountId),
 ]);
 
+export const salesAccountContacts = sqliteTable("sales_account_contacts", {
+  id: text("id").primaryKey(), accountId: text("account_id").notNull(), contactKey: text("contact_key").notNull(),
+  name: text("name").notNull(), title: text("title").notNull().default(""), email: text("email").notNull().default(""),
+  phone: text("phone").notNull().default(""), isPrimary: integer("is_primary").notNull().default(0),
+  status: text("status").notNull().default("ACTIVE"), createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_contact_account_key").on(table.accountId, table.contactKey),
+  index("idx_sales_contact_account_status").on(table.accountId, table.status),
+]);
+
+export const salesOpportunityActivities = sqliteTable("sales_opportunity_activities", {
+  id: text("id").primaryKey(), opportunityId: text("opportunity_id").notNull(), contactId: text("contact_id").notNull().default(""),
+  activityType: text("activity_type").notNull(), occurredAt: text("occurred_at").notNull(), summary: text("summary").notNull(),
+  nextAction: text("next_action").notNull().default(""), nextActionDate: text("next_action_date").notNull().default(""),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_sales_activity_opportunity_occurred").on(table.opportunityId, table.occurredAt)]);
+
+export const salesOpportunityStageHistory = sqliteTable("sales_opportunity_stage_history", {
+  id: text("id").primaryKey(), opportunityId: text("opportunity_id").notNull(), fromStage: text("from_stage").notNull().default(""),
+  toStage: text("to_stage").notNull(), reason: text("reason").notNull(), changedBy: text("changed_by").notNull(), changedAt: integer("changed_at").notNull(),
+}, (table) => [index("idx_sales_stage_history_opportunity_changed").on(table.opportunityId, table.changedAt)]);
+
 export const salesDocuments = sqliteTable("sales_documents", {
   id: text("id").primaryKey(),
   opportunityId: text("opportunity_id").notNull(),

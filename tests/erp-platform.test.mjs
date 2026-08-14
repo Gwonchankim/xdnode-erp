@@ -1173,3 +1173,35 @@ test("sales document lines derive totals and prevent downstream quantity over-al
   assert.match(migration, /PRAGMA optimize/);
   assert.match(plan, /문서 금액은 `수량 × 단가`의 라인별 반올림 합계/);
 });
+
+test("sales targets are versioned, approval-gated and forecast without double-counting invoices", async () => {
+  const [api, view, workspace, approval, approvalCenter, operations, schema, migration, plan] = await Promise.all([
+    read("app/api/sales/planning/route.ts"), read("app/sales-planning-view.tsx"), read("app/sales-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/approval-center.tsx"), read("app/api/operations/route.ts"),
+    read("db/schema.ts"), read("drizzle/0046_sales_target_forecast.sql"), read("docs/sales-target-forecast-plan.md"),
+  ]);
+  assert.match(api, /authorizeErpRequest\(db, "sales", "read"\)/);
+  assert.match(api, /COALESCE\(MAX\(version\), 0\) \+ 1/);
+  assert.match(api, /status NOT IN \('퇴직','입사 예정'\)/);
+  assert.match(api, /Math\.max\(0, opportunity\.expected_revenue - \(invoicesByOpportunity\.get\(opportunity\.id\) \?\? 0\)\)/);
+  assert.match(api, /document\.status IN \('ACCEPTED','COMPLETED'\)/);
+  assert.match(api, /companyTargets\?\.months \?\? 0\) !== 12/);
+  assert.match(api, /requestType: "TARGET_PLAN"/);
+  assert.match(api, /SALES_FORECAST_SNAPSHOT_CREATED/);
+  assert.match(view, /확정 청구와 미청구 가중 파이프라인을 분리/);
+  assert.match(view, /비교 범위/);
+  assert.match(view, /전망 저장/);
+  assert.match(workspace, /<SalesPlanningView/);
+  assert.match(approval, /TARGET_PLAN: "영업 목표 승인"/);
+  assert.match(approval, /targetEntityType === "SALES_TARGET_PLAN"/);
+  assert.match(approval, /status = 'SUPERSEDED'/);
+  assert.match(approvalCenter, /TARGET_PLAN: "영업 목표 승인"/);
+  assert.match(operations, /sales-forecast-governance-risk/);
+  assert.match(operations, /attainment < 0\.9 \|\| drop >= 0\.1/);
+  assert.match(schema, /salesTargetPlans/);
+  assert.match(schema, /salesTargetLines/);
+  assert.match(schema, /salesForecastSnapshots/);
+  assert.match(migration, /idx_sales_target_plan_year_approved/);
+  assert.match(migration, /WHERE `status` = 'APPROVED'/);
+  assert.match(plan, /월 전망: 월 확정 청구 \+ 해당 월 마감 예정 미청구 가중 파이프라인/);
+});

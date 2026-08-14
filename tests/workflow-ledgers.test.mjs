@@ -886,3 +886,27 @@ test("sales catalog and document lines preserve codes, line numbers and source l
   assert.ok(sourcePlan.some((row) => String(row.detail).includes("idx_sales_document_line_source")));
   db.close();
 });
+
+test("sales target plans keep one approved version and immutable forecast versions", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertPlan = db.prepare(`INSERT INTO sales_target_plans
+    (id, year, version, name, status, created_by, approved_by, approved_at, created_at, updated_at)
+    VALUES (?, 2027, ?, ?, ?, 'gc.kim', '', NULL, ?, ?)`);
+  insertPlan.run("plan-1", 1, "2027 영업계획 v1", "APPROVED", now, now);
+  assert.throws(() => insertPlan.run("plan-1-duplicate", 1, "중복 버전", "DRAFT", now, now), /UNIQUE constraint failed/);
+  assert.throws(() => insertPlan.run("plan-2-approved", 2, "동시 승인", "APPROVED", now, now), /UNIQUE constraint failed/);
+  insertPlan.run("plan-2", 2, "2027 영업계획 v2", "DRAFT", now, now);
+  const insertLine = db.prepare(`INSERT INTO sales_target_lines
+    (id, plan_id, scope_type, scope_key, scope_name, period, target_revenue, target_gross_profit, target_orders, created_at, updated_at)
+    VALUES (?, 'plan-2', 'COMPANY', 'company', '회사 전체', '2027-01', 100000000, 30000000, 3, ?, ?)`);
+  insertLine.run("target-line-1", now, now);
+  assert.throws(() => insertLine.run("target-line-duplicate", now, now), /UNIQUE constraint failed/);
+  const insertSnapshot = db.prepare(`INSERT INTO sales_forecast_snapshots
+    (id, plan_id, as_of_date, version, formula_version, snapshot_json, created_by, created_at)
+    VALUES (?, 'plan-1', '2027-01-31', 1, 'SALES_FORECAST_V1', '{}', 'gc.kim', ?)`);
+  insertSnapshot.run("snapshot-1", now);
+  assert.throws(() => insertSnapshot.run("snapshot-duplicate", now), /UNIQUE constraint failed/);
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM sales_target_lines WHERE plan_id = 'plan-2' AND period = '2027-01'").all();
+  assert.ok(plan.some((row) => String(row.detail).includes("idx_sales_target_line_plan_period")));
+  db.close();
+});

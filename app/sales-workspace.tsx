@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import IncentiveGovernance from "./incentive-governance";
+import SalesPlanningView from "./sales-planning-view";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
@@ -208,6 +209,8 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       <article><small>가중 파이프라인</small><strong>{currency(weightedPipeline)}</strong><span>성공확률 반영</span></article>
       <article><small>예상 이익</small><strong>{currency(expectedMargin)}</strong><span>예상 매출 - 예상 원가</span></article>
     </section>
+
+    <SalesPlanningView />
 
     <section className="sales-live-grid">
       <article className="panel sales-entry-panel">

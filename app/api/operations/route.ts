@@ -725,6 +725,42 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const targetYear = Number(today.slice(0, 4));
+    const plan = await db.prepare("SELECT id, version FROM sales_target_plans WHERE year = ? AND status = 'APPROVED' LIMIT 1")
+      .bind(targetYear).first<{ id: string; version: number }>();
+    if (!plan) await upsertRuleTask({
+      id: "sales-forecast-governance-risk", module: "sales", category: "영업 목표·전망",
+      title: `${targetYear}년 승인 영업 목표 필요`, description: "회사 전체 12개월 목표를 입력하고 전자결재 승인을 완료해 주세요.",
+      dueDate: today, priority: "HIGH", destination: "sales:planning", sourceId: `${targetYear}:NO_APPROVED_PLAN`,
+    });
+    else {
+      const snapshots = await db.prepare("SELECT as_of_date, version, snapshot_json FROM sales_forecast_snapshots WHERE plan_id = ? ORDER BY created_at DESC LIMIT 2")
+        .bind(plan.id).all<{ as_of_date: string; version: number; snapshot_json: string }>();
+      if (!snapshots.results.length) await upsertRuleTask({
+        id: "sales-forecast-governance-risk", module: "sales", category: "영업 목표·전망",
+        title: `${targetYear}년 영업 전망 스냅샷 필요`, description: `승인 목표 v${plan.version}에 현재 영업 실적과 파이프라인 전망을 저장해 주세요.`,
+        dueDate: today, priority: "NORMAL", destination: "sales:planning", sourceId: `${plan.id}:NO_SNAPSHOT`,
+      });
+      else {
+        const current = JSON.parse(snapshots.results[0].snapshot_json) as { companyAnnual?: { targetRevenue?: number; forecastRevenue?: number } };
+        const previous = snapshots.results[1] ? JSON.parse(snapshots.results[1].snapshot_json) as { companyAnnual?: { forecastRevenue?: number } } : null;
+        const target = Number(current.companyAnnual?.targetRevenue ?? 0); const forecast = Number(current.companyAnnual?.forecastRevenue ?? 0);
+        const previousForecast = Number(previous?.companyAnnual?.forecastRevenue ?? 0);
+        const attainment = target > 0 ? forecast / target : 1; const drop = previousForecast > 0 ? (previousForecast - forecast) / previousForecast : 0;
+        if (attainment < 0.9 || drop >= 0.1) await upsertRuleTask({
+          id: "sales-forecast-governance-risk", module: "sales", category: "영업 목표·전망",
+          title: `영업 전망 ${attainment < 0.9 ? "목표 90% 미만" : "직전 대비 10% 이상 하락"}`,
+          description: `회사 전망 ${forecast.toLocaleString("ko-KR")}원 · 연간 목표 ${target.toLocaleString("ko-KR")}원 · 달성 전망 ${(attainment * 100).toFixed(1)}% · 직전 대비 ${(drop * 100).toFixed(1)}% 하락입니다.`,
+          dueDate: today, priority: attainment < 0.8 || drop >= 0.2 ? "HIGH" : "NORMAL", destination: "sales:planning",
+          sourceId: `${plan.id}:${snapshots.results[0].as_of_date}:${snapshots.results[0].version}:${forecast}`,
+        }); else await closeRuleTask("sales-forecast-governance-risk");
+      }
+    }
+  } catch {
+    // 영업 목표·전망 원장이 배포된 뒤부터 승인 계획과 전망 변동을 평가합니다.
+  }
+
+  try {
     const [facilities, debtRisk] = await Promise.all([
       db.prepare("SELECT source_account_id, maturity_date, next_covenant_review_date, status FROM finance_debt_facilities WHERE status IN ('DRAFT','ACTIVE')")
         .all<{ source_account_id: string; maturity_date: string; next_covenant_review_date: string; status: string }>(),

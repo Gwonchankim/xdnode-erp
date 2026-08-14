@@ -1664,6 +1664,35 @@ export const salesDocumentLines = sqliteTable("sales_document_lines", {
   index("idx_sales_document_line_source").on(table.sourceLineId),
 ]);
 
+export const salesTargetPlans = sqliteTable("sales_target_plans", {
+  id: text("id").primaryKey(), year: integer("year").notNull(), version: integer("version").notNull(),
+  name: text("name").notNull(), status: text("status").notNull().default("DRAFT"), createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_target_plan_year_version").on(table.year, table.version),
+  uniqueIndex("idx_sales_target_plan_year_approved").on(table.year).where(sql`${table.status} = 'APPROVED'`),
+]);
+
+export const salesTargetLines = sqliteTable("sales_target_lines", {
+  id: text("id").primaryKey(), planId: text("plan_id").notNull(), scopeType: text("scope_type").notNull(),
+  scopeKey: text("scope_key").notNull(), scopeName: text("scope_name").notNull(), period: text("period").notNull(),
+  targetRevenue: integer("target_revenue").notNull().default(0), targetGrossProfit: integer("target_gross_profit").notNull().default(0),
+  targetOrders: integer("target_orders").notNull().default(0), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_target_line_scope_period").on(table.planId, table.scopeType, table.scopeKey, table.period),
+  index("idx_sales_target_line_plan_period").on(table.planId, table.period),
+]);
+
+export const salesForecastSnapshots = sqliteTable("sales_forecast_snapshots", {
+  id: text("id").primaryKey(), planId: text("plan_id").notNull(), asOfDate: text("as_of_date").notNull(),
+  version: integer("version").notNull(), formulaVersion: text("formula_version").notNull(), snapshotJson: text("snapshot_json").notNull(),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_sales_forecast_plan_date_version").on(table.planId, table.asOfDate, table.version),
+  index("idx_sales_forecast_plan_created").on(table.planId, table.createdAt),
+]);
+
 export const salesPaymentAllocations = sqliteTable("sales_payment_allocations", {
   id: text("id").primaryKey(),
   paymentDocumentId: text("payment_document_id").notNull(),

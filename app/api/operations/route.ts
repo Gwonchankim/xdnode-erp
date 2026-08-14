@@ -546,6 +546,41 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const [facilities, debtRisk] = await Promise.all([
+      db.prepare("SELECT source_account_id, maturity_date, next_covenant_review_date, status FROM finance_debt_facilities WHERE status IN ('DRAFT','ACTIVE')")
+        .all<{ source_account_id: string; maturity_date: string; next_covenant_review_date: string; status: string }>(),
+      db.prepare(`SELECT
+        (SELECT COUNT(*) FROM finance_debt_schedule_items schedule
+          LEFT JOIN finance_expense_requests expense ON expense.id = schedule.payment_request_id
+          WHERE schedule.status <> 'CANCELLED' AND schedule.due_date < ? AND COALESCE(expense.status, '') <> 'PAID') AS overdue_count,
+        (SELECT COUNT(*) FROM finance_debt_facilities facility WHERE facility.status = 'ACTIVE'
+          AND facility.next_covenant_review_date <> '' AND facility.next_covenant_review_date <= ?) AS covenant_due_count,
+        (SELECT COUNT(*) FROM finance_debt_covenant_reviews review
+          WHERE review.result = 'BREACH' AND NOT EXISTS (SELECT 1 FROM finance_debt_covenant_reviews newer
+            WHERE newer.facility_id = review.facility_id AND newer.covenant_name = review.covenant_name
+              AND (newer.review_date > review.review_date OR (newer.review_date = review.review_date AND newer.created_at > review.created_at)))) AS breach_count`)
+        .bind(today, today).first<{ overdue_count: number; covenant_due_count: number; breach_count: number }>(),
+    ]);
+    const activeSources = new Set(facilities.results.filter((row) => row.status === "ACTIVE").map((row) => row.source_account_id));
+    const unmapped = financeCurrentData.accounts.filter((account) => account.type === "LOAN" && account.krwBalance > 0
+      && !activeSources.has(String(account.id))).length;
+    const matured = facilities.results.filter((row) => row.status === "ACTIVE" && row.maturity_date < today
+      && (financeCurrentData.accounts.find((account) => String(account.id) === row.source_account_id)?.krwBalance ?? 0) > 0).length;
+    const overdue = Number(debtRisk?.overdue_count ?? 0); const due = Number(debtRisk?.covenant_due_count ?? 0);
+    const breach = Number(debtRisk?.breach_count ?? 0); const riskCount = unmapped + matured + overdue + due + breach;
+    if (riskCount > 0) await upsertRuleTask({
+      id: "debt-control-risk", module: "finance", category: "차입금 관리",
+      title: `차입금·상환·약정 ${riskCount}건 확인`,
+      description: `미승인·미연결 대출계좌 ${unmapped}개 · 기한 경과 지급 ${overdue}건 · 만기경과 잔액 ${matured}건 · 약정 검토기한 ${due}건 · 최근 위반 ${breach}건입니다.`,
+      dueDate: today, priority: unmapped + matured + overdue + breach > 0 ? "HIGH" : "NORMAL", destination: "finance:debt",
+      sourceId: `${financeCurrentData.asOf}:${unmapped}:${overdue}:${matured}:${due}:${breach}`,
+    });
+    else await closeRuleTask("debt-control-risk");
+  } catch {
+    // 차입금 원장이 배포된 뒤부터 잔액·만기·상환·약정 위험을 평가합니다.
+  }
+
+  try {
     const receivableRisk = await db.prepare(`WITH invoice_balance AS (
       SELECT invoice.id, invoice.due_date, invoice.amount,
         MAX(0, invoice.amount - COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0)) AS outstanding,

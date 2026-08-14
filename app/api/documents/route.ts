@@ -85,6 +85,11 @@ export async function POST(request: Request) {
     if (!closeRun) return Response.json({ error: "월마감 실행 원장을 먼저 생성해 주세요." }, { status: 404 });
     if (closeRun.status !== "OPEN") return Response.json({ error: "제출 또는 잠금된 월마감의 증빙은 변경할 수 없습니다." }, { status: 409 });
   }
+  if (moduleName === "finance" && entityType === "financeDebtFacility") {
+    const facility = await db.prepare("SELECT status FROM finance_debt_facilities WHERE id = ?").bind(entityId).first<{ status: string }>();
+    if (!facility) return Response.json({ error: "차입계약 원장을 먼저 등록해 주세요." }, { status: 404 });
+    if (!["DRAFT", "ACTIVE"].includes(facility.status)) return Response.json({ error: "종료·무효 계약에는 문서를 추가할 수 없습니다." }, { status: 409 });
+  }
   if (file.size > 25 * 1024 * 1024) return Response.json({ error: "파일은 25MB 이하만 저장할 수 있습니다." }, { status: 413 });
   const contentType = file.type || "application/octet-stream";
   if (!allowedTypes.has(contentType)) return Response.json({ error: "PDF, DOCX, XLSX, PNG, JPG, TXT, CSV 파일만 저장할 수 있습니다." }, { status: 415 });
@@ -129,6 +134,17 @@ export async function DELETE(request: Request) {
       WHERE expense_request_id = ? AND evidence_document_id = ?`).bind(row.entity_id, row.id).first<{ evidence_status: string }>();
     if (reviewed && ["VERIFIED", "EXEMPT"].includes(reviewed.evidence_status)) {
       return Response.json({ error: "검토 완료된 지출증빙입니다. 지출증빙 화면에서 검토를 재개방한 뒤 삭제해 주세요." }, { status: 409 });
+    }
+  }
+  if (row.module === "finance" && row.entity_type === "financeDebtFacility") {
+    const [facility, review] = await Promise.all([
+      db.prepare("SELECT status, evidence_document_id FROM finance_debt_facilities WHERE id = ?").bind(row.entity_id)
+        .first<{ status: string; evidence_document_id: string }>(),
+      db.prepare("SELECT id FROM finance_debt_covenant_reviews WHERE facility_id = ? AND evidence_document_id = ? LIMIT 1")
+        .bind(row.entity_id, row.id).first<{ id: string }>(),
+    ]);
+    if (review || (facility && ["ACTIVE", "CLOSED"].includes(facility.status) && facility.evidence_document_id === row.id)) {
+      return Response.json({ error: "활성 계약 또는 확정된 약정 검토에 사용된 근거문서입니다. 감사 기록 보호를 위해 삭제할 수 없습니다." }, { status: 409 });
     }
   }
   const deletedAt = Date.now();

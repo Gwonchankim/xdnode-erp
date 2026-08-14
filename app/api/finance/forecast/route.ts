@@ -59,7 +59,7 @@ function scenarioProbability(item: ForecastItem, scenario: Scenario) {
 }
 
 async function loadForecastItems(collectionProbability: number) {
-  const [manual, expenses, purchaseInvoices, salesInvoices] = await Promise.all([
+  const [manual, expenses, purchaseInvoices, salesInvoices, debtSchedules] = await Promise.all([
     db.prepare(`SELECT id, expected_date, direction, category, counterparty, amount, probability,
       status, source_type, source_id, memo FROM finance_cash_forecast_items
       WHERE status IN ('EXPECTED','CONFIRMED') ORDER BY expected_date`).all<{
@@ -102,6 +102,16 @@ async function loadForecastItems(collectionProbability: number) {
         id: string; document_number: string; due_date: string; outstanding_amount: number;
         account_name: string | null; opportunity_title: string;
       }>(),
+    db.prepare(`SELECT schedule.id, schedule.due_date, schedule.item_type, schedule.amount, schedule.note,
+      facility.facility_code, facility.facility_name, facility.lender_name
+      FROM finance_debt_schedule_items schedule
+      JOIN finance_debt_facilities facility ON facility.id = schedule.facility_id AND facility.status = 'ACTIVE'
+      LEFT JOIN finance_expense_requests expense ON expense.id = schedule.payment_request_id
+      WHERE schedule.status = 'PLANNED' AND (schedule.payment_request_id = '' OR expense.status IN ('CANCELLED','REJECTED'))
+      ORDER BY schedule.due_date`).all<{
+        id: string; due_date: string; item_type: string; amount: number; note: string;
+        facility_code: string; facility_name: string; lender_name: string;
+      }>(),
   ]);
   const items: ForecastItem[] = [];
   for (const item of manual.results) items.push({ sourceType: item.source_type || "MANUAL", sourceId: item.source_id || item.id,
@@ -131,6 +141,11 @@ async function loadForecastItems(collectionProbability: number) {
     counterparty: item.account_name || item.opportunity_title, amount: item.outstanding_amount,
     probability: collectionProbability, status: "OUTSTANDING", dateQuality: validDate(item.due_date) ? "EXACT" : "MISSING",
     memo: item.document_number });
+  for (const item of debtSchedules.results) items.push({ sourceType: "DEBT_SCHEDULE", sourceId: item.id,
+    expectedDate: validDate(item.due_date) ? item.due_date : "", direction: "OUTFLOW",
+    category: item.item_type === "PRINCIPAL" ? "대출 원금" : item.item_type === "INTEREST" ? "대출 이자" : "금융 수수료",
+    counterparty: item.lender_name || item.facility_name, amount: item.amount, probability: 100, status: "PLANNED",
+    dateQuality: validDate(item.due_date) ? "EXACT" : "MISSING", memo: `${item.facility_code} · ${item.note || "은행 고지액"}` });
   return items;
 }
 

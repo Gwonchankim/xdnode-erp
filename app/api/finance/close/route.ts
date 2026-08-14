@@ -61,6 +61,7 @@ async function seedClose(period: string) {
     ["INVENTORY", "재고 음수·미반영 입고 확인"],
     ["FIXED_ASSET", "고정자산 감가상각 전기 확인"],
     ["PROJECT_COST", "프로젝트·원가센터 배부 확인"],
+    ["DEBT", "차입금·상환·약정 확인"],
     ["AR_AP", "외상매출금·미수금·매입채무 검토"],
     ["TAX", "세금계산서·부가세 검토"],
     ["STATEMENT", "월 손익·재무상태표 검토"],
@@ -81,7 +82,7 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
-  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, tax] = await Promise.all([
+  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, debtFacilities, debtSchedule, debtCovenants, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -177,6 +178,20 @@ async function computeControls(period: string): Promise<CloseControl[]> {
               AND allocation.direction = 'COST'), 0) > budget.cost_budget) AS over_budget_count
       FROM source_rows`).bind(like, like, like, period, period)
       .first<{ unmapped_count: number; unmapped_amount: number; over_budget_count: number }>(),
+    db.prepare("SELECT id, source_account_id, maturity_date, status FROM finance_debt_facilities WHERE status IN ('DRAFT','ACTIVE')")
+      .all<{ id: string; source_account_id: string; maturity_date: string; status: string }>(),
+    db.prepare(`SELECT COUNT(*) AS unpaid_count FROM finance_debt_schedule_items schedule
+      LEFT JOIN finance_expense_requests expense ON expense.id = schedule.payment_request_id
+      WHERE schedule.due_date LIKE ? AND schedule.status <> 'CANCELLED' AND COALESCE(expense.status, '') <> 'PAID'`)
+      .bind(like).first<{ unpaid_count: number }>(),
+    db.prepare(`SELECT
+      (SELECT COUNT(*) FROM finance_debt_facilities facility WHERE facility.status = 'ACTIVE'
+        AND facility.next_covenant_review_date <> '' AND facility.next_covenant_review_date <= ?) AS due_count,
+      (SELECT COUNT(*) FROM finance_debt_covenant_reviews review
+        WHERE review.result = 'BREACH' AND NOT EXISTS (SELECT 1 FROM finance_debt_covenant_reviews newer
+          WHERE newer.facility_id = review.facility_id AND newer.covenant_name = review.covenant_name
+            AND (newer.review_date > review.review_date OR (newer.review_date = review.review_date AND newer.created_at > review.created_at)))) AS breach_count`)
+      .bind(lastDayOfPeriod(period)).first<{ due_count: number; breach_count: number }>(),
     db.prepare(`SELECT tax_period.status, tax_period.source_as_of, tax_period.source_sales_supply, tax_period.source_purchase_supply,
         (SELECT COUNT(*) FROM erp_documents document WHERE document.module = 'finance'
           AND document.entity_type = 'financeTaxPeriod' AND document.entity_id = ? AND document.deleted_at IS NULL) AS evidence_count
@@ -185,6 +200,13 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   ]);
   const bankTotal = Number(bank?.total_count ?? 0);
   const bankPending = Number(bank?.pending_count ?? 0);
+  const activeDebtSources = new Set(debtFacilities.results.filter((row) => row.status === "ACTIVE").map((row) => row.source_account_id));
+  const unmappedDebt = financeCurrentData.accounts.filter((account) => account.type === "LOAN" && account.krwBalance > 0
+    && !activeDebtSources.has(String(account.id))).length;
+  const maturedDebt = debtFacilities.results.filter((row) => row.status === "ACTIVE" && row.maturity_date <= lastDayOfPeriod(period)
+    && (financeCurrentData.accounts.find((account) => String(account.id) === row.source_account_id)?.krwBalance ?? 0) > 0).length;
+  const debtIssueCount = unmappedDebt + maturedDebt + Number(debtSchedule?.unpaid_count ?? 0)
+    + Number(debtCovenants?.due_count ?? 0) + Number(debtCovenants?.breach_count ?? 0);
   const controls: CloseControl[] = [
     { key: "BANK_RECONCILIATION", category: "BANK", title: "원화 은행거래 대사",
       status: bankTotal > 0 && bankPending === 0 ? "PASS" : "FAIL",
@@ -216,6 +238,11 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       status: Number(projectCost?.unmapped_count ?? 0) > 0 ? "FAIL" : Number(projectCost?.over_budget_count ?? 0) > 0 ? "REVIEW" : "PASS",
       message: `미분류 원천 ${Number(projectCost?.unmapped_count ?? 0)}건 · ${Number(projectCost?.unmapped_amount ?? 0).toLocaleString("ko-KR")}원 · 원가예산 초과 ${Number(projectCost?.over_budget_count ?? 0)}개 센터`,
       count: Number(projectCost?.unmapped_count ?? 0) + Number(projectCost?.over_budget_count ?? 0) },
+    { key: "DEBT_SCHEDULE_CONTROL", category: "DEBT", title: "차입금·상환·약정",
+      status: period !== currentPeriod ? "REVIEW" : debtIssueCount > 0 ? "FAIL" : "PASS",
+      message: period !== currentPeriod ? "과거 월의 대출잔액은 당시 원천증빙으로 수동 확인해야 합니다."
+        : `미승인·미연결 대출계좌 ${unmappedDebt}개 · 미지급 일정 ${Number(debtSchedule?.unpaid_count ?? 0)}건 · 만기경과 ${maturedDebt}건 · 약정 검토기한 ${Number(debtCovenants?.due_count ?? 0)}건 · 최근 위반 ${Number(debtCovenants?.breach_count ?? 0)}건`,
+      count: period === currentPeriod ? debtIssueCount : 0 },
     { key: "TAX_RECONCILIATION", category: "TAX", title: "세금계산서·부가세 검토",
       status: tax?.status === "REVIEWED" && Number(tax.evidence_count ?? 0) > 0 && tax.source_as_of === financeCurrentData.asOf
         && tax.source_sales_supply === currentTaxSalesSupply && tax.source_purchase_supply === currentTaxPurchaseSupply ? "PASS" : "FAIL",
@@ -247,7 +274,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "TAX"];
+  const categories = ["BANK", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "DEBT", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

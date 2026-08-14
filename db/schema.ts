@@ -1117,6 +1117,40 @@ export const financeExpenseControls = sqliteTable("finance_expense_controls", {
 }, (table) => [uniqueIndex("idx_finance_expense_control_card").on(table.cardTransactionId).where(sql`${table.cardTransactionId} <> ''`),
   index("idx_finance_expense_control_evidence_status").on(table.evidenceStatus, table.updatedAt)]);
 
+export const financeDebtFacilities = sqliteTable("finance_debt_facilities", {
+  id: text("id").primaryKey(), facilityCode: text("facility_code").notNull(), sourceAccountId: text("source_account_id").notNull(),
+  lenderName: text("lender_name").notNull(), facilityName: text("facility_name").notNull(), currency: text("currency").notNull().default("KRW"),
+  originalPrincipal: integer("original_principal").notNull(), agreementDate: text("agreement_date").notNull(), maturityDate: text("maturity_date").notNull(),
+  interestType: text("interest_type").notNull().default("MANUAL"), fixedRateBps: integer("fixed_rate_bps").notNull().default(0),
+  benchmarkName: text("benchmark_name").notNull().default(""), spreadBps: integer("spread_bps").notNull().default(0),
+  repaymentType: text("repayment_type").notNull().default("MANUAL"), paymentDay: integer("payment_day").notNull().default(0),
+  covenantNote: text("covenant_note").notNull().default(""), nextCovenantReviewDate: text("next_covenant_review_date").notNull().default(""),
+  status: text("status").notNull().default("DRAFT"), evidenceDocumentId: text("evidence_document_id").notNull().default(""),
+  approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"), createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_debt_facility_code").on(table.facilityCode),
+  uniqueIndex("idx_finance_debt_facility_source").on(table.sourceAccountId),
+  index("idx_finance_debt_facility_status_maturity").on(table.status, table.maturityDate)]);
+
+export const financeDebtScheduleItems = sqliteTable("finance_debt_schedule_items", {
+  id: text("id").primaryKey(), facilityId: text("facility_id").notNull(), dueDate: text("due_date").notNull(),
+  itemType: text("item_type").notNull(), amount: integer("amount").notNull(), status: text("status").notNull().default("PLANNED"),
+  paymentRequestId: text("payment_request_id").notNull().default(""), note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_debt_schedule_unique").on(table.facilityId, table.dueDate, table.itemType),
+  uniqueIndex("idx_finance_debt_schedule_payment").on(table.paymentRequestId).where(sql`${table.paymentRequestId} <> ''`),
+  index("idx_finance_debt_schedule_status_due").on(table.status, table.dueDate)]);
+
+export const financeDebtCovenantReviews = sqliteTable("finance_debt_covenant_reviews", {
+  id: text("id").primaryKey(), facilityId: text("facility_id").notNull(), reviewDate: text("review_date").notNull(),
+  covenantName: text("covenant_name").notNull(), comparator: text("comparator").notNull(),
+  thresholdValueScaled: integer("threshold_value_scaled").notNull(), actualValueScaled: integer("actual_value_scaled").notNull(),
+  unit: text("unit").notNull(), result: text("result").notNull(), evidenceDocumentId: text("evidence_document_id").notNull(),
+  note: text("note").notNull().default(""), reviewedBy: text("reviewed_by").notNull(),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_debt_covenant_review_unique").on(table.facilityId, table.reviewDate, table.covenantName),
+  index("idx_finance_debt_covenant_result_date").on(table.result, table.reviewDate)]);
+
 export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   id: text("id").primaryKey(),
   employeeId: text("employee_id").notNull(),

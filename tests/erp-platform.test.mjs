@@ -701,3 +701,27 @@ test("recruitment offers are approval-gated and update the applicant stage on fi
   assert.match(engine, /채용 제안 반려/);
   assert.match(workspace, /채용 제안 결재 제출/);
 });
+
+test("debt management keeps Clobe balances immutable and routes schedules through controlled payments", async () => {
+  const [migration, schema, api, workspace, forecast, close, operations, documents, page] = await Promise.all([
+    read("drizzle/0032_debt_management.sql"), read("db/schema.ts"), read("app/api/finance/debt/route.ts"),
+    read("app/debt-management-workspace.tsx"), read("app/api/finance/forecast/route.ts"),
+    read("app/api/finance/close/route.ts"), read("app/api/operations/route.ts"),
+    read("app/api/documents/route.ts"), read("app/page.tsx"),
+  ]);
+  for (const table of ["finance_debt_facilities", "finance_debt_schedule_items", "finance_debt_covenant_reviews"]) {
+    assert.match(migration, new RegExp(table));
+    assert.match(schema, new RegExp(table));
+  }
+  assert.match(api, /financeCurrentData\.accounts\.filter\(\(account\) => account\.type === "LOAN"/);
+  assert.match(api, /original_principal < account\.krwBalance/);
+  assert.match(api, /category = '차입계약'/);
+  assert.match(api, /source_type, source_id[\s\S]*'DEBT_SCHEDULE'/);
+  assert.match(workspace, /자동 이자 계산 없음/);
+  assert.match(workspace, /document\.category === "차입계약"/);
+  assert.match(forecast, /DEBT_SCHEDULE/);
+  assert.match(close, /DEBT_SCHEDULE_CONTROL/);
+  assert.match(operations, /destination: "finance:debt"/);
+  assert.match(documents, /활성 계약 또는 확정된 약정 검토에 사용된 근거문서/);
+  assert.match(page, /"debt", "차입금·상환·약정"/);
+});

@@ -506,3 +506,33 @@ test("corporate-card and evidence ledgers prevent duplicate source references an
   assert.equal(control.evidence_status, "VERIFIED"); assert.equal(control.tax_treatment, "DEDUCTIBLE");
   assert.ok(db.prepare("PRAGMA index_list(finance_card_transactions)").all().some((row) => row.name === "idx_finance_card_transaction_reference"));
 });
+
+test("debt ledgers keep Clobe sources, schedules, payment links and covenant reviews unique", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertFacility = db.prepare(`INSERT INTO finance_debt_facilities
+    (id, facility_code, source_account_id, lender_name, facility_name, currency, original_principal,
+      agreement_date, maturity_date, status, created_by, created_at, updated_at)
+    VALUES (?, ?, ?, '테스트은행', '운전자금 대출', 'KRW', 900000000, '2026-01-01', '2027-01-01',
+      'ACTIVE', 'gc.kim', ?, ?)`);
+  insertFacility.run("facility-1", "LOAN-001", 162651, now, now);
+  assert.throws(() => insertFacility.run("facility-code", "LOAN-001", 162650, now, now), /UNIQUE constraint failed/);
+  assert.throws(() => insertFacility.run("facility-source", "LOAN-002", 162651, now, now), /UNIQUE constraint failed/);
+
+  const insertSchedule = db.prepare(`INSERT INTO finance_debt_schedule_items
+    (id, facility_id, due_date, item_type, amount, status, payment_request_id, note, created_by, created_at, updated_at)
+    VALUES (?, 'facility-1', '2026-09-30', 'PRINCIPAL', 100000000, 'PLANNED', ?, '', 'gc.kim', ?, ?)`);
+  insertSchedule.run("schedule-1", "expense-debt-1", now, now);
+  assert.throws(() => insertSchedule.run("schedule-duplicate-date", "expense-debt-2", now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO finance_debt_schedule_items
+    (id, facility_id, due_date, item_type, amount, status, payment_request_id, note, created_by, created_at, updated_at)
+    VALUES ('schedule-2', 'facility-1', '2026-10-31', 'PRINCIPAL', 100000000, 'PLANNED', '', '', 'gc.kim', ?, ?)`).run(now, now);
+  assert.throws(() => db.prepare(`UPDATE finance_debt_schedule_items SET payment_request_id = 'expense-debt-1' WHERE id = 'schedule-2'`).run(), /UNIQUE constraint failed/);
+
+  const insertReview = db.prepare(`INSERT INTO finance_debt_covenant_reviews
+    (id, facility_id, review_date, covenant_name, comparator, threshold_value_scaled, actual_value_scaled, unit,
+      result, evidence_document_id, note, reviewed_by, created_at, updated_at)
+    VALUES (?, 'facility-1', '2026-09-30', '부채비율', 'LTE', 2000000, 1500000, '%', 'PASS',
+      'document-1', '검토 완료', 'gc.kim', ?, ?)`);
+  insertReview.run("review-1", now, now);
+  assert.throws(() => insertReview.run("review-duplicate", now, now), /UNIQUE constraint failed/);
+});

@@ -16,6 +16,7 @@ import TaxReconciliationWorkspace from "./tax-reconciliation-workspace";
 import FixedAssetsWorkspace from "./fixed-assets-workspace";
 import ProjectCostingWorkspace from "./project-costing-workspace";
 import ExpenseControlWorkspace from "./expense-control-workspace";
+import DebtManagementWorkspace from "./debt-management-workspace";
 import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import { financeCurrentData } from "./finance-current-data";
@@ -61,8 +62,8 @@ const erpAlerts = [
   { id: "hr-profile", category: "HR", title: "필수 인사정보 확인 필요", description: "연락처·생년월일 등 필수항목이 비어 있는 직원 기록을 확인해 주세요.", time: "오늘", destination: { module: "hr", hrView: "employees" } },
   { id: "onboarding", category: "입·퇴사", title: "8월 신규 입사자 온보딩", description: "계정 발급, 자산 지급, 법정교육 체크리스트를 확인해 주세요.", time: "D-2", destination: { module: "hr", hrView: "employees" } },
   { id: "organization", category: "조직관리", title: "조직장 지정 상태 확인", description: "조직관리에서 조직장이 지정되지 않은 조직이 있는지 확인해 주세요.", time: "이번 주", destination: { module: "hr", hrView: "organization" } },
-  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 31,190원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
-  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 31,190원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.", time: "8월 14일", destination: { module: "finance" } },
+  { id: "finance-close", category: "재무", title: "2026년 분개장 점검", description: "분개장 차변과 대변 사이의 4,010원 차이를 확인해 주세요.", time: "확인 필요", destination: { module: "finance" } },
+  { id: "sync-complete", category: "재무 데이터", title: "2024~2026년 재무 데이터 연결 완료", description: "2024·2025년 자료는 대사가 완료되었습니다. 2026년 분개장 차대변 4,010원과 2025년 중복 후보 32행은 원문 확인이 필요합니다.", time: "8월 14일", destination: { module: "finance" } },
   { id: "permission-applied", category: "권한", title: "사용자 권한 설정 적용", description: "김권찬 관리자 권한이 정상적으로 적용되었습니다.", time: "오늘" },
 ] satisfies ERPAlert[];
 
@@ -71,8 +72,8 @@ const financeChecks = [
   { label: "2025년 원장·시산표·자금현황 대사", owner: "27개 계정 전액 일치", done: true },
   { label: "2025년 분개장 15,510개 라인 반영", owner: "2025.01.02–12.31", done: true },
   { label: "은행 데이터 소스 11개 수집", owner: "Clobe · 정상", done: true },
-  { label: "2026년 분개장 17,467개 라인 반영", owner: "2026.01.01–08.14", done: true },
-  { label: "분개장 차대변 31,190원 차이 확인", owner: "재무 담당자", done: false },
+  { label: "2026년 분개장 17,466개 라인 반영", owner: "2026.01.01–08.14", done: true },
+  { label: "분개장 차대변 4,010원 차이 확인", owner: "재무 담당자", done: false },
   { label: "2025년 중복 후보 32행 원문 확인", owner: "자동 삭제하지 않음", done: false },
 ];
 
@@ -92,7 +93,7 @@ const cashTrend = [
 
 type FinancePeriod = "day" | "week" | "month" | "quarter";
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
+type FinanceWorkspaceView = "overview" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "statements" | "liquidity" | "quality";
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financePeriodLabels: Record<FinancePeriod, string> = {
   day: "일",
@@ -150,7 +151,7 @@ const financeChartSeries: Record<FinanceMetric, Record<FinancePeriod, Array<{ la
 const financeAlerts = [
   { level: "critical", label: "분류 필요", title: "계정 없는 출금 68.45억원", detail: "최근 31일 · 40건의 출금 계정을 확인하세요." },
   { level: "warning", label: "확인 필요", title: "계정 없는 입금 71.28억원", detail: "최근 31일 · 매출 또는 자금이동 여부를 구분하세요." },
-  { level: "warning", label: "장부 점검", title: "차변·대변 31,190원 차이", detail: "2026년 분개장 마감 전 원인을 확인하세요." },
+  { level: "warning", label: "장부 점검", title: "차변·대변 4,010원 차이", detail: "2026년 분개장 마감 전 원인을 확인하세요." },
   { level: "info", label: "원문 확인", title: "2025년 중복 후보 32행", detail: "실제 반복 거래일 수 있어 자동 삭제하지 않고 원문 검토 대상으로 유지합니다." },
 ];
 
@@ -796,7 +797,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["expense-control", "법인카드·지출증빙", "증"], ["inventory", "재고·상품원가", "재"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
-    { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
+    { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"]] },
   ];
 
@@ -938,6 +939,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       {workspace === "project-costing" && <ProjectCostingWorkspace />}
 
       {workspace === "expense-control" && <ExpenseControlWorkspace />}
+
+      {workspace === "debt" && <DebtManagementWorkspace onOpenOperations={() => setWorkspace("control")} />}
 
       {workspace === "reconciliation" && <CashReconciliationWorkspace />}
 

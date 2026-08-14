@@ -186,6 +186,35 @@ test("project profitability uses exact sales links, bounded manual allocations a
   assert.match(plan, /Clobe 세금계산서 스냅샷은 문서 ID가 없는 일·거래처 집계이므로 프로젝트 손익 원천으로 자동 배부할 수 없다/);
 });
 
+test("expense controls reconcile corporate cards, reviewed evidence and existing bank-payment ledgers", async () => {
+  const [api, view, page, schema, migration, operations, documents, close, tasks, plan] = await Promise.all([
+    read("app/api/finance/expense-control/route.ts"), read("app/expense-control-workspace.tsx"), read("app/page.tsx"),
+    read("db/schema.ts"), read("drizzle/0031_expense_evidence_control.sql"), read("app/api/finance/operations/route.ts"),
+    read("app/api/documents/route.ts"), read("app/api/finance/close/route.ts"), read("app/api/operations/route.ts"),
+    read("docs/finance-expense-control-plan.md"),
+  ]);
+  for (const table of ["finance_corporate_cards", "finance_card_transactions", "finance_expense_controls"]) {
+    assert.match(api, new RegExp(table)); assert.match(migration, new RegExp(table));
+  }
+  assert.match(schema, /financeCorporateCards/); assert.match(schema, /financeCardTransactions/); assert.match(schema, /financeExpenseControls/);
+  assert.match(api, /전체 카드번호와 외화 원화환산값은 추정·저장하지 않습니다/);
+  assert.match(api, /금액이 정확히 같은 승인 완료 법인카드 지출만 연결할 수 있습니다/);
+  assert.match(api, /해당 지출에 첨부된 유효한 증빙 문서를 선택해 주세요/);
+  assert.match(api, /완료된 증빙 검토는 재개방한 뒤 다시 확정해 주세요/);
+  assert.match(api, /미대사 카드 거래를 모두 연결하거나 제외한 뒤 카드를 종료해 주세요/);
+  assert.match(api, /DEDUCTIBLE.*NONDEDUCTIBLE.*OUT_OF_SCOPE/s);
+  assert.match(view, /증빙 파일 존재만으로 적격성을 자동 확정하지 않습니다/);
+  assert.match(view, /카드사 거래 참조값/);
+  assert.match(page, /\["expense-control", "법인카드·지출증빙", "증"\]/); assert.match(page, /<ExpenseControlWorkspace \/>/);
+  assert.match(operations, /지급 전 법인카드·지출증빙 화면에서 증빙과 세무 처리를 검토해 주세요/);
+  assert.match(operations, /실제 카드 승인 거래와 정확한 금액으로 대사한 후/);
+  assert.match(operations, /card_transaction_status !== "MATCHED"/);
+  assert.match(documents, /검토 완료된 지출증빙입니다/);
+  assert.match(close, /EXPENSE_SPEND_CONTROL/); assert.match(tasks, /expense-control-risk/);
+  assert.match(plan, /기존 `finance_expense_requests`, 지급원장, 전표, 은행 대사를 회계 원천으로 유지한다/);
+  assert.match(plan, /카드번호 전체값, CVC, 유효기간 저장/);
+});
+
 test("employee persistence retains lifecycle state across refreshes", async () => {
   const [schema, route, workspace] = await Promise.all([
     read("db/schema.ts"),

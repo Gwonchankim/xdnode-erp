@@ -124,6 +124,13 @@ export async function DELETE(request: Request) {
     const closeRun = await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(row.entity_id).first<{ status: string }>();
     if (closeRun?.status !== "OPEN") return Response.json({ error: "제출 또는 잠금된 월마감의 증빙은 삭제할 수 없습니다." }, { status: 409 });
   }
+  if (row.module === "finance" && row.entity_type === "financeExpense") {
+    const reviewed = await db.prepare(`SELECT evidence_status FROM finance_expense_controls
+      WHERE expense_request_id = ? AND evidence_document_id = ?`).bind(row.entity_id, row.id).first<{ evidence_status: string }>();
+    if (reviewed && ["VERIFIED", "EXEMPT"].includes(reviewed.evidence_status)) {
+      return Response.json({ error: "검토 완료된 지출증빙입니다. 지출증빙 화면에서 검토를 재개방한 뒤 삭제해 주세요." }, { status: 409 });
+    }
+  }
   const deletedAt = Date.now();
   await db.prepare("UPDATE erp_documents SET deleted_at = ? WHERE id = ?").bind(deletedAt, id).run();
   await writeErpAudit(db, { principal: authorization.principal, module: row.module as ErpModule, action: "DOCUMENT_SOFT_DELETED", entityType: row.entity_type, entityId: row.entity_id, before: toDocument(row), after: { deletedAt }, reason: "원본 파일은 복구를 위해 보존" });

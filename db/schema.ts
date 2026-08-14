@@ -1089,6 +1089,34 @@ export const financeProjectAllocations = sqliteTable("finance_project_allocation
   index("idx_finance_project_allocation_period_center").on(table.period, table.costCenterId),
   index("idx_finance_project_allocation_source").on(table.sourceType, table.sourceId)]);
 
+export const financeCorporateCards = sqliteTable("finance_corporate_cards", {
+  id: text("id").primaryKey(), issuer: text("issuer").notNull(), nickname: text("nickname").notNull(),
+  last4: text("last4").notNull(), holderEmployeeId: text("holder_employee_id").notNull().default(""),
+  monthlyLimit: integer("monthly_limit").notNull().default(0), status: text("status").notNull().default("ACTIVE"),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_corporate_card_issuer_last4").on(table.issuer, table.last4),
+  index("idx_finance_corporate_card_status_holder").on(table.status, table.holderEmployeeId)]);
+
+export const financeCardTransactions = sqliteTable("finance_card_transactions", {
+  id: text("id").primaryKey(), cardId: text("card_id").notNull(), externalReference: text("external_reference").notNull(),
+  transactionDate: text("transaction_date").notNull(), merchant: text("merchant").notNull(), amount: integer("amount").notNull(),
+  currency: text("currency").notNull().default("KRW"), direction: text("direction").notNull().default("CHARGE"),
+  status: text("status").notNull().default("UNMATCHED"), expenseRequestId: text("expense_request_id").notNull().default(""),
+  exclusionReason: text("exclusion_reason").notNull().default(""), sourceFileName: text("source_file_name").notNull().default(""),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_card_transaction_reference").on(table.cardId, table.externalReference),
+  uniqueIndex("idx_finance_card_transaction_expense").on(table.expenseRequestId).where(sql`${table.expenseRequestId} <> ''`),
+  index("idx_finance_card_transaction_status_date").on(table.status, table.transactionDate)]);
+
+export const financeExpenseControls = sqliteTable("finance_expense_controls", {
+  expenseRequestId: text("expense_request_id").primaryKey(), businessPurpose: text("business_purpose").notNull().default(""),
+  evidenceStatus: text("evidence_status").notNull().default("PENDING"), evidenceDocumentId: text("evidence_document_id").notNull().default(""),
+  cardTransactionId: text("card_transaction_id").notNull().default(""), taxTreatment: text("tax_treatment").notNull().default("UNREVIEWED"),
+  reviewNote: text("review_note").notNull().default(""), reviewedBy: text("reviewed_by").notNull().default(""),
+  reviewedAt: integer("reviewed_at"), createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [uniqueIndex("idx_finance_expense_control_card").on(table.cardTransactionId).where(sql`${table.cardTransactionId} <> ''`),
+  index("idx_finance_expense_control_evidence_status").on(table.evidenceStatus, table.updatedAt)]);
+
 export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   id: text("id").primaryKey(),
   employeeId: text("employee_id").notNull(),

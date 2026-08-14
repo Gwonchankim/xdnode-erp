@@ -416,6 +416,21 @@ export async function PUT(request: Request) {
       const approvalAuthorization = await authorizeErpRequest(db, "finance", "approve");
       if (approvalAuthorization.response) return approvalAuthorization.response;
       if (before.status !== "APPROVED") return Response.json({ error: "승인 완료된 요청만 지급 처리할 수 있습니다." }, { status: 409 });
+      if (before.evidence_required) {
+        const control = await db.prepare(`SELECT control.evidence_status, control.card_transaction_id,
+          COALESCE(transaction_row.status, '') AS card_transaction_status,
+          COALESCE(transaction_row.expense_request_id, '') AS card_expense_request_id
+          FROM finance_expense_controls control LEFT JOIN finance_card_transactions transaction_row
+            ON transaction_row.id = control.card_transaction_id WHERE control.expense_request_id = ?`)
+          .bind(id).first<{ evidence_status: string; card_transaction_id: string; card_transaction_status: string; card_expense_request_id: string }>();
+        if (!control || !["VERIFIED", "EXEMPT"].includes(control.evidence_status)) {
+          return Response.json({ error: "지급 전 법인카드·지출증빙 화면에서 증빙과 세무 처리를 검토해 주세요." }, { status: 409 });
+        }
+        if (before.payment_method === "CORPORATE_CARD" && (!control.card_transaction_id
+          || control.card_transaction_status !== "MATCHED" || control.card_expense_request_id !== id)) {
+          return Response.json({ error: "법인카드 지급은 실제 카드 승인 거래와 정확한 금액으로 대사한 후 반영할 수 있습니다." }, { status: 409 });
+        }
+      }
       const paymentDate = String(body.paymentDate ?? "").trim();
       const paymentMethod = String(body.paymentMethod ?? before.payment_method).trim();
       const bankReference = String(body.bankReference ?? "").trim();

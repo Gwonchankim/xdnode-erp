@@ -479,3 +479,30 @@ test("project cost centers preserve unique opportunity links, monthly budgets an
   assert.equal(allocated.amount, 1000000);
   assert.ok(db.prepare("PRAGMA index_list(finance_cost_centers)").all().some((row) => row.name === "idx_finance_cost_center_opportunity"));
 });
+
+test("corporate-card and evidence ledgers prevent duplicate source references and expense reuse", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  const insertCard = db.prepare(`INSERT INTO finance_corporate_cards
+    (id, issuer, nickname, last4, holder_employee_id, monthly_limit, status, created_by, created_at, updated_at)
+    VALUES (?, '테스트카드', ?, '1234', 'gc.kim', 5000000, 'ACTIVE', 'gc.kim', ?, ?)`);
+  insertCard.run("card-1", "업무카드", now, now);
+  assert.throws(() => insertCard.run("card-2", "중복카드", now, now), /UNIQUE constraint failed/);
+
+  const insertTransaction = db.prepare(`INSERT INTO finance_card_transactions
+    (id, card_id, external_reference, transaction_date, merchant, amount, currency, direction, status,
+      expense_request_id, exclusion_reason, source_file_name, created_by, created_at, updated_at)
+    VALUES (?, 'card-1', ?, '2026-08-14', '테스트가맹점', 10000, 'KRW', 'CHARGE', ?, ?, '', '직접 등록', 'gc.kim', ?, ?)`);
+  insertTransaction.run("card-tx-1", "approval-001", "MATCHED", "expense-1", now, now);
+  assert.throws(() => insertTransaction.run("card-tx-duplicate-ref", "approval-001", "UNMATCHED", "", now, now), /UNIQUE constraint failed/);
+  assert.throws(() => insertTransaction.run("card-tx-duplicate-expense", "approval-002", "MATCHED", "expense-1", now, now), /UNIQUE constraint failed/);
+
+  const insertControl = db.prepare(`INSERT INTO finance_expense_controls
+    (expense_request_id, business_purpose, evidence_status, evidence_document_id, card_transaction_id,
+      tax_treatment, review_note, reviewed_by, reviewed_at, created_at, updated_at)
+    VALUES (?, '업무용 소모품 구매', 'VERIFIED', 'document-1', ?, 'DEDUCTIBLE', '증빙 확인', 'gc.kim', ?, ?, ?)`);
+  insertControl.run("expense-1", "card-tx-1", now, now, now);
+  assert.throws(() => insertControl.run("expense-2", "card-tx-1", now, now, now), /UNIQUE constraint failed/);
+  const control = db.prepare("SELECT * FROM finance_expense_controls WHERE expense_request_id = 'expense-1'").get();
+  assert.equal(control.evidence_status, "VERIFIED"); assert.equal(control.tax_treatment, "DEDUCTIBLE");
+  assert.ok(db.prepare("PRAGMA index_list(finance_card_transactions)").all().some((row) => row.name === "idx_finance_card_transaction_reference"));
+});

@@ -56,6 +56,7 @@ async function seedClose(period: string) {
     ["BANK", "은행·외화예금 잔액 대사"],
     ["JOURNAL", "분개장 차변·대변 및 미전기 전표 확인"],
     ["EVIDENCE", "지출·지급 증빙 누락 확인"],
+    ["EXPENSE_CONTROL", "법인카드·지출증빙 대사"],
     ["PAYROLL", "급여월 승인·잠금 확인"],
     ["INVENTORY", "재고 음수·미반영 입고 확인"],
     ["FIXED_ASSET", "고정자산 감가상각 전기 확인"],
@@ -80,7 +81,7 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const like = `${period}-%`;
   const currentTaxSalesSupply = financeCurrentData.salesDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
   const currentTaxPurchaseSupply = financeCurrentData.purchaseDaily2026.filter((row) => row.date.startsWith(period)).reduce((sum, row) => sum + row.amount, 0);
-  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, projectCost, tax] = await Promise.all([
+  const [bank, unposted, missingEvidence, payroll, inventory, fixedAssets, expenseControl, projectCost, tax] = await Promise.all([
     db.prepare(`SELECT COUNT(*) AS total_count, COALESCE(SUM(CASE WHEN transaction_row.amount > COALESCE((
       SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
       WHERE match_row.bank_transaction_id = transaction_row.id AND match_row.status = 'CONFIRMED'), 0) THEN 1 ELSE 0 END), 0) AS pending_count
@@ -122,6 +123,25 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       (SELECT COUNT(*) FROM finance_asset_depreciation_schedules schedule
         WHERE schedule.period = ? AND schedule.status <> 'POSTED') AS unposted_count`)
       .bind(period, period, period, period, period, period, period, period).first<{ eligible_count: number; missing_count: number; unposted_count: number }>(),
+    db.prepare(`SELECT
+      (SELECT COUNT(*) FROM finance_expense_requests expense
+        LEFT JOIN finance_expense_controls control ON control.expense_request_id = expense.id
+        WHERE expense.requested_date LIKE ? AND expense.evidence_required = 1
+          AND expense.status NOT IN ('CANCELLED','REJECTED')
+          AND COALESCE(control.evidence_status, 'PENDING') NOT IN ('VERIFIED','EXEMPT')) AS unreviewed_count,
+      (SELECT COUNT(*) FROM finance_card_transactions transaction_row
+        WHERE transaction_row.transaction_date LIKE ? AND transaction_row.status = 'UNMATCHED') AS card_unmatched_count,
+      (SELECT COUNT(*) FROM finance_payment_ledger payment
+        JOIN finance_expense_requests expense ON expense.id = payment.request_id
+        WHERE payment.payment_date LIKE ? AND payment.status = 'PAID'
+          AND payment.payment_method IN ('BANK_TRANSFER','AUTO_DEBIT')
+          AND payment.amount > COALESCE((SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
+            WHERE match_row.source_type = 'PAYMENT_LEDGER' AND match_row.source_id = payment.id
+              AND match_row.status = 'CONFIRMED'), 0)) AS bank_unmatched_count,
+      (SELECT COUNT(*) FROM (SELECT requested_date, amount, LOWER(TRIM(vendor)) AS vendor_key
+        FROM finance_expense_requests WHERE requested_date LIKE ? AND status NOT IN ('CANCELLED','REJECTED')
+        GROUP BY requested_date, amount, LOWER(TRIM(vendor)) HAVING COUNT(*) > 1)) AS duplicate_group_count`)
+      .bind(like, like, like, like).first<{ unreviewed_count: number; card_unmatched_count: number; bank_unmatched_count: number; duplicate_group_count: number }>(),
     db.prepare(`WITH source_rows AS (
       SELECT 'SALES_INVOICE' AS source_type, document.id AS source_id, document.amount AS source_amount,
         CASE WHEN center.id IS NOT NULL THEN document.amount ELSE COALESCE((SELECT SUM(allocation.amount)
@@ -175,6 +195,12 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     { key: "EXPENSE_EVIDENCE", category: "EVIDENCE", title: "지출·지급 증빙",
       status: Number(missingEvidence?.count ?? 0) === 0 ? "PASS" : "FAIL",
       message: `증빙 누락 요청 ${Number(missingEvidence?.count ?? 0)}건`, count: Number(missingEvidence?.count ?? 0) },
+    { key: "EXPENSE_SPEND_CONTROL", category: "EXPENSE_CONTROL", title: "법인카드·지출증빙 대사",
+      status: Number(expenseControl?.unreviewed_count ?? 0) + Number(expenseControl?.card_unmatched_count ?? 0)
+        + Number(expenseControl?.bank_unmatched_count ?? 0) > 0 ? "FAIL" : Number(expenseControl?.duplicate_group_count ?? 0) > 0 ? "REVIEW" : "PASS",
+      message: `증빙 미검토 ${Number(expenseControl?.unreviewed_count ?? 0)}건 · 카드 미대사 ${Number(expenseControl?.card_unmatched_count ?? 0)}건 · 은행 미대사 지급 ${Number(expenseControl?.bank_unmatched_count ?? 0)}건 · 중복 후보군 ${Number(expenseControl?.duplicate_group_count ?? 0)}개`,
+      count: Number(expenseControl?.unreviewed_count ?? 0) + Number(expenseControl?.card_unmatched_count ?? 0)
+        + Number(expenseControl?.bank_unmatched_count ?? 0) + Number(expenseControl?.duplicate_group_count ?? 0) },
     { key: "PAYROLL_LOCK", category: "PAYROLL", title: "급여월 잠금",
       status: payroll?.status === "LOCKED" ? "PASS" : "FAIL",
       message: payroll ? `${payroll.employee_count}명 · ${payroll.status}` : "급여월이 생성되지 않았습니다.", count: payroll?.status === "LOCKED" ? 0 : 1 },
@@ -221,7 +247,7 @@ const runView = (row: CloseRunRow) => ({
 async function synchronizeAutomatedTasks(period: string, runStatus: string, controls: CloseControl[]) {
   if (!['OPEN', 'READY'].includes(runStatus)) return;
   const now = Date.now();
-  const categories = ["BANK", "JOURNAL", "EVIDENCE", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "TAX"];
+  const categories = ["BANK", "JOURNAL", "EVIDENCE", "EXPENSE_CONTROL", "PAYROLL", "INVENTORY", "FIXED_ASSET", "PROJECT_COST", "TAX"];
   const statements = categories.flatMap((category) => {
     const categoryControls = controls.filter((control) => control.category === category);
     if (!categoryControls.length || categoryControls.some((control) => control.status === "REVIEW")) return [];

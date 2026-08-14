@@ -500,6 +500,40 @@ async function seedStateDrivenOperations() {
   }
 
   try {
+    const expensePeriod = financeCurrentData.asOf.slice(0, 7); const like = `${expensePeriod}-%`;
+    const expenseRisk = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM finance_expense_requests expense
+        LEFT JOIN finance_expense_controls control ON control.expense_request_id = expense.id
+        WHERE expense.requested_date LIKE ? AND expense.evidence_required = 1
+          AND expense.status NOT IN ('CANCELLED','REJECTED')
+          AND COALESCE(control.evidence_status, 'PENDING') NOT IN ('VERIFIED','EXEMPT')) AS unreviewed_count,
+      (SELECT COUNT(*) FROM finance_card_transactions WHERE transaction_date LIKE ? AND status = 'UNMATCHED') AS card_unmatched_count,
+      (SELECT COUNT(*) FROM finance_payment_ledger payment
+        WHERE payment.payment_date LIKE ? AND payment.status = 'PAID'
+          AND payment.payment_method IN ('BANK_TRANSFER','AUTO_DEBIT')
+          AND payment.amount > COALESCE((SELECT SUM(match_row.matched_amount) FROM finance_cash_matches match_row
+            WHERE match_row.source_type = 'PAYMENT_LEDGER' AND match_row.source_id = payment.id
+              AND match_row.status = 'CONFIRMED'), 0)) AS bank_unmatched_count,
+      (SELECT COUNT(*) FROM (SELECT requested_date, amount, LOWER(TRIM(vendor)) AS vendor_key
+        FROM finance_expense_requests WHERE requested_date LIKE ? AND status NOT IN ('CANCELLED','REJECTED')
+        GROUP BY requested_date, amount, LOWER(TRIM(vendor)) HAVING COUNT(*) > 1)) AS duplicate_group_count`)
+      .bind(like, like, like, like).first<{ unreviewed_count: number; card_unmatched_count: number; bank_unmatched_count: number; duplicate_group_count: number }>();
+    const expenseRiskCount = Number(expenseRisk?.unreviewed_count ?? 0) + Number(expenseRisk?.card_unmatched_count ?? 0)
+      + Number(expenseRisk?.bank_unmatched_count ?? 0) + Number(expenseRisk?.duplicate_group_count ?? 0);
+    if (expenseRiskCount > 0) await upsertRuleTask({
+      id: "expense-control-risk", module: "finance", category: "지출통제",
+      title: `${expensePeriod} 법인카드·지출증빙 ${expenseRiskCount}건 확인`,
+      description: `증빙 미검토 ${Number(expenseRisk?.unreviewed_count ?? 0)}건 · 카드 미대사 ${Number(expenseRisk?.card_unmatched_count ?? 0)}건 · 은행 미대사 지급 ${Number(expenseRisk?.bank_unmatched_count ?? 0)}건 · 중복 후보군 ${Number(expenseRisk?.duplicate_group_count ?? 0)}개입니다.`,
+      dueDate: today, priority: Number(expenseRisk?.unreviewed_count ?? 0) + Number(expenseRisk?.card_unmatched_count ?? 0) > 0 ? "HIGH" : "NORMAL",
+      destination: "finance:expense-control",
+      sourceId: `${expensePeriod}:${Number(expenseRisk?.unreviewed_count ?? 0)}:${Number(expenseRisk?.card_unmatched_count ?? 0)}:${Number(expenseRisk?.bank_unmatched_count ?? 0)}:${Number(expenseRisk?.duplicate_group_count ?? 0)}`,
+    });
+    else await closeRuleTask("expense-control-risk");
+  } catch {
+    // 법인카드·지출증빙 원장이 배포된 뒤부터 증빙·대사 통제를 평가합니다.
+  }
+
+  try {
     const receivableRisk = await db.prepare(`WITH invoice_balance AS (
       SELECT invoice.id, invoice.due_date, invoice.amount,
         MAX(0, invoice.amount - COALESCE(SUM(CASE WHEN payment.status IN ('ACCEPTED','COMPLETED') THEN allocation.amount ELSE 0 END), 0)) AS outstanding,

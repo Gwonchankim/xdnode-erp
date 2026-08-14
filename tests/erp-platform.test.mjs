@@ -1334,8 +1334,8 @@ test("after-sales service governs SLA, return quantities, evidence, approval and
   assert.match(schema, /salesServiceCases/);
   assert.match(schema, /salesServiceReturnLines/);
   assert.match(migration, /idx_sales_service_policy_active_priority/);
-  assert.match(migration, /trg_sales_service_return_quantity_limit/);
-  assert.match(migration, /trg_sales_service_refund_amount_limit/);
+  assert.match(api, /INSERT INTO sales_service_return_lines[\s\S]*SELECT \?, service\.id, source_line\.id/);
+  assert.match(api, /transition\.meta\.changes/);
   assert.match(plan, /상품 매핑이나 원가는 추정하지 않는다/);
   assert.match(plan, /동시 요청/);
 });

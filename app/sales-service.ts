@@ -33,34 +33,5 @@ export async function ensureSalesServiceSchema(db: D1Database) {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_service_event_case_created ON sales_service_case_events(case_id, created_at)"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_service_return_case_line ON sales_service_return_lines(case_id, delivery_line_id)"),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_service_return_inventory ON sales_service_return_lines(inventory_movement_id) WHERE inventory_movement_id <> ''"),
-    db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_sales_service_return_quantity_limit
-      BEFORE INSERT ON sales_service_return_lines
-      BEGIN
-        SELECT CASE WHEN NOT EXISTS (
-          SELECT 1 FROM sales_service_cases service
-          JOIN sales_document_lines source_line ON source_line.document_id = service.delivery_document_id
-          WHERE service.id = NEW.case_id AND source_line.id = NEW.delivery_line_id
-        ) THEN RAISE(ABORT, 'RETURN_SOURCE_INVALID') END;
-        SELECT CASE WHEN NEW.quantity_milli <= 0 OR NEW.quantity_milli + COALESCE((
-          SELECT SUM(existing.quantity_milli) FROM sales_service_return_lines existing
-          JOIN sales_service_cases existing_case ON existing_case.id = existing.case_id
-          WHERE existing.delivery_line_id = NEW.delivery_line_id AND existing_case.status <> 'CANCELLED'
-        ), 0) > (
-          SELECT ROUND(source_line.quantity * 1000) FROM sales_service_cases service
-          JOIN sales_document_lines source_line ON source_line.document_id = service.delivery_document_id
-          WHERE service.id = NEW.case_id AND source_line.id = NEW.delivery_line_id
-        ) THEN RAISE(ABORT, 'RETURN_QUANTITY_EXCEEDED') END;
-      END`),
-    db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_sales_service_refund_amount_limit
-      BEFORE UPDATE OF status, refund_amount, delivery_document_id ON sales_service_cases
-      WHEN NEW.status IN ('RESOLUTION_SUBMITTED','RESOLUTION_APPROVED','RESOLVED','CLOSED') AND NEW.refund_amount > 0
-      BEGIN
-        SELECT CASE WHEN NEW.refund_amount + COALESCE((
-          SELECT SUM(other.refund_amount) FROM sales_service_cases other
-          WHERE other.delivery_document_id = NEW.delivery_document_id AND other.id <> NEW.id
-            AND other.status IN ('RESOLUTION_SUBMITTED','RESOLUTION_APPROVED','RESOLVED','CLOSED')
-        ), 0) > COALESCE((SELECT amount FROM sales_documents WHERE id = NEW.delivery_document_id), 0)
-        THEN RAISE(ABORT, 'REFUND_AMOUNT_EXCEEDED') END;
-      END`),
   ]);
 }

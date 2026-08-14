@@ -248,14 +248,19 @@ export async function POST(request: Request) {
     }
     const id = crypto.randomUUID();
     try {
-      await db.prepare(`INSERT INTO sales_service_return_lines
+      const insertion = await db.prepare(`INSERT INTO sales_service_return_lines
         (id, case_id, delivery_line_id, quantity_milli, disposition, inventory_movement_id, received_by, received_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, '', '', NULL, ?, ?)`).bind(id, caseId, deliveryLineId, quantityMilli, disposition, now, now).run();
+        SELECT ?, service.id, source_line.id, ?, ?, '', '', NULL, ?, ?
+        FROM sales_service_cases service JOIN sales_document_lines source_line ON source_line.document_id = service.delivery_document_id
+        WHERE service.id = ? AND source_line.id = ? AND service.status IN ('OPEN','IN_PROGRESS')
+          AND ? <= ROUND(source_line.quantity * 1000) - COALESCE((
+            SELECT SUM(existing.quantity_milli) FROM sales_service_return_lines existing
+            JOIN sales_service_cases existing_case ON existing_case.id = existing.case_id
+            WHERE existing.delivery_line_id = source_line.id AND existing_case.status <> 'CANCELLED'
+          ), 0)`).bind(id, quantityMilli, disposition, now, now, caseId, deliveryLineId, quantityMilli).run();
+      if ((insertion.meta.changes ?? 0) !== 1) return Response.json({ error: "원 납품행의 가용 수량을 초과했거나 유효하지 않은 반품행입니다." }, { status: 409 });
     } catch (error) {
       if (String(error).includes("UNIQUE")) return Response.json({ error: "같은 납품행은 한 케이스에 한 번만 추가할 수 있습니다." }, { status: 409 });
-      if (String(error).includes("RETURN_QUANTITY_EXCEEDED") || String(error).includes("RETURN_SOURCE_INVALID")) {
-        return Response.json({ error: "원 납품행의 가용 수량을 초과했거나 유효하지 않은 반품행입니다." }, { status: 409 });
-      }
       throw error;
     }
     await writeErpAudit(db, { principal: authorization.principal, module: "sales", action: "SALES_SERVICE_RETURN_LINE_ADDED",
@@ -299,14 +304,14 @@ export async function POST(request: Request) {
     if (!evidence) return Response.json({ error: "처리 근거 문서를 1개 이상 첨부해 주세요." }, { status: 409 });
     if ((serviceCase.category === "REFUND" || resolutionType === "REFUND") && refundAmount <= 0) return Response.json({ error: "환불 처리에는 0원 초과 환불금액이 필요합니다." }, { status: 409 });
     if (refundAmount > serviceCase.delivery_amount - Number(reservedRefund?.amount ?? 0)) return Response.json({ error: "같은 납품의 승인·결재 중 환불액을 포함하면 납품금액을 초과합니다." }, { status: 409 });
-    try {
-      const transition = await db.prepare(`UPDATE sales_service_cases SET status = 'RESOLUTION_SUBMITTED', resolution_type = ?, resolution_note = ?, refund_amount = ?, updated_at = ?
-        WHERE id = ? AND status IN ('OPEN','IN_PROGRESS')`).bind(resolutionType, resolutionNote, refundAmount, now, caseId).run();
-      if ((transition.meta.changes ?? 0) !== 1) return Response.json({ error: "처리안 제출 중 케이스 상태가 변경되었습니다." }, { status: 409 });
-    } catch (error) {
-      if (String(error).includes("REFUND_AMOUNT_EXCEEDED")) return Response.json({ error: "같은 납품의 승인·결재 중 환불액을 포함하면 납품금액을 초과합니다." }, { status: 409 });
-      throw error;
-    }
+    const transition = await db.prepare(`UPDATE sales_service_cases SET status = 'RESOLUTION_SUBMITTED', resolution_type = ?, resolution_note = ?, refund_amount = ?, updated_at = ?
+      WHERE id = ? AND status IN ('OPEN','IN_PROGRESS') AND ? <= (
+        SELECT delivery.amount - COALESCE((SELECT SUM(other.refund_amount) FROM sales_service_cases other
+          WHERE other.delivery_document_id = sales_service_cases.delivery_document_id AND other.id <> sales_service_cases.id
+            AND other.status IN ('RESOLUTION_SUBMITTED','RESOLUTION_APPROVED','RESOLVED','CLOSED')), 0)
+        FROM sales_documents delivery WHERE delivery.id = sales_service_cases.delivery_document_id
+      )`).bind(resolutionType, resolutionNote, refundAmount, now, caseId, refundAmount).run();
+    if ((transition.meta.changes ?? 0) !== 1) return Response.json({ error: "처리안 제출 중 상태가 변경되었거나 같은 납품의 누적 환불액이 납품금액을 초과합니다." }, { status: 409 });
     try {
       const approval = await createApprovalRequest(db, authorization.principal, { module: "sales", requestType: "SERVICE_RESOLUTION",
         title: `${serviceCase.case_number} 고객 이슈 처리 승인`, description: `${serviceCase.category} · ${resolutionType} · ${resolutionNote}`,

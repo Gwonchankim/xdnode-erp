@@ -1080,16 +1080,27 @@ test("sales service ledgers keep one active SLA per priority and unique return r
     VALUES (?, 'service-case-1', 'delivery-line-1', 1000, 'RESTOCK', ?, '', NULL, ?, ?)`);
   insertLine.run("service-return-1", "", now, now);
   assert.throws(() => insertLine.run("service-return-duplicate-line", "", now, now), /UNIQUE constraint failed/);
-  assert.throws(() => db.prepare(`INSERT INTO sales_service_return_lines
+  const overLimitReturn = db.prepare(`INSERT INTO sales_service_return_lines
     (id, case_id, delivery_line_id, quantity_milli, disposition, inventory_movement_id, received_by, received_at, created_at, updated_at)
-    VALUES ('service-return-over-limit', 'service-case-2', 'delivery-line-1', 1001, 'QUARANTINE', '', '', NULL, ?, ?)`).run(now, now), /RETURN_QUANTITY_EXCEEDED/);
+    SELECT 'service-return-over-limit', service.id, source_line.id, 1001, 'QUARANTINE', '', '', NULL, ?, ?
+    FROM sales_service_cases service JOIN sales_document_lines source_line ON source_line.document_id = service.delivery_document_id
+    WHERE service.id = 'service-case-2' AND source_line.id = 'delivery-line-1'
+      AND 1001 <= ROUND(source_line.quantity * 1000) - COALESCE((SELECT SUM(existing.quantity_milli)
+        FROM sales_service_return_lines existing JOIN sales_service_cases existing_case ON existing_case.id = existing.case_id
+        WHERE existing.delivery_line_id = source_line.id AND existing_case.status <> 'CANCELLED'), 0)`).run(now, now);
+  assert.equal(overLimitReturn.changes, 0);
   db.prepare("UPDATE sales_service_return_lines SET inventory_movement_id = 'movement-return-1' WHERE id = 'service-return-1'").run();
   db.prepare(`INSERT INTO sales_service_return_lines
     (id, case_id, delivery_line_id, quantity_milli, disposition, inventory_movement_id, received_by, received_at, created_at, updated_at)
     VALUES ('service-return-2', 'service-case-1', 'delivery-line-2', 1000, 'RESTOCK', '', '', NULL, ?, ?)`).run(now, now);
   assert.throws(() => db.prepare("UPDATE sales_service_return_lines SET inventory_movement_id = 'movement-return-1' WHERE id = 'service-return-2'").run(), /UNIQUE constraint failed/);
   db.prepare("UPDATE sales_service_cases SET refund_amount = 7000 WHERE id = 'service-case-1'").run();
-  assert.throws(() => db.prepare("UPDATE sales_service_cases SET refund_amount = 4000 WHERE id = 'service-case-2'").run(), /REFUND_AMOUNT_EXCEEDED/);
+  const overLimitRefund = db.prepare(`UPDATE sales_service_cases SET refund_amount = 4000
+    WHERE id = 'service-case-2' AND 4000 <= (SELECT delivery.amount - COALESCE((SELECT SUM(other.refund_amount)
+      FROM sales_service_cases other WHERE other.delivery_document_id = sales_service_cases.delivery_document_id
+        AND other.id <> sales_service_cases.id AND other.status IN ('RESOLUTION_SUBMITTED','RESOLUTION_APPROVED','RESOLVED','CLOSED')), 0)
+      FROM sales_documents delivery WHERE delivery.id = sales_service_cases.delivery_document_id)`).run();
+  assert.equal(overLimitRefund.changes, 0);
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM sales_service_case_events WHERE case_id = 'service-case-1'").get().count, 0);
   db.close();
 });

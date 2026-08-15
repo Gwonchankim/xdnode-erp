@@ -1,7 +1,7 @@
-// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-15.
+// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-16.
 // Sales/purchase values are supply values excluding VAT. Credit/cancellation invoices are netted.
 export const financeCurrentData = {
-  "asOf": "2026-08-15",
+  "asOf": "2026-08-16",
   "sourceSummary": {
     "salesInvoices": 1919,
     "purchaseInvoices": 567,
@@ -12096,10 +12096,10 @@ export const financeCurrentData = {
     "fundBalanceSumKrw": 0
   },
   "journalSummary": {
-    "lineCount": 17522,
-    "debitAmountKrw": 271222318277,
-    "creditAmountKrw": 271222318314,
-    "differenceKrw": 37,
+    "lineCount": 17564,
+    "debitAmountKrw": 271199755278,
+    "creditAmountKrw": 271199755314,
+    "differenceKrw": 36,
     "checkingAccount": {
       "code": "10300",
       "debitCount": 1859,
@@ -12110,6 +12110,10 @@ export const financeCurrentData = {
     }
   },
   "balanceTrend": [
+    {
+      "date": "2026-08-16",
+      "balance": 2068051673
+    },
     {
       "date": "2026-08-15",
       "balance": 2068051673

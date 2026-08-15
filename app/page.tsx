@@ -25,13 +25,14 @@ import SalesWorkspace from "./sales-workspace";
 import ApprovalCenter from "./approval-center";
 import OperationsWorkbench from "./operations-workbench";
 import DataGovernanceCenter from "./data-governance-center";
+import CompensationCalculator from "./compensation-calculator";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
 import { buildAmountSeries, buildBalanceSeries, type FinancePeriod } from "./finance-time-series";
 import { buildAccountRiskModel, buildSalesForecast, DEFAULT_FINANCE_RISK_POLICY, type FinanceRiskPolicy } from "./finance-decision-model";
 
-type ModuleKey = "finance" | "sales" | "hr";
+type ModuleKey = "finance" | "sales" | "hr" | "compensation";
 
 type ERPAlert = {
   id: string;
@@ -100,6 +101,7 @@ const modules: Array<{
   { key: "finance", label: "재무회계", eyebrow: "Finance", glyph: "₩" },
   { key: "sales", label: "영업", eyebrow: "Sales", glyph: "↗" },
   { key: "hr", label: "HR", eyebrow: "People", glyph: "◎" },
+  { key: "compensation", label: "임금 계산", eyebrow: "Compensation", glyph: "◫" },
 ];
 
 const erpAlerts = [
@@ -207,6 +209,12 @@ const moduleCopy: Record<ModuleKey, { title: string; desc: string; action: strin
     desc: "입퇴사, 근태·연차, 급여와 법정 일정을 직원 단위로 이어서 관리합니다.",
     action: "구성원 등록",
     search: "이름, 조직, 인사기록 검색",
+  },
+  compensation: {
+    title: "임금과 인센티브를 하나의 계산 흐름으로",
+    desc: "매출 원장의 인센티브 결과와 직원별 임금·수당을 같은 기준으로 계산합니다.",
+    action: "직원 추가",
+    search: "직원, 부서, 지급 항목 검색",
   },
 };
 
@@ -564,6 +572,15 @@ export default function Home() {
       <div className="hr-module-shell">
         <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
         <HRWorkspace requestedView={hrNavigation.view} navigationRequestKey={hrNavigation.requestKey} />
+      </div>
+    );
+  }
+
+  if (active === "compensation") {
+    return (
+      <div className="compensation-erp-shell">
+        <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
+        <CompensationCalculator />
       </div>
     );
   }

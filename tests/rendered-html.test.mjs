@@ -25,6 +25,7 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.doesNotMatch(html, /계좌, 거래처, 전표 검색/);
   assert.doesNotMatch(html, /2026년 8월/);
   assert.match(html, /aria-label="재무회계 메뉴"/);
+  assert.match(html, /임금 계산/);
   assert.match(html, /XDNODE FINANCE/);
   assert.match(html, /class="finance-side-alert"/);
   assert.match(html, /알림 센터/);
@@ -41,7 +42,7 @@ test("renders the integrated ERP finance workspace", async () => {
   assert.match(html, /차입금·상환·약정/);
   assert.match(html, /재무 데이터 어시스턴트/);
   assert.match(html, /세금계산서 매출/);
-  assert.match(html, /잔액형 · 2026-06-05~2026-08-15 관측/);
+  assert.match(html, /잔액형 · 2026-06-05~2026-08-16 관측/);
   assert.doesNotMatch(html, />연동매출</);
   assert.match(html, /실제 재무 업무를 확인하고 있습니다/);
   assert.match(html, /최신 자금일보와 동결 스냅샷을 불러오는 중입니다/);

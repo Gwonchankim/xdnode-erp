@@ -1,7 +1,7 @@
-// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-17.
+// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-18.
 // Sales/purchase values are supply values excluding VAT. Credit/cancellation invoices are netted.
 export const financeCurrentData = {
-  "asOf": "2026-08-17",
+  "asOf": "2026-08-18",
   "sourceSummary": {
     "salesInvoices": 1919,
     "purchaseInvoices": 567,
@@ -12110,6 +12110,10 @@ export const financeCurrentData = {
     }
   },
   "balanceTrend": [
+    {
+      "date": "2026-08-18",
+      "balance": 2068051673
+    },
     {
       "date": "2026-08-17",
       "balance": 2068051673

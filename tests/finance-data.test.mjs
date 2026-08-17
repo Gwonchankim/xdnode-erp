@@ -75,7 +75,7 @@ test("account-risk source totals stay internally consistent", async () => {
 
 test("2026 Clobe snapshot date, balance trend, and journal summary stay reconciled", async () => {
   const data = await loadCurrentFinanceData();
-  assert.equal(data.asOf, "2026-08-17");
+  assert.equal(data.asOf, "2026-08-18");
   assert.equal(data.balanceTrend[0].date, data.asOf);
   assert.equal(data.balanceTrend[0].balance, data.accountSummary.checkingBalanceSum + data.accountSummary.fxBalanceSumKrw);
   assert.equal(data.journalSummary.lineCount, 17561);

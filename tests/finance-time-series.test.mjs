@@ -8,7 +8,7 @@ import { buildAmountSeries, buildBalanceSeries } from "../app/finance-time-serie
 test("cash series use observed closing balances without inventing unsupported months", () => {
   const daily = buildBalanceSeries(financeCurrentData.balanceTrend, "day");
   assert.equal(daily.points.length, 14);
-  assert.equal(daily.points[0].startDate, "2026-08-04");
+  assert.equal(daily.points[0].startDate, "2026-08-05");
   assert.equal(daily.points.at(-1).endDate, financeCurrentData.asOf);
   assert.equal(daily.points.at(-1).value, financeCurrentData.balanceTrend[0].balance);
 

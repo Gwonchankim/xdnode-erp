@@ -473,6 +473,21 @@ test("employee persistence retains lifecycle state across refreshes", async () =
   assert.match(workspace, /RETIREMENT_CHECKLIST|resource: "retirement"/);
 });
 
+test("employee lifecycle uses side-by-side collapsible onboarding and retirement cards", async () => {
+  const [workspace, styles] = await Promise.all([
+    read("app/hr-workspace.tsx"),
+    read("public/hr-workspace.css"),
+  ]);
+  assert.match(workspace, /className="lifecycle-board"/);
+  assert.match(workspace, /id="onboarding-heading">입사 관리/);
+  assert.match(workspace, /id="offboarding-heading">퇴직자 관리/);
+  assert.match(workspace, /const \[expandedCards, setExpandedCards\] = useState<Set<string>>/);
+  assert.match(workspace, /aria-expanded=\{expanded\}/);
+  assert.match(workspace, /toggleCard\(cardId\)/);
+  assert.match(styles, /\.lifecycle-board \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+  assert.match(styles, /@media \(max-width: 900px\) \{ \.lifecycle-board \{ grid-template-columns: 1fr;/);
+});
+
 test("finance controls distinguish imported bank rows from automated forecasts", async () => {
   const [api, view] = await Promise.all([
     read("app/api/finance/operations/route.ts"),

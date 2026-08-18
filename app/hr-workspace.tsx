@@ -2476,6 +2476,15 @@ function LifecycleManagementView() {
   const [people, setPeople] = useState<Record<string, { name: string; department: string; joinDate: string; status: string }>>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set());
+  function toggleCard(cardId: string) {
+    setExpandedCards((current) => {
+      const next = new Set(current);
+      if (next.has(cardId)) next.delete(cardId);
+      else next.add(cardId);
+      return next;
+    });
+  }
   async function load() {
     setLoading(true);
     try {
@@ -2519,7 +2528,101 @@ function LifecycleManagementView() {
   const groups = Object.entries(tasks.reduce<Record<string, OnboardingTask[]>>((result, task) => {
     (result[task.employee_id] ??= []).push(task); return result;
   }, {}));
-  return <div className="page-wrap module-page lifecycle-page"><section className="module-hero"><div><p className="eyebrow">EMPLOYEE LIFECYCLE</p><h1>입·퇴사 관리</h1><p>입사 전 준비와 퇴직 효력 발생 이후의 정산·회수 절차를 한곳에서 관리합니다.</p></div></section>{message && <div className="finance-control-message" role="status">{message}</div>}<section className="metric-grid module-metrics"><div className="compact-metric"><p>입사예정자</p><h2>{groups.length}명</h2><small>온보딩 업무 기준</small></div><div className="compact-metric"><p>퇴직자·예정자</p><h2>{retirements.length}명</h2><small>승인 완료 요청 기준</small></div><div className="compact-metric"><p>퇴직 효력 발생</p><h2>{retirements.filter((item) => ["EFFECTIVE", "COMPLETED"].includes(item.status)).length}명</h2><small>조직·재직 명부에서 제외</small></div><div className="compact-metric"><p>후속절차 미완료</p><h2>{retirements.filter((item) => item.status !== "COMPLETED").length}명</h2><small>정산·회수 계속 관리</small></div></section><div className="lifecycle-section-heading"><p>ONBOARDING</p><h2>입사 관리</h2></div><section className="lifecycle-groups">{loading ? <div className="panel finance-empty">입·퇴사 현황을 확인하고 있습니다…</div> : groups.map(([employeeId, items]) => { const person = people[employeeId]; const done = items.filter((task) => task.status === "DONE").length; return <article className="panel lifecycle-person" key={employeeId}><header><div><p>ONBOARDING</p><h2>{person?.name ?? employeeId}</h2><span>{person?.department ?? "소속 미지정"} · 입사일 {person?.joinDate ?? items[0]?.due_date}</span></div><strong>{done}/{items.length}</strong></header><div>{items.map((task) => <label className={task.status === "DONE" ? "checked" : ""} key={task.id}><input type="checkbox" checked={task.status === "DONE"} onChange={() => void toggle(task)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기한 {task.due_date}</small></p></label>)}</div></article>; })}{!loading && !groups.length && <div className="panel finance-empty">현재 관리 중인 입사예정자가 없습니다.</div>}</section><div className="lifecycle-section-heading"><p>OFFBOARDING</p><h2>퇴직자 관리</h2></div><section className="lifecycle-groups">{retirements.map((request) => { const person = people[request.employee_id]; const items = retirementTasks.filter((task) => task.id.startsWith(`${request.id}:`)); const completed = safeJsonArray(request.checklist_json); const effective = ["EFFECTIVE", "COMPLETED"].includes(request.status); return <article className={`panel lifecycle-person retirement-lifecycle-person${effective ? " effective" : ""}`} key={request.id}><header><div><p>{request.status === "COMPLETED" ? "OFFBOARDING COMPLETE" : effective ? "RETIRED · FOLLOW-UP OPEN" : "RETIREMENT SCHEDULED"}</p><h2>{person?.name ?? request.employee_id}</h2><span>{person?.department ?? "소속 미지정"} · 퇴직일 {request.retirement_date} · {request.reason}</span></div><StatusPill value={request.status === "COMPLETED" ? "퇴직 절차 완료" : effective ? "퇴직 · 후속절차 진행" : "퇴직 예정"} /></header><div>{items.map((task) => { const logicalId = task.id.slice(request.id.length + 1); const checked = completed.includes(logicalId); return <label className={checked ? "checked" : ""} key={task.id}><input disabled={request.status === "COMPLETED"} type="checkbox" checked={checked} onChange={() => void toggleRetirement(request, logicalId)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기준일 {task.due_date}</small></p></label>; })}</div>{request.status !== "COMPLETED" && <RetirementSettlementPanel requestId={request.id} />}</article>; })}{!loading && !retirements.length && <div className="panel finance-empty">승인 완료된 퇴직 요청이 없습니다.</div>}</section></div>;
+  return (
+    <div className="page-wrap module-page lifecycle-page">
+      <section className="module-hero">
+        <div>
+          <p className="eyebrow">EMPLOYEE LIFECYCLE</p>
+          <h1>입·퇴사 관리</h1>
+          <p>입사 전 준비와 퇴직 효력 발생 이후의 정산·회수 절차를 한곳에서 관리합니다.</p>
+        </div>
+      </section>
+      {message && <div className="finance-control-message" role="status">{message}</div>}
+      <section className="metric-grid module-metrics">
+        <div className="compact-metric"><p>입사예정자</p><h2>{groups.length}명</h2><small>온보딩 업무 기준</small></div>
+        <div className="compact-metric"><p>퇴직자·예정자</p><h2>{retirements.length}명</h2><small>승인 완료 요청 기준</small></div>
+        <div className="compact-metric"><p>퇴직 효력 발생</p><h2>{retirements.filter((item) => ["EFFECTIVE", "COMPLETED"].includes(item.status)).length}명</h2><small>조직·재직 명부에서 제외</small></div>
+        <div className="compact-metric"><p>후속절차 미완료</p><h2>{retirements.filter((item) => item.status !== "COMPLETED").length}명</h2><small>정산·회수 계속 관리</small></div>
+      </section>
+      <div className="lifecycle-board">
+        <section className="lifecycle-column" aria-labelledby="onboarding-heading">
+          <div className="lifecycle-section-heading">
+            <div><p>ONBOARDING</p><h2 id="onboarding-heading">입사 관리</h2></div>
+            <strong>{groups.length}명</strong>
+          </div>
+          <div className="lifecycle-card-list">
+            {loading ? <div className="panel finance-empty">입·퇴사 현황을 확인하고 있습니다…</div> : groups.map(([employeeId, items]) => {
+              const person = people[employeeId];
+              const done = items.filter((task) => task.status === "DONE").length;
+              const cardId = `onboarding-${employeeId}`;
+              const expanded = expandedCards.has(cardId);
+              return (
+                <article className={`panel lifecycle-person${expanded ? " expanded" : " collapsed"}`} key={employeeId}>
+                  <button className="lifecycle-card-toggle" type="button" aria-expanded={expanded} aria-controls={`${cardId}-content`} onClick={() => toggleCard(cardId)}>
+                    <div className="lifecycle-person-summary">
+                      <p>ONBOARDING</p>
+                      <h2>{person?.name ?? employeeId}</h2>
+                      <span>{person?.department ?? "소속 미지정"} · 입사일 {person?.joinDate ?? items[0]?.due_date}</span>
+                    </div>
+                    <div className="lifecycle-card-state">
+                      <strong>{done}/{items.length}</strong>
+                      <small>업무 완료</small>
+                      <span aria-hidden="true">{expanded ? "−" : "+"}</span>
+                    </div>
+                  </button>
+                  {expanded && <div className="lifecycle-card-body" id={`${cardId}-content`}>
+                    {items.map((task) => <label className={task.status === "DONE" ? "checked" : ""} key={task.id}><input type="checkbox" checked={task.status === "DONE"} onChange={() => void toggle(task)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기한 {task.due_date}</small></p></label>)}
+                  </div>}
+                </article>
+              );
+            })}
+            {!loading && !groups.length && <div className="panel finance-empty">현재 관리 중인 입사예정자가 없습니다.</div>}
+          </div>
+        </section>
+        <section className="lifecycle-column" aria-labelledby="offboarding-heading">
+          <div className="lifecycle-section-heading">
+            <div><p>OFFBOARDING</p><h2 id="offboarding-heading">퇴직자 관리</h2></div>
+            <strong>{retirements.length}명</strong>
+          </div>
+          <div className="lifecycle-card-list">
+            {retirements.map((request) => {
+              const person = people[request.employee_id];
+              const items = retirementTasks.filter((task) => task.id.startsWith(`${request.id}:`));
+              const completed = safeJsonArray(request.checklist_json);
+              const effective = ["EFFECTIVE", "COMPLETED"].includes(request.status);
+              const cardId = `offboarding-${request.id}`;
+              const expanded = expandedCards.has(cardId);
+              return (
+                <article className={`panel lifecycle-person retirement-lifecycle-person${effective ? " effective" : ""}${expanded ? " expanded" : " collapsed"}`} key={request.id}>
+                  <button className="lifecycle-card-toggle" type="button" aria-expanded={expanded} aria-controls={`${cardId}-content`} onClick={() => toggleCard(cardId)}>
+                    <div className="lifecycle-person-summary">
+                      <p>{request.status === "COMPLETED" ? "OFFBOARDING COMPLETE" : effective ? "RETIRED · FOLLOW-UP OPEN" : "RETIREMENT SCHEDULED"}</p>
+                      <h2>{person?.name ?? request.employee_id}</h2>
+                      <span>{person?.department ?? "소속 미지정"} · 퇴직일 {request.retirement_date} · {request.reason}</span>
+                    </div>
+                    <div className="lifecycle-card-state">
+                      <StatusPill value={request.status === "COMPLETED" ? "퇴직 절차 완료" : effective ? "퇴직 · 후속절차 진행" : "퇴직 예정"} />
+                      <small>{completed.length}/{items.length} 완료</small>
+                      <span aria-hidden="true">{expanded ? "−" : "+"}</span>
+                    </div>
+                  </button>
+                  {expanded && <div className="lifecycle-card-body" id={`${cardId}-content`}>
+                    {items.map((task) => {
+                      const logicalId = task.id.slice(request.id.length + 1);
+                      const checked = completed.includes(logicalId);
+                      return <label className={checked ? "checked" : ""} key={task.id}><input disabled={request.status === "COMPLETED"} type="checkbox" checked={checked} onChange={() => void toggleRetirement(request, logicalId)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기준일 {task.due_date}</small></p></label>;
+                    })}
+                    {request.status !== "COMPLETED" && <RetirementSettlementPanel requestId={request.id} />}
+                  </div>}
+                </article>
+              );
+            })}
+            {!loading && !retirements.length && <div className="panel finance-empty">승인 완료된 퇴직 요청이 없습니다.</div>}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
 }
 
 function RetirementSettlementPanel({ requestId }: { requestId: string }) {

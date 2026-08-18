@@ -20,7 +20,7 @@ type StepRow = {
 };
 type EventRow = { id: string; request_id: string; step_order: number; action: string; actor_employee_id: string; comment: string; snapshot_json: string; created_at: number };
 
-const modules = new Set<ApprovalModule>(["finance", "hr", "recruitment", "sales"]);
+const modules = new Set<ApprovalModule>(["finance", "hr", "recruitment", "sales", "settings"]);
 const priorities = new Set<ApprovalPriority>(["LOW", "NORMAL", "HIGH", "CRITICAL"]);
 const activeStatuses = ["SUBMITTED", "IN_REVIEW", "CHANGES_REQUESTED"];
 
@@ -85,6 +85,7 @@ export async function POST(request: Request) {
     || (dueDate && !/^\d{4}-\d{2}-\d{2}$/.test(dueDate))) {
     return Response.json({ error: "결재 모듈·유형·제목·금액·기한을 확인해 주세요." }, { status: 400 });
   }
+  if (moduleName === "settings") return Response.json({ error: "데이터 통제 결재는 해당 원장에서만 제출할 수 있습니다." }, { status: 403 });
   const authorization = await authorizeErpRequest(db, moduleName as ErpModule, "write");
   if (authorization.response) return authorization.response;
   try {
@@ -118,6 +119,9 @@ export async function PUT(request: Request) {
   const before = await db.prepare("SELECT * FROM erp_approval_requests WHERE id = ?").bind(id).first<ApprovalRow>();
   if (!before) return Response.json({ error: "결재 문서를 찾을 수 없습니다." }, { status: 404 });
   if (["APPROVED", "REJECTED", "CANCELLED"].includes(before.status)) return Response.json({ error: "이미 종료된 결재입니다." }, { status: 409 });
+  if (before.target_entity_type === "MASTER_IMPACT_WEEKLY_REPORT" && ["REQUEST_CHANGES", "RESUBMIT", "CANCEL"].includes(action)) {
+    return Response.json({ error: "불변 주간보고는 보완 재제출하거나 취소할 수 없습니다. 승인 또는 반려 후 새 스냅샷 버전을 생성해 주세요." }, { status: 409 });
+  }
   const principal = readAuthorization.principal;
   const now = Date.now();
   const transitionToken = crypto.randomUUID();

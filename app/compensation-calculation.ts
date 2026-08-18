@@ -22,6 +22,7 @@ export type CompensationEmployee = {
   leaveDate: string;
   probationMonths: number;
   annualSalary: number;
+  basePay: number;
   manualBasic: boolean;
   meal: number;
   car: number;
@@ -91,7 +92,10 @@ export function calculateCompensation(employee: CompensationEmployee, year: numb
   const allowanceMonthly = employee.meal + employee.car + employee.child;
   const monthly = employee.monthly[compensationMonthKey(year, month)] ?? {};
   let basic = 0;
-  if (employee.manualBasic) basic = monthly.basic ?? 0;
+  if (employee.manualBasic) {
+    const monthlyBasic = monthly.basic ?? employee.basePay;
+    basic = !days ? 0 : days === totalDays ? monthlyBasic : Math.floor(monthlyBasic * 12 / 365 * days);
+  }
   else if (days && employee.annualSalary > 0) {
     basic = days === totalDays && segments.length === 1
       ? Math.max(0, roundPay(employee.annualSalary / 12 * segments[0].rate - allowanceMonthly, rounding))

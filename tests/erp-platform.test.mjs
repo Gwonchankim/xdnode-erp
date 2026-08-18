@@ -15,6 +15,25 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
   for (const source of files) assert.match(source, /writeErpAudit/);
 });
 
+test("retirement effectiveness and compensation confirmation are server-controlled", async () => {
+  const [retirement, operations, employees, compensation, calculator, migration] = await Promise.all([
+    read("app/hr-retirements.ts"), read("app/api/hr/operations/route.ts"), read("app/api/hr/employee-records/route.ts"),
+    read("app/api/hr/compensation/route.ts"), read("app/compensation-calculator.tsx"), read("drizzle/0065_hr_retirement_compensation.sql"),
+  ]);
+  assert.match(retirement, /status IN \('IN_PROGRESS', 'READY'\) OR \(status = 'EFFECTIVE'/);
+  assert.match(retirement, /const nextStatus = completion\?\.ready \? "COMPLETED" : "EFFECTIVE"/);
+  assert.match(operations, /due \? "퇴직" : "퇴직 예정"/);
+  for (const field of ["base_pay", "meal_allowance", "childcare_allowance", "vehicle_allowance"]) {
+    assert.match(employees, new RegExp(field)); assert.match(migration, new RegExp(field));
+  }
+  for (const table of ["hr_compensation_runs", "hr_compensation_lines"]) assert.match(compensation, new RegExp(table));
+  assert.match(compensation, /DELETE FROM hr_payroll_records WHERE year_month = \?/);
+  assert.match(compensation, /hr_payroll_runs\.status='DRAFT'/);
+  assert.match(compensation, /검토·승인·마감이 진행된 급여월은 임금안으로 덮어쓸 수 없습니다/);
+  assert.match(calculator, /임금안을 확정해 HR 급여관리에 덮어썼습니다/);
+  assert.match(calculator, /수정하기/);
+});
+
 test("master data changes freeze, validate and consume a server-side impact assessment", async () => {
   const [server, api, dialog, finance, sales, hr, approvals, schema, migration, plan] = await Promise.all([
     read("app/master-impact.ts"), read("app/api/master-impact/route.ts"), read("app/master-impact-dialog.tsx"),
@@ -65,9 +84,30 @@ test("master impact SLA escalations preserve ownership and freeze versioned week
   assert.match(api, /expectedVersion !== before\.version/); assert.match(api, /expectedPolicyVersion/);
   assert.match(api, /executiveEscalationDays <= managerEscalationDays/); assert.match(api, /crypto\.subtle\.digest\("SHA-256"/);
   assert.match(api, /SELECT COALESCE\(MAX\(version\), 0\) \+ 1 FROM erp_master_impact_weekly_reports/);
-  assert.doesNotMatch(api, /UPDATE erp_master_impact_weekly_reports|DELETE FROM erp_master_impact_weekly_reports/);
+  assert.doesNotMatch(api, /UPDATE erp_master_impact_weekly_reports SET (?:snapshot_json|checksum)/);
   assert.match(workspace, /자동 재배정 없음/); assert.match(workspace, /기존 기한은 변경하지 않았습니다/); assert.match(workspace, /관리자별 현재 위험/); assert.match(workspace, /현재 상태 주간 보고 저장/);
   assert.match(server, /policy\.defaultDueDays/); assert.match(plan, /기존 업무의 담당자·기한을 소급 변경하지 않는다/); assert.match(plan, /새 버전을 추가한다/);
+});
+
+test("master impact weekly reports require recorded manager responses before executive approval", async () => {
+  const [api, workspace, approval, approvalApi, schema, migration, plan] = await Promise.all([
+    read("app/api/master-impact-cases/route.ts"), read("app/master-impact-case-workspace.tsx"),
+    read("app/approval-engine.ts"), read("app/api/approvals/route.ts"), read("db/schema.ts"),
+    read("drizzle/0064_master_impact_report_approval.sql"), read("docs/master-impact-report-approval-plan.md"),
+  ]);
+  for (const source of [api, schema, migration]) for (const table of ["erp_master_impact_weekly_report_reviews", "erp_master_impact_weekly_report_events"]) assert.match(source, new RegExp(table));
+  assert.match(api, /ACK_MANAGER_REVIEW/); assert.match(api, /REQUEST_MANAGER_ACTION/); assert.match(api, /VERIFY_MANAGER_ACTION/);
+  assert.match(api, /follow_up_task_status !== "DONE"/); assert.match(api, /outcome <> 'ACKNOWLEDGED'/);
+  assert.match(api, /SUBMIT_WEEKLY_REPORT/); assert.match(api, /MASTER_IMPACT_WEEKLY_REPORT/); assert.match(api, /createApprovalRequest/);
+  assert.match(api, /expectedReviewVersion/); assert.match(api, /expectedWorkflowVersion/); assert.match(api, /status = 'DRAFT'/);
+  assert.match(api, /MASTER_IMPACT_REPORT_REVIEW/); assert.match(api, /data-control:master-impact/);
+  assert.match(approval, /settings: \{ MASTER_IMPACT_REPORT/); assert.match(approval, /targetEntityType === "MASTER_IMPACT_WEEKLY_REPORT"/);
+  assert.match(approvalApi, /moduleName === "settings"/); assert.match(migration, /idx_erp_approval_master_impact_report/);
+  assert.match(approvalApi, /MASTER_IMPACT_WEEKLY_REPORT/); assert.match(approvalApi, /\["REQUEST_CHANGES", "RESUBMIT", "CANCEL"\]/);
+  assert.match(migration, /trg_erp_master_impact_weekly_report_immutable/); assert.match(migration, /BEFORE UPDATE OF `snapshot_json`, `checksum`/);
+  assert.match(workspace, /실제 기록자 표시/); assert.match(workspace, /자동 승인 없음/); assert.match(workspace, /경영 책임자 전자결재 제출/);
+  assert.match(plan, /조직장과 실제 기록자를 구분/); assert.match(plan, /자동 승인·자동 종결은 하지 않는다/);
+  assert.match(plan, /snapshot_json.*checksum.*수정하지 않는다/);
 });
 
 test("finance assistant answers become traceable decision drafts without bypassing review and approval", async () => {
@@ -942,7 +982,8 @@ test("retirement approval activates a durable checklist and applies the due reti
   assert.match(api, /resource === "retirementChecklist"/);
   assert.match(engine, /targetEntityType === "HR_RETIREMENT"/);
   assert.match(engine, /status = '퇴직 예정'/);
-  assert.match(activator, /WHERE status = 'READY' AND retirement_date <= \?/);
+  assert.match(activator, /WHERE retirement_date <= \? AND \(status IN \('IN_PROGRESS', 'READY'\) OR \(status = 'EFFECTIVE'/);
+  assert.match(activator, /"COMPLETED" : "EFFECTIVE"/);
   assert.match(activator, /RETIREMENT_EFFECTIVE/);
   assert.match(records, /applyDueRetirements\(db\)/);
   assert.doesNotMatch(workspace, /const nextEmployee: Employee = \{[\s\S]*?status: "퇴직 예정"/);

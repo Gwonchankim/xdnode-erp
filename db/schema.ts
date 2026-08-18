@@ -1,4 +1,4 @@
-import { index, integer, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { sql } from "drizzle-orm";
 
 export const employeeInterviewRecords = sqliteTable("employee_interview_records", {
@@ -92,6 +92,10 @@ export const hrEmployeeRecords = sqliteTable("hr_employee_records", {
   status: text("status").notNull().default("재직"),
   historyJson: text("history_json").notNull().default("[]"),
   retirementJson: text("retirement_json"),
+  basePay: integer("base_pay").notNull().default(0),
+  mealAllowance: integer("meal_allowance").notNull().default(0),
+  childcareAllowance: integer("childcare_allowance").notNull().default(0),
+  vehicleAllowance: integer("vehicle_allowance").notNull().default(0),
   updatedAt: integer("updated_at").notNull(),
 });
 
@@ -161,6 +165,30 @@ export const hrPayrollRecords = sqliteTable("hr_payroll_records", {
   importedAt: integer("imported_at").notNull(),
 }, (table) => [
   index("idx_hr_payroll_records_month_name").on(table.yearMonth, table.employeeName),
+]);
+
+export const hrCompensationRuns = sqliteTable("hr_compensation_runs", {
+  period: text("period").primaryKey(),
+  status: text("status").notNull().default("DRAFT"),
+  version: integer("version").notNull().default(1),
+  employeeCount: integer("employee_count").notNull().default(0),
+  grossPay: integer("gross_pay").notNull().default(0),
+  createdBy: text("created_by").notNull(),
+  confirmedBy: text("confirmed_by").notNull().default(""),
+  confirmedAt: integer("confirmed_at"),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const hrCompensationLines = sqliteTable("hr_compensation_lines", {
+  period: text("period").notNull(),
+  employeeId: text("employee_id").notNull(),
+  snapshotJson: text("snapshot_json").notNull(),
+  grossPay: integer("gross_pay").notNull().default(0),
+  updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.period, table.employeeId] }),
+  index("idx_hr_compensation_lines_period").on(table.period, table.employeeId),
 ]);
 
 export const financeReceivableManagement = sqliteTable("finance_receivable_management", {
@@ -431,6 +459,8 @@ export const erpApprovalRequests = sqliteTable("erp_approval_requests", {
   index("idx_erp_approval_requester_status").on(table.requesterEmployeeId, table.status, table.updatedAt),
   index("idx_erp_approval_module_status").on(table.module, table.status, table.updatedAt),
   index("idx_erp_approval_target").on(table.targetEntityType, table.targetEntityId),
+  uniqueIndex("idx_erp_approval_master_impact_report").on(table.targetEntityType, table.targetEntityId)
+    .where(sql`${table.targetEntityType} = 'MASTER_IMPACT_WEEKLY_REPORT'`),
 ]);
 
 export const erpApprovalSteps = sqliteTable("erp_approval_steps", {
@@ -1182,11 +1212,33 @@ export const erpMasterImpactWeeklyReports = sqliteTable("erp_master_impact_weekl
   id: text("id").primaryKey(), weekStart: text("week_start").notNull(), weekEnd: text("week_end").notNull(),
   version: integer("version").notNull(), activeCount: integer("active_count").notNull(), overdueCount: integer("overdue_count").notNull(),
   managerEscalatedCount: integer("manager_escalated_count").notNull(), executiveEscalatedCount: integer("executive_escalated_count").notNull(),
-  snapshotJson: text("snapshot_json").notNull(), checksum: text("checksum").notNull(), createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
+  snapshotJson: text("snapshot_json").notNull(), checksum: text("checksum").notNull(), status: text("status").notNull().default("DRAFT"),
+  approvalRequestId: text("approval_request_id").notNull().default(""), workflowVersion: integer("workflow_version").notNull().default(1),
+  submittedBy: text("submitted_by").notNull().default(""), submittedAt: integer("submitted_at"),
+  approvedBy: text("approved_by").notNull().default(""), approvedAt: integer("approved_at"),
+  createdBy: text("created_by").notNull(), createdAt: integer("created_at").notNull(),
 }, (table) => [
   uniqueIndex("idx_erp_master_impact_weekly_report_version").on(table.weekStart, table.version),
   index("idx_erp_master_impact_weekly_report_created").on(table.createdAt),
 ]);
+
+export const erpMasterImpactWeeklyReportReviews = sqliteTable("erp_master_impact_weekly_report_reviews", {
+  id: text("id").primaryKey(), reportId: text("report_id").notNull(), managerName: text("manager_name").notNull(),
+  managerEmployeeId: text("manager_employee_id").notNull().default(""), outcome: text("outcome").notNull().default("PENDING"),
+  note: text("note").notNull().default(""), reviewedBy: text("reviewed_by").notNull().default(""), reviewedAt: integer("reviewed_at"),
+  followUpOwnerEmployeeId: text("follow_up_owner_employee_id").notNull().default(""), followUpDueDate: text("follow_up_due_date").notNull().default(""),
+  followUpTaskId: text("follow_up_task_id").notNull().default(""), version: integer("version").notNull().default(1),
+  createdAt: integer("created_at").notNull(), updatedAt: integer("updated_at").notNull(),
+}, (table) => [
+  uniqueIndex("idx_erp_master_impact_weekly_review_manager").on(table.reportId, table.managerName),
+  index("idx_erp_master_impact_weekly_review_outcome").on(table.reportId, table.outcome),
+]);
+
+export const erpMasterImpactWeeklyReportEvents = sqliteTable("erp_master_impact_weekly_report_events", {
+  id: text("id").primaryKey(), reportId: text("report_id").notNull(), action: text("action").notNull(),
+  actorEmployeeId: text("actor_employee_id").notNull(), note: text("note").notNull().default(""),
+  snapshotJson: text("snapshot_json").notNull().default("{}"), createdAt: integer("created_at").notNull(),
+}, (table) => [index("idx_erp_master_impact_weekly_report_event_created").on(table.reportId, table.createdAt)]);
 
 export const financeExpenseRequests = sqliteTable("finance_expense_requests", {
   id: text("id").primaryKey(),

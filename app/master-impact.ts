@@ -101,14 +101,43 @@ export async function ensureMasterImpactCaseSchema(db: D1Database) {
       id TEXT PRIMARY KEY NOT NULL, week_start TEXT NOT NULL, week_end TEXT NOT NULL, version INTEGER NOT NULL,
       active_count INTEGER NOT NULL, overdue_count INTEGER NOT NULL, manager_escalated_count INTEGER NOT NULL,
       executive_escalated_count INTEGER NOT NULL, snapshot_json TEXT NOT NULL, checksum TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'DRAFT', approval_request_id TEXT NOT NULL DEFAULT '', workflow_version INTEGER NOT NULL DEFAULT 1,
+      submitted_by TEXT NOT NULL DEFAULT '', submitted_at INTEGER, approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER,
       created_by TEXT NOT NULL, created_at INTEGER NOT NULL)`),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_report_version ON erp_master_impact_weekly_reports(week_start, version)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_report_created ON erp_master_impact_weekly_reports(created_at)"),
+    db.prepare(`CREATE TRIGGER IF NOT EXISTS trg_erp_master_impact_weekly_report_immutable
+      BEFORE UPDATE OF snapshot_json, checksum ON erp_master_impact_weekly_reports
+      BEGIN SELECT RAISE(ABORT, 'master impact weekly report snapshot is immutable'); END`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_weekly_report_reviews (
+      id TEXT PRIMARY KEY NOT NULL, report_id TEXT NOT NULL, manager_name TEXT NOT NULL, manager_employee_id TEXT NOT NULL DEFAULT '',
+      outcome TEXT NOT NULL DEFAULT 'PENDING', note TEXT NOT NULL DEFAULT '', reviewed_by TEXT NOT NULL DEFAULT '', reviewed_at INTEGER,
+      follow_up_owner_employee_id TEXT NOT NULL DEFAULT '', follow_up_due_date TEXT NOT NULL DEFAULT '', follow_up_task_id TEXT NOT NULL DEFAULT '',
+      version INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_review_manager ON erp_master_impact_weekly_report_reviews(report_id, manager_name)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_review_outcome ON erp_master_impact_weekly_report_reviews(report_id, outcome)"),
+    db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_weekly_report_events (
+      id TEXT PRIMARY KEY NOT NULL, report_id TEXT NOT NULL, action TEXT NOT NULL, actor_employee_id TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '', snapshot_json TEXT NOT NULL DEFAULT '{}', created_at INTEGER NOT NULL)`),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_erp_master_impact_weekly_report_event_created ON erp_master_impact_weekly_report_events(report_id, created_at)"),
+    db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_erp_approval_master_impact_report ON erp_approval_requests(target_entity_type, target_entity_id) WHERE target_entity_type = 'MASTER_IMPACT_WEEKLY_REPORT'"),
   ]);
   const columns = await db.prepare("PRAGMA table_info(erp_master_impact_cases)").all<{ name: string }>();
   const existing = new Set(columns.results.map((column) => column.name));
   if (!existing.has("escalation_level")) await db.prepare("ALTER TABLE erp_master_impact_cases ADD COLUMN escalation_level INTEGER NOT NULL DEFAULT 0").run();
   if (!existing.has("escalated_at")) await db.prepare("ALTER TABLE erp_master_impact_cases ADD COLUMN escalated_at INTEGER").run();
+  const reportColumns = await db.prepare("PRAGMA table_info(erp_master_impact_weekly_reports)").all<{ name: string }>();
+  const reportExisting = new Set(reportColumns.results.map((column) => column.name));
+  const reportAdditions = [
+    ["status", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN status TEXT NOT NULL DEFAULT 'DRAFT'"],
+    ["approval_request_id", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN approval_request_id TEXT NOT NULL DEFAULT ''"],
+    ["workflow_version", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN workflow_version INTEGER NOT NULL DEFAULT 1"],
+    ["submitted_by", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN submitted_by TEXT NOT NULL DEFAULT ''"],
+    ["submitted_at", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN submitted_at INTEGER"],
+    ["approved_by", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN approved_by TEXT NOT NULL DEFAULT ''"],
+    ["approved_at", "ALTER TABLE erp_master_impact_weekly_reports ADD COLUMN approved_at INTEGER"],
+  ] as const;
+  for (const [name, sql] of reportAdditions) if (!reportExisting.has(name)) await db.prepare(sql).run();
   await db.prepare(`INSERT OR IGNORE INTO erp_master_impact_sla_policies
     (id, default_due_days, manager_escalation_days, executive_escalation_days, version, updated_by, updated_at)
     VALUES ('default', 3, 1, 3, 1, 'SYSTEM', 0)`).run();

@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { companyEmployees } from "./hr-company-data";
 
-type ApprovalModule = "finance" | "hr" | "recruitment" | "sales";
+type ApprovalModule = "finance" | "hr" | "recruitment" | "sales" | "settings";
 type ApprovalRequest = {
   id: string; module: ApprovalModule; requestType: string; typeLabel: string; title: string; description: string;
   requesterEmployeeId: string; targetEntityType: string; targetEntityId: string; amount: number; currency: string;
@@ -24,8 +24,9 @@ const fallbackTypes: ApprovalData["types"] = {
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인", WORKFORCE_PLAN: "인력계획 승인", PERFORMANCE_CYCLE: "성과평가 최종확정" },
   recruitment: { REQUISITION: "채용요청 승인", OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
   sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "가격·할인 예외 승인", CONTRACT: "계약 활성화 승인", CONTRACT_CHANGE: "계약 변경 승인", SERVICE_POLICY: "고객지원 SLA 승인", SERVICE_RESOLUTION: "고객 이슈 처리 승인" },
+  settings: { MASTER_IMPACT_REPORT: "기준정보 위험 주간보고 승인" },
 };
-const moduleLabels: Record<ApprovalModule, string> = { finance: "재무회계", hr: "HR", recruitment: "채용", sales: "영업" };
+const moduleLabels: Record<ApprovalModule, string> = { finance: "재무회계", hr: "HR", recruitment: "채용", sales: "영업", settings: "데이터 통제" };
 const statusLabels: Record<string, string> = { SUBMITTED: "결재 대기", IN_REVIEW: "결재 진행", CHANGES_REQUESTED: "보완 요청", APPROVED: "승인 완료", REJECTED: "반려", CANCELLED: "취소" };
 const stepLabels: Record<string, string> = { WAITING: "대기", PENDING: "처리 대기", APPROVED: "승인", REJECTED: "반려", CHANGES_REQUESTED: "보완 요청", SKIPPED: "종료" };
 
@@ -106,7 +107,7 @@ export default function ApprovalCenter({ openRequestKey = 0 }: { openRequestKey?
         <header className="approval-center-header"><div><p>WORKFLOW CONTROL</p><h2>전자결재 센터</h2><span>기안·검토·승인·반려와 모든 의견을 한 이력으로 관리합니다.</span></div><div><button type="button" className="approval-create-button" onClick={() => setCreating((value) => !value)}>＋ 새 기안</button><button type="button" className="approval-close-button" aria-label="닫기" onClick={() => setOpen(false)}>×</button></div></header>
         {error && <div className="approval-error">{error}</div>}
         {creating && <form className="approval-create-form" onSubmit={create}>
-          <label><span>업무 영역</span><select value={draft.module} onChange={(event) => { const selectedModule = event.target.value as ApprovalModule; setDraft({ ...draft, module: selectedModule, requestType: Object.keys(typeMap[selectedModule])[0] }); }}>{Object.entries(moduleLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label><span>업무 영역</span><select value={draft.module} onChange={(event) => { const selectedModule = event.target.value as ApprovalModule; setDraft({ ...draft, module: selectedModule, requestType: Object.keys(typeMap[selectedModule])[0] }); }}>{Object.entries(moduleLabels).filter(([value]) => value !== "settings").map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label><span>결재 유형</span><select value={draft.requestType} onChange={(event) => setDraft({ ...draft, requestType: event.target.value })}>{Object.entries(typeMap[draft.module]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className="wide"><span>제목</span><input required value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} placeholder="결재 목적을 명확히 입력하세요" /></label>
           <label><span>금액</span><input type="number" min="0" value={draft.amount} onChange={(event) => setDraft({ ...draft, amount: event.target.value })} placeholder="해당 시 입력" /></label>

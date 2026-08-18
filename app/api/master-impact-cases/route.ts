@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { createApprovalRequest } from "../../approval-engine";
 import { authorizeErpRequest, writeErpAudit, type ErpPrincipal } from "../../erp-platform";
 import { ensureMasterImpactCaseSchema, getMasterImpactSlaPolicy, MasterImpactError, reassessMasterImpact, type MasterImpactAction, type MasterImpactEntityType, type MasterImpactSlaPolicy } from "../../master-impact";
 
@@ -15,7 +16,8 @@ type CaseRow = {
   created_at: number; updated_at: number; closed_by: string; closed_at: number | null;
 };
 type EventRow = { id: string; case_id: string; action: string; actor_employee_id: string; from_status: string; to_status: string; note: string; snapshot_json: string; created_at: number };
-type WeeklyReportRow = { id: string; week_start: string; week_end: string; version: number; active_count: number; overdue_count: number; manager_escalated_count: number; executive_escalated_count: number; checksum: string; created_by: string; created_at: number };
+type WeeklyReportRow = { id: string; week_start: string; week_end: string; version: number; active_count: number; overdue_count: number; manager_escalated_count: number; executive_escalated_count: number; checksum: string; status: string; approval_request_id: string; approval_status: string; workflow_version: number; submitted_by: string; submitted_at: number | null; approved_by: string; approved_at: number | null; created_by: string; created_at: number };
+type WeeklyReviewRow = { id: string; report_id: string; manager_name: string; manager_employee_id: string; outcome: string; note: string; reviewed_by: string; reviewed_at: number | null; follow_up_owner_employee_id: string; follow_up_due_date: string; follow_up_task_id: string; follow_up_task_status: string; version: number; created_at: number; updated_at: number };
 
 const statuses = new Set(["ALL", "OPEN", "IN_PROGRESS", "VERIFIED", "CLOSED"]);
 const today = () => new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -60,6 +62,40 @@ function managerRollup(rows: CaseRow[], currentDate: string) {
   return Array.from(groups.values()).sort((a, b) => b.executiveEscalated - a.executiveEscalated || b.overdue - a.overdue || a.managerName.localeCompare(b.managerName, "ko"));
 }
 
+function reviewView(row: WeeklyReviewRow) {
+  return { id: row.id, reportId: row.report_id, managerName: row.manager_name, managerEmployeeId: row.manager_employee_id,
+    outcome: row.outcome, note: row.note, reviewedBy: row.reviewed_by, reviewedAt: row.reviewed_at,
+    followUpOwnerEmployeeId: row.follow_up_owner_employee_id, followUpDueDate: row.follow_up_due_date,
+    followUpTaskId: row.follow_up_task_id, followUpTaskStatus: row.follow_up_task_status, version: row.version,
+    createdAt: row.created_at, updatedAt: row.updated_at };
+}
+
+async function ensureWeeklyReportReviews() {
+  const [reports, employees] = await Promise.all([
+    db.prepare(`SELECT report.id, report.snapshot_json, report.created_at FROM erp_master_impact_weekly_reports report
+      WHERE report.active_count > 0 AND NOT EXISTS (
+        SELECT 1 FROM erp_master_impact_weekly_report_reviews review WHERE review.report_id = report.id)`)
+      .all<{ id: string; snapshot_json: string; created_at: number }>(),
+    db.prepare("SELECT employee_id, name FROM hr_employee_records WHERE status NOT IN ('퇴직','입사 예정') ORDER BY employee_id").all<{ employee_id: string; name: string }>(),
+  ]);
+  const employeeIds = new Map<string, string[]>();
+  for (const employee of employees.results) employeeIds.set(employee.name, [...(employeeIds.get(employee.name) ?? []), employee.employee_id]);
+  const statements: D1PreparedStatement[] = [];
+  for (const report of reports.results) {
+    const snapshot = safeJson(report.snapshot_json) as { managers?: Array<{ managerName?: string }> };
+    for (const manager of snapshot.managers ?? []) {
+      const managerName = String(manager.managerName ?? "").trim(); if (!managerName) continue;
+      const matches = employeeIds.get(managerName) ?? []; const managerEmployeeId = matches.length === 1 ? matches[0] : "";
+      statements.push(db.prepare(`INSERT OR IGNORE INTO erp_master_impact_weekly_report_reviews
+        (id, report_id, manager_name, manager_employee_id, outcome, note, reviewed_by, reviewed_at,
+          follow_up_owner_employee_id, follow_up_due_date, follow_up_task_id, version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'PENDING', '', '', NULL, '', '', '', 1, ?, ?)`)
+        .bind(crypto.randomUUID(), report.id, managerName, managerEmployeeId, report.created_at, report.created_at));
+    }
+  }
+  if (statements.length) await db.batch(statements);
+}
+
 async function refreshEscalations(policy: MasterImpactSlaPolicy, principal: ErpPrincipal) {
   const currentDate = today();
   const rows = await db.prepare("SELECT id, status, due_date, escalation_level, owner_employee_id FROM erp_master_impact_cases WHERE status <> 'CLOSED' AND due_date <> ''")
@@ -89,10 +125,11 @@ async function refreshEscalations(policy: MasterImpactSlaPolicy, principal: ErpP
 }
 
 async function responseState(status = "ALL", query = "") {
+  await ensureWeeklyReportReviews();
   const conditions = ["1 = 1"]; const bindings: unknown[] = [];
   if (status !== "ALL") { conditions.push("impact.status = ?"); bindings.push(status); }
   if (query) { conditions.push("(lower(assessment.entity_label) LIKE ? OR lower(impact.impact_label) LIKE ? OR lower(employee.name) LIKE ? OR lower(employee.department) LIKE ? OR lower(employee.manager) LIKE ?)"); const term = `%${query.toLowerCase()}%`; bindings.push(term, term, term, term, term); }
-  const [caseResult, allCases, employees, eventResult, reports, policy] = await Promise.all([
+  const [caseResult, allCases, employees, eventResult, reports, reviews, policy] = await Promise.all([
     db.prepare(`${caseSelect} WHERE ${conditions.join(" AND ")}
       ORDER BY impact.escalation_level DESC, CASE impact.status WHEN 'OPEN' THEN 1 WHEN 'IN_PROGRESS' THEN 2 WHEN 'VERIFIED' THEN 3 ELSE 4 END,
         CASE WHEN impact.due_date <> '' THEN impact.due_date ELSE '9999-12-31' END, impact.updated_at DESC LIMIT 250`).bind(...bindings).all<CaseRow>(),
@@ -100,7 +137,15 @@ async function responseState(status = "ALL", query = "") {
     db.prepare("SELECT employee_id, name, department FROM hr_employee_records WHERE status NOT IN ('퇴직','입사 예정') ORDER BY name")
       .all<{ employee_id: string; name: string; department: string }>(),
     db.prepare("SELECT * FROM erp_master_impact_case_events ORDER BY created_at DESC LIMIT 1500").all<EventRow>(),
-    db.prepare("SELECT id, week_start, week_end, version, active_count, overdue_count, manager_escalated_count, executive_escalated_count, checksum, created_by, created_at FROM erp_master_impact_weekly_reports ORDER BY created_at DESC LIMIT 8").all<WeeklyReportRow>(),
+    db.prepare(`SELECT report.id, report.week_start, report.week_end, report.version, report.active_count, report.overdue_count,
+      report.manager_escalated_count, report.executive_escalated_count, report.checksum, report.status,
+      report.approval_request_id, COALESCE(approval.status, '') AS approval_status, report.workflow_version,
+      report.submitted_by, report.submitted_at, report.approved_by, report.approved_at, report.created_by, report.created_at
+      FROM erp_master_impact_weekly_reports report LEFT JOIN erp_approval_requests approval ON approval.id = report.approval_request_id
+      ORDER BY report.created_at DESC LIMIT 8`).all<WeeklyReportRow>(),
+    db.prepare(`SELECT review.*, COALESCE(task.status, '') AS follow_up_task_status
+      FROM erp_master_impact_weekly_report_reviews review LEFT JOIN erp_tasks task ON task.id = review.follow_up_task_id
+      ORDER BY review.created_at, review.manager_name`).all<WeeklyReviewRow>(),
     getMasterImpactSlaPolicy(db),
   ]);
   const currentDate = today(); const active = allCases.results.filter((item) => item.status !== "CLOSED");
@@ -116,27 +161,53 @@ async function responseState(status = "ALL", query = "") {
     managerSummary: managerRollup(allCases.results, currentDate), policy,
     weeklyReports: reports.results.map((row) => ({ id: row.id, weekStart: row.week_start, weekEnd: row.week_end, version: row.version,
       activeCount: row.active_count, overdueCount: row.overdue_count, managerEscalatedCount: row.manager_escalated_count,
-      executiveEscalatedCount: row.executive_escalated_count, checksum: row.checksum, createdBy: row.created_by, createdAt: row.created_at })),
-    controls: { automaticResolution: false, automaticReassignment: false, retrospectiveDueDateChange: false, companyEmployeesOnly: true, recheckRequired: true, evidenceRequired: true },
+      executiveEscalatedCount: row.executive_escalated_count, checksum: row.checksum, status: row.status,
+      approvalRequestId: row.approval_request_id, approvalStatus: row.approval_status, workflowVersion: row.workflow_version,
+      submittedBy: row.submitted_by, submittedAt: row.submitted_at, approvedBy: row.approved_by, approvedAt: row.approved_at,
+      createdBy: row.created_by, createdAt: row.created_at,
+      reviews: reviews.results.filter((review) => review.report_id === row.id).map(reviewView) })),
+    controls: { automaticResolution: false, automaticReassignment: false, automaticApproval: false, retrospectiveDueDateChange: false,
+      companyEmployeesOnly: true, recheckRequired: true, evidenceRequired: true, managerResponseRecorderVisible: true },
   };
 }
 
 async function createWeeklyReport(principal: ErpPrincipal, policy: MasterImpactSlaPolicy) {
   const currentDate = today(); const bounds = weekBounds(currentDate);
-  const rows = await db.prepare(`${caseSelect} WHERE impact.status <> 'CLOSED' ORDER BY impact.escalation_level DESC, impact.due_date, impact.id`).all<CaseRow>();
+  const [rows, employees] = await Promise.all([
+    db.prepare(`${caseSelect} WHERE impact.status <> 'CLOSED' ORDER BY impact.escalation_level DESC, impact.due_date, impact.id`).all<CaseRow>(),
+    db.prepare("SELECT employee_id, name FROM hr_employee_records WHERE status NOT IN ('퇴직','입사 예정') ORDER BY employee_id").all<{ employee_id: string; name: string }>(),
+  ]);
   const active = rows.results; const overdue = active.filter((row) => row.due_date && row.due_date < currentDate).length;
+  const employeeIds = new Map<string, string[]>();
+  for (const employee of employees.results) employeeIds.set(employee.name, [...(employeeIds.get(employee.name) ?? []), employee.employee_id]);
+  const managers = managerRollup(active, currentDate).map((manager) => {
+    const matches = employeeIds.get(manager.managerName) ?? [];
+    return { ...manager, managerEmployeeId: matches.length === 1 ? matches[0] : "" };
+  });
   const snapshot = { asOf: currentDate, weekStart: bounds.start, weekEnd: bounds.end, policy,
     summary: { active: active.length, overdue, managerEscalated: active.filter((row) => row.escalation_level >= 1).length, executiveEscalated: active.filter((row) => row.escalation_level >= 2).length },
-    managers: managerRollup(active, currentDate), cases: active.map((row) => ({ id: row.id, entityType: row.entity_type, entityLabel: row.entity_label,
+    managers, cases: active.map((row) => ({ id: row.id, entityType: row.entity_type, entityLabel: row.entity_label,
       impactCode: row.impact_code, impactLabel: row.impact_label, currentCount: row.current_count, currentAmount: row.current_amount,
       status: row.status, ownerEmployeeId: row.owner_employee_id, ownerName: row.owner_name, managerName: row.manager_name,
       dueDate: row.due_date, overdueDays: overdueDays(row.due_date, currentDate), escalationLevel: row.escalation_level })) };
   const hash = await checksum(snapshot); const id = crypto.randomUUID(); const now = Date.now();
-  await db.prepare(`INSERT INTO erp_master_impact_weekly_reports
-    (id, week_start, week_end, version, active_count, overdue_count, manager_escalated_count, executive_escalated_count, snapshot_json, checksum, created_by, created_at)
-    VALUES (?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM erp_master_impact_weekly_reports WHERE week_start = ?), ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(id, bounds.start, bounds.end, bounds.start, snapshot.summary.active, snapshot.summary.overdue, snapshot.summary.managerEscalated,
-      snapshot.summary.executiveEscalated, JSON.stringify(snapshot), hash, principal.employeeId, now).run();
+  await db.batch([
+    db.prepare(`INSERT INTO erp_master_impact_weekly_reports
+      (id, week_start, week_end, version, active_count, overdue_count, manager_escalated_count, executive_escalated_count,
+        snapshot_json, checksum, status, approval_request_id, workflow_version, submitted_by, submitted_at, approved_by, approved_at, created_by, created_at)
+      VALUES (?, ?, ?, (SELECT COALESCE(MAX(version), 0) + 1 FROM erp_master_impact_weekly_reports WHERE week_start = ?), ?, ?, ?, ?, ?, ?, 'DRAFT', '', 1, '', NULL, '', NULL, ?, ?)`)
+      .bind(id, bounds.start, bounds.end, bounds.start, snapshot.summary.active, snapshot.summary.overdue, snapshot.summary.managerEscalated,
+        snapshot.summary.executiveEscalated, JSON.stringify(snapshot), hash, principal.employeeId, now),
+    ...managers.map((manager) => db.prepare(`INSERT INTO erp_master_impact_weekly_report_reviews
+      (id, report_id, manager_name, manager_employee_id, outcome, note, reviewed_by, reviewed_at,
+        follow_up_owner_employee_id, follow_up_due_date, follow_up_task_id, version, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'PENDING', '', '', NULL, '', '', '', 1, ?, ?)`)
+      .bind(crypto.randomUUID(), id, manager.managerName, manager.managerEmployeeId, now, now)),
+    db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+      (id, report_id, action, actor_employee_id, note, snapshot_json, created_at)
+      VALUES (?, ?, 'CREATED', ?, '불변 주간 위험 스냅샷 생성', ?, ?)`)
+      .bind(crypto.randomUUID(), id, principal.employeeId, JSON.stringify({ checksum: hash, summary: snapshot.summary, managerCount: managers.length }), now),
+  ]);
   const created = await db.prepare("SELECT version FROM erp_master_impact_weekly_reports WHERE id = ?").bind(id).first<{ version: number }>();
   await writeErpAudit(db, { principal, module: "settings", action: "MASTER_IMPACT_WEEKLY_REPORT_CREATED", entityType: "masterImpactWeeklyReport", entityId: id, after: { ...snapshot.summary, weekStart: bounds.start, version: created?.version ?? 1, checksum: hash }, reason: "기준정보 영향 주간 스냅샷 저장" });
 }
@@ -177,6 +248,119 @@ export async function POST(request: Request) {
 
   const policy = await getMasterImpactSlaPolicy(db); await refreshEscalations(policy, authorization.principal);
   if (action === "CREATE_WEEKLY_REPORT") { await createWeeklyReport(authorization.principal, policy); return Response.json(await responseState(filter.status, filter.query)); }
+
+  if (["ACK_MANAGER_REVIEW", "REQUEST_MANAGER_ACTION", "VERIFY_MANAGER_ACTION"].includes(action)) {
+    const reviewId = String(body.reviewId ?? "").trim(); const expectedReviewVersion = Math.round(Number(body.expectedReviewVersion));
+    const note = String(body.note ?? "").trim().slice(0, 2000);
+    const before = await db.prepare(`SELECT review.*, report.status AS report_status, COALESCE(task.status, '') AS follow_up_task_status
+      FROM erp_master_impact_weekly_report_reviews review JOIN erp_master_impact_weekly_reports report ON report.id = review.report_id
+      LEFT JOIN erp_tasks task ON task.id = review.follow_up_task_id WHERE review.id = ?`)
+      .bind(reviewId).first<WeeklyReviewRow & { report_status: string }>();
+    if (!before) return Response.json({ error: "조직장 확인 항목을 찾을 수 없습니다." }, { status: 404 });
+    if (before.report_status !== "DRAFT") return Response.json({ error: "전자결재 제출 전인 보고서만 조직장 확인을 기록할 수 있습니다." }, { status: 409 });
+    if (!Number.isInteger(expectedReviewVersion) || expectedReviewVersion !== before.version) return Response.json({ error: "다른 사용자가 확인 내용을 먼저 수정했습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    if (note.length < 5) return Response.json({ error: "확인 근거를 5자 이상 입력해 주세요." }, { status: 400 });
+    const now = Date.now(); let result: D1Result[];
+    if (action === "ACK_MANAGER_REVIEW") {
+      if (before.outcome !== "PENDING") return Response.json({ error: "대기 중인 항목만 확인 완료로 기록할 수 있습니다." }, { status: 409 });
+      result = await db.batch([
+        db.prepare(`UPDATE erp_master_impact_weekly_report_reviews SET outcome = 'ACKNOWLEDGED', note = ?, reviewed_by = ?, reviewed_at = ?,
+          version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND outcome = 'PENDING'
+          AND EXISTS (SELECT 1 FROM erp_master_impact_weekly_reports WHERE id = ? AND status = 'DRAFT')`)
+          .bind(note, authorization.principal.employeeId, now, now, reviewId, expectedReviewVersion, before.report_id),
+        db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+          (id, report_id, action, actor_employee_id, note, snapshot_json, created_at)
+          SELECT ?, ?, 'MANAGER_ACKNOWLEDGED', ?, ?, ?, ? WHERE EXISTS (
+            SELECT 1 FROM erp_master_impact_weekly_report_reviews WHERE id = ? AND outcome = 'ACKNOWLEDGED' AND version = ? AND updated_at = ?)`)
+          .bind(crypto.randomUUID(), before.report_id, authorization.principal.employeeId, note,
+            JSON.stringify({ reviewId, managerName: before.manager_name, managerEmployeeId: before.manager_employee_id }), now,
+            reviewId, expectedReviewVersion + 1, now),
+      ]);
+    } else if (action === "REQUEST_MANAGER_ACTION") {
+      if (before.outcome !== "PENDING") return Response.json({ error: "대기 중인 항목에만 보완 업무를 요청할 수 있습니다." }, { status: 409 });
+      const ownerEmployeeId = String(body.ownerEmployeeId ?? "").trim(); const dueDate = String(body.dueDate ?? "").trim();
+      const employee = await db.prepare("SELECT employee_id FROM hr_employee_records WHERE employee_id = ? AND status NOT IN ('퇴직','입사 예정')").bind(ownerEmployeeId).first();
+      if (!employee || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || dueDate < today() || note.length < 10) return Response.json({ error: "재직 중인 담당자, 오늘 이후 기한, 10자 이상의 보완 사유를 입력해 주세요." }, { status: 400 });
+      const taskId = `master-impact-report-review:${reviewId}`;
+      result = await db.batch([
+        db.prepare(`UPDATE erp_master_impact_weekly_report_reviews SET outcome = 'ACTION_REQUIRED', note = ?, reviewed_by = ?, reviewed_at = ?,
+          follow_up_owner_employee_id = ?, follow_up_due_date = ?, follow_up_task_id = ?, version = version + 1, updated_at = ?
+          WHERE id = ? AND version = ? AND outcome = 'PENDING'
+          AND EXISTS (SELECT 1 FROM erp_master_impact_weekly_reports WHERE id = ? AND status = 'DRAFT')`)
+          .bind(note, authorization.principal.employeeId, now, ownerEmployeeId, dueDate, taskId, now, reviewId, expectedReviewVersion, before.report_id),
+        db.prepare(`INSERT INTO erp_tasks
+          (id, module, category, title, description, owner_employee_id, due_date, status, priority, destination, source_type, source_id, created_at, updated_at)
+          SELECT ?, 'settings', '기준정보 보고', ?, ?, ?, ?, 'OPEN', 'HIGH', 'data-control:master-impact', 'MASTER_IMPACT_REPORT_REVIEW', ?, ?, ?
+          WHERE EXISTS (SELECT 1 FROM erp_master_impact_weekly_report_reviews WHERE id = ? AND outcome = 'ACTION_REQUIRED' AND version = ? AND updated_at = ?)
+          ON CONFLICT(id) DO UPDATE SET description = excluded.description, owner_employee_id = excluded.owner_employee_id,
+            due_date = excluded.due_date, status = 'OPEN', completed_at = NULL, deleted_at = NULL, updated_at = excluded.updated_at`)
+          .bind(taskId, `[기준정보 주간보고] ${before.manager_name} 보완조치`, note, ownerEmployeeId, dueDate, reviewId, now, now, reviewId, expectedReviewVersion + 1, now),
+        db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+          (id, report_id, action, actor_employee_id, note, snapshot_json, created_at)
+          SELECT ?, ?, 'MANAGER_ACTION_REQUESTED', ?, ?, ?, ? WHERE EXISTS (
+            SELECT 1 FROM erp_master_impact_weekly_report_reviews WHERE id = ? AND outcome = 'ACTION_REQUIRED' AND version = ? AND updated_at = ?)`)
+          .bind(crypto.randomUUID(), before.report_id, authorization.principal.employeeId, note,
+            JSON.stringify({ reviewId, managerName: before.manager_name, ownerEmployeeId, dueDate, taskId }), now,
+            reviewId, expectedReviewVersion + 1, now),
+      ]);
+    } else {
+      if (before.outcome !== "ACTION_REQUIRED" || before.follow_up_task_status !== "DONE") return Response.json({ error: "후속업무를 완료한 뒤 보완 결과를 확인할 수 있습니다." }, { status: 409 });
+      result = await db.batch([
+        db.prepare(`UPDATE erp_master_impact_weekly_report_reviews SET outcome = 'ACKNOWLEDGED', note = ?, reviewed_by = ?, reviewed_at = ?,
+          version = version + 1, updated_at = ? WHERE id = ? AND version = ? AND outcome = 'ACTION_REQUIRED'
+          AND EXISTS (SELECT 1 FROM erp_tasks WHERE id = ? AND status = 'DONE')
+          AND EXISTS (SELECT 1 FROM erp_master_impact_weekly_reports WHERE id = ? AND status = 'DRAFT')`)
+          .bind(note, authorization.principal.employeeId, now, now, reviewId, expectedReviewVersion, before.follow_up_task_id, before.report_id),
+        db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+          (id, report_id, action, actor_employee_id, note, snapshot_json, created_at)
+          SELECT ?, ?, 'MANAGER_ACTION_VERIFIED', ?, ?, ?, ? WHERE EXISTS (
+            SELECT 1 FROM erp_master_impact_weekly_report_reviews WHERE id = ? AND outcome = 'ACKNOWLEDGED' AND version = ? AND updated_at = ?)`)
+          .bind(crypto.randomUUID(), before.report_id, authorization.principal.employeeId, note,
+            JSON.stringify({ reviewId, managerName: before.manager_name, followUpTaskId: before.follow_up_task_id }), now,
+            reviewId, expectedReviewVersion + 1, now),
+      ]);
+    }
+    if (!(result[0].meta.changes ?? 0)) return Response.json({ error: "다른 사용자가 먼저 처리했습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    const after = await db.prepare("SELECT * FROM erp_master_impact_weekly_report_reviews WHERE id = ?").bind(reviewId).first<Record<string, unknown>>();
+    await writeErpAudit(db, { principal: authorization.principal, module: "settings", action: `MASTER_IMPACT_REPORT_${action}`, entityType: "masterImpactWeeklyReview", entityId: reviewId, before, after, reason: note });
+    return Response.json(await responseState(filter.status, filter.query));
+  }
+
+  if (action === "SUBMIT_WEEKLY_REPORT") {
+    const reportId = String(body.reportId ?? "").trim(); const expectedWorkflowVersion = Math.round(Number(body.expectedWorkflowVersion));
+    const report = await db.prepare("SELECT * FROM erp_master_impact_weekly_reports WHERE id = ?").bind(reportId).first<WeeklyReportRow>();
+    if (!report) return Response.json({ error: "주간 보고서를 찾을 수 없습니다." }, { status: 404 });
+    if (report.status !== "DRAFT" || report.workflow_version !== expectedWorkflowVersion) return Response.json({ error: "다른 사용자가 보고서를 먼저 제출하거나 변경했습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    const pending = await db.prepare("SELECT COUNT(*) AS count FROM erp_master_impact_weekly_report_reviews WHERE report_id = ? AND outcome <> 'ACKNOWLEDGED'").bind(reportId).first<{ count: number }>();
+    if (Number(pending?.count ?? 0) > 0) return Response.json({ error: "모든 조직장 확인과 보완조치 검증을 완료한 뒤 전자결재를 제출해 주세요." }, { status: 409 });
+    let approval = await db.prepare("SELECT id FROM erp_approval_requests WHERE target_entity_type = 'MASTER_IMPACT_WEEKLY_REPORT' AND target_entity_id = ? LIMIT 1").bind(reportId).first<{ id: string }>();
+    if (!approval) {
+      try {
+        approval = await createApprovalRequest(db, authorization.principal, { module: "settings", requestType: "MASTER_IMPACT_REPORT",
+          title: `${report.week_start}~${report.week_end} 기준정보 위험 주간보고`,
+          description: `활성 ${report.active_count}건 · 기한 경과 ${report.overdue_count}건 · 조직장 확인 ${report.manager_escalated_count}건 · 경영 책임자 확인 ${report.executive_escalated_count}건 · 체크섬 ${report.checksum}`,
+          targetEntityType: "MASTER_IMPACT_WEEKLY_REPORT", targetEntityId: reportId,
+          priority: report.executive_escalated_count > 0 ? "CRITICAL" : report.overdue_count > 0 ? "HIGH" : "NORMAL", dueDate: report.week_end,
+          metadata: { reportVersion: report.version, checksum: report.checksum, immutableSnapshot: true } });
+      } catch (error) {
+        approval = await db.prepare("SELECT id FROM erp_approval_requests WHERE target_entity_type = 'MASTER_IMPACT_WEEKLY_REPORT' AND target_entity_id = ? LIMIT 1").bind(reportId).first<{ id: string }>();
+        if (!approval) throw error;
+      }
+    }
+    const now = Date.now(); const result = await db.batch([
+      db.prepare(`UPDATE erp_master_impact_weekly_reports SET status = 'SUBMITTED', approval_request_id = ?, submitted_by = ?, submitted_at = ?,
+        workflow_version = workflow_version + 1 WHERE id = ? AND status = 'DRAFT' AND workflow_version = ?`)
+        .bind(approval.id, authorization.principal.employeeId, now, reportId, expectedWorkflowVersion),
+      db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+        (id, report_id, action, actor_employee_id, note, snapshot_json, created_at)
+        SELECT ?, ?, 'SUBMITTED', ?, '조직장 확인 완료 후 전자결재 제출', ?, ? WHERE EXISTS (
+          SELECT 1 FROM erp_master_impact_weekly_reports WHERE id = ? AND status = 'SUBMITTED' AND approval_request_id = ?)`)
+        .bind(crypto.randomUUID(), reportId, authorization.principal.employeeId, JSON.stringify({ approvalRequestId: approval.id }), now, reportId, approval.id),
+    ]);
+    if (!(result[0].meta.changes ?? 0)) return Response.json({ error: "다른 사용자가 보고서를 먼저 제출했습니다. 새로고침 후 확인해 주세요." }, { status: 409 });
+    await writeErpAudit(db, { principal: authorization.principal, module: "settings", action: "MASTER_IMPACT_REPORT_SUBMITTED", entityType: "masterImpactWeeklyReport", entityId: reportId, before: report, after: { status: "SUBMITTED", approvalRequestId: approval.id }, reason: "조직장 확인 완료 후 경영 책임자 전자결재 제출" });
+    return Response.json(await responseState(filter.status, filter.query));
+  }
 
   const id = String(body.id ?? "").trim(); const expectedVersion = Math.round(Number(body.expectedVersion));
   const before = await db.prepare(`${caseSelect} WHERE impact.id = ?`).bind(id).first<CaseRow>();

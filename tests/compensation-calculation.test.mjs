@@ -16,6 +16,7 @@ function employee(patch = {}) {
     leaveDate: "",
     probationMonths: 0,
     annualSalary: 60_000_000,
+    basePay: 0,
     manualBasic: false,
     meal: 200_000,
     car: 200_000,
@@ -75,4 +76,20 @@ test("manual monthly basic pay and optional columns stay explicit", () => {
   assert.equal(result.basic, 3_000_000);
   assert.equal(result.research, 0);
   assert.equal(result.total, 3_600_000);
+});
+
+test("HR base-pay default is used and prorated when a manual-basic employee leaves mid-month", () => {
+  const result = calculateCompensation(employee({
+    annualSalary: 0,
+    basePay: 3_100_000,
+    manualBasic: true,
+    leaveDate: "2026-08-15",
+    meal: 200_000,
+    car: 100_000,
+    child: 0,
+  }), 2026, 8, "down", columns);
+  assert.equal(result.days, 15);
+  assert.equal(result.basic, Math.floor(3_100_000 * 12 / 365 * 15));
+  assert.equal(result.meal, Math.floor(200_000 * 12 / 365 * 15));
+  assert.equal(result.car, Math.floor(100_000 * 12 / 365 * 15));
 });

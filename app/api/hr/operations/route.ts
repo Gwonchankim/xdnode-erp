@@ -3,6 +3,7 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { companyEmployees } from "../../../hr-company-data";
 import { applyDueOnboarding } from "../../../hr-onboarding";
+import { applyDueRetirements } from "../../../hr-retirements";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
   await ensureSchema();
   const authorization = await authorizeErpRequest(db, "hr", "read");
   if (authorization.response) return authorization.response;
+  await applyDueRetirements(db);
   const employeeId = new URL(request.url).searchParams.get("employeeId")?.trim() ?? "";
   const where = employeeId ? " WHERE employee_id = ?" : "";
   const bind = <T,>(sql: string) => employeeId ? db.prepare(sql + where).bind(employeeId).all<T>() : db.prepare(sql).all<T>();
@@ -319,7 +321,7 @@ export async function PUT(request: Request) {
   if (resource === "retirementSettlement") {
     const request = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
     if (!request) return Response.json({ error: "퇴직 요청을 찾을 수 없습니다." }, { status: 404 });
-    if (!["IN_PROGRESS", "READY"].includes(String(request.status ?? ""))) return Response.json({ error: "승인 완료된 퇴직 요청만 정산할 수 있습니다." }, { status: 409 });
+    if (!["IN_PROGRESS", "READY", "EFFECTIVE"].includes(String(request.status ?? ""))) return Response.json({ error: "승인 완료된 퇴직 요청만 정산할 수 있습니다." }, { status: 409 });
     const before = await db.prepare("SELECT * FROM hr_retirement_settlements WHERE request_id = ?").bind(id).first<Record<string, unknown>>();
     const amounts = ["finalSalary", "retirementPay", "unusedLeavePay", "deductions"].map((key) => Number(body[key] ?? 0));
     if (amounts.some((value) => !Number.isFinite(value) || value < 0)) return Response.json({ error: "정산 금액은 0원 이상으로 입력해 주세요." }, { status: 400 });
@@ -347,6 +349,7 @@ export async function PUT(request: Request) {
         controls.accessRevoked ? 1 : 0, controls.assetsReturned ? 1 : 0,
         controls.handoverConfirmed ? 1 : 0, ready ? "READY" : "DRAFT",
         authorization.principal.employeeId, now, now).run();
+    await applyDueRetirements(db, now);
     const after = await db.prepare("SELECT * FROM hr_retirement_settlements WHERE request_id = ?").bind(id).first<Record<string, unknown>>();
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_SETTLEMENT_UPDATED", entityType: "retirementSettlement", entityId: id, before, after });
     return Response.json({ item: after });
@@ -355,7 +358,7 @@ export async function PUT(request: Request) {
   if (resource === "retirementChecklist") {
     const before = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
     if (!before) return Response.json({ error: "퇴직 요청을 찾을 수 없습니다." }, { status: 404 });
-    if (!["IN_PROGRESS", "READY"].includes(String(before.status ?? ""))) return Response.json({ error: "승인 완료된 퇴직 절차만 체크리스트를 갱신할 수 있습니다." }, { status: 409 });
+    if (!["IN_PROGRESS", "READY", "EFFECTIVE"].includes(String(before.status ?? ""))) return Response.json({ error: "승인 완료된 퇴직 절차만 체크리스트를 갱신할 수 있습니다." }, { status: 409 });
     const completedTaskIds = Array.isArray(body.completedTaskIds) ? body.completedTaskIds.map(String).filter(Boolean) : [];
     const taskRows = await db.prepare("SELECT id FROM hr_lifecycle_tasks WHERE id LIKE ? AND lifecycle_type = 'RETIREMENT'")
       .bind(`${id}:%`).all<{ id: string }>();
@@ -370,7 +373,7 @@ export async function PUT(request: Request) {
     }
     const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const due = String(before.retirement_date ?? "") <= koreaDate;
-    const nextStatus = allComplete ? (due ? "COMPLETED" : "READY") : "IN_PROGRESS";
+    const nextStatus = allComplete ? (due ? "EFFECTIVE" : "READY") : (due ? "EFFECTIVE" : "IN_PROGRESS");
     const taskStatements = taskRows.results.map((row) => {
       const taskId = row.id.slice(id.length + 1);
       const completed = validCompleted.includes(taskId);
@@ -385,12 +388,13 @@ export async function PUT(request: Request) {
         retirement_json = json_set(CASE WHEN json_valid(retirement_json) THEN retirement_json ELSE '{}' END,
           '$.completedTaskIds', json(?), '$.status', ?), updated_at = ?
         WHERE employee_id = ?`)
-        .bind(nextStatus === "COMPLETED" ? "퇴직" : "퇴직 예정", JSON.stringify(validCompleted), nextStatus, now, String(before.employee_id ?? "")),
+        .bind(due ? "퇴직" : "퇴직 예정", JSON.stringify(validCompleted), nextStatus, now, String(before.employee_id ?? "")),
       db.prepare(`UPDATE hr_retirement_settlements SET status = CASE WHEN ? = 'COMPLETED' THEN 'COMPLETED' ELSE status END,
         completed_by = CASE WHEN ? = 'COMPLETED' THEN ? ELSE completed_by END,
         completed_at = CASE WHEN ? = 'COMPLETED' THEN ? ELSE completed_at END, updated_at = ? WHERE request_id = ?`)
         .bind(nextStatus, nextStatus, authorization.principal.employeeId, nextStatus, now, now, id),
     ]);
+    await applyDueRetirements(db, now);
     const after = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_CHECKLIST_UPDATED", entityType: "employeeRetirement", entityId: id, before, after });
     return Response.json({ item: after });

@@ -20,6 +20,10 @@ type EmployeeRecordRow = {
   status: string;
   history_json: string;
   retirement_json: string | null;
+  base_pay: number;
+  meal_allowance: number;
+  childcare_allowance: number;
+  vehicle_allowance: number;
   updated_at: number;
 };
 
@@ -43,6 +47,10 @@ async function ensureSchema() {
       status TEXT NOT NULL DEFAULT '재직',
       history_json TEXT NOT NULL DEFAULT '[]',
       retirement_json TEXT,
+      base_pay INTEGER NOT NULL DEFAULT 0,
+      meal_allowance INTEGER NOT NULL DEFAULT 0,
+      childcare_allowance INTEGER NOT NULL DEFAULT 0,
+      vehicle_allowance INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL
   )`).run();
   const columns = await db.prepare("PRAGMA table_info(hr_employee_records)").all<{ name: string }>();
@@ -52,6 +60,10 @@ async function ensureSchema() {
     ["status", "TEXT NOT NULL DEFAULT '재직'"],
     ["history_json", "TEXT NOT NULL DEFAULT '[]'"],
     ["retirement_json", "TEXT"],
+    ["base_pay", "INTEGER NOT NULL DEFAULT 0"],
+    ["meal_allowance", "INTEGER NOT NULL DEFAULT 0"],
+    ["childcare_allowance", "INTEGER NOT NULL DEFAULT 0"],
+    ["vehicle_allowance", "INTEGER NOT NULL DEFAULT 0"],
   ].filter(([name]) => !existing.has(name));
   for (const [name, definition] of additions) {
     await db.prepare(`ALTER TABLE hr_employee_records ADD COLUMN ${name} ${definition}`).run();
@@ -79,6 +91,10 @@ function toRecord(row: EmployeeRecordRow) {
     status: row.status,
     history: parseJson(row.history_json, []),
     retirement: parseJson(row.retirement_json, null),
+    basePay: row.base_pay,
+    mealAllowance: row.meal_allowance,
+    childcareAllowance: row.childcare_allowance,
+    vehicleAllowance: row.vehicle_allowance,
     updatedAt: row.updated_at,
   };
 }
@@ -91,7 +107,8 @@ export async function GET() {
   await applyDueRetirements(db);
   await applyDueOnboarding(db);
   const result = await db.prepare(`SELECT employee_id, name, birth, email, phone, address,
-    department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json, updated_at
+    department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json,
+    base_pay, meal_allowance, childcare_allowance, vehicle_allowance, updated_at
     FROM hr_employee_records ORDER BY employee_id`).all<EmployeeRecordRow>();
   return Response.json({ records: result.results.map(toRecord) });
 }
@@ -125,17 +142,28 @@ export async function PUT(request: Request) {
     status: stringValue("status") || "재직",
     history: Array.isArray(body.history) ? body.history : [],
     retirement: body.retirement && typeof body.retirement === "object" ? body.retirement : null,
+    basePay: 0,
+    mealAllowance: 0,
+    childcareAllowance: 0,
+    vehicleAllowance: 0,
     updatedAt: Date.now(),
   };
+  for (const [source, target] of [["basePay", "basePay"], ["mealAllowance", "mealAllowance"], ["childcareAllowance", "childcareAllowance"], ["vehicleAllowance", "vehicleAllowance"]] as const) {
+    const value = Number(body[source] ?? 0);
+    if (!Number.isFinite(value) || value < 0) return Response.json({ error: "기본급과 수당은 0원 이상으로 입력해 주세요." }, { status: 400 });
+    record[target] = Math.round(value);
+  }
 
   const before = await db.prepare(`SELECT employee_id, name, birth, email, phone, address,
-    department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json, updated_at
+    department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json,
+    base_pay, meal_allowance, childcare_allowance, vehicle_allowance, updated_at
     FROM hr_employee_records WHERE employee_id = ?`).bind(employeeId).first<EmployeeRecordRow>();
 
   await db.prepare(`INSERT INTO hr_employee_records
     (employee_id, name, birth, email, phone, address, department, manager, employment_type, join_date,
-      position, job_title, status, history_json, retirement_json, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      position, job_title, status, history_json, retirement_json, base_pay, meal_allowance,
+      childcare_allowance, vehicle_allowance, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(employee_id) DO UPDATE SET
       name = excluded.name,
       birth = excluded.birth,
@@ -151,10 +179,15 @@ export async function PUT(request: Request) {
       status = excluded.status,
       history_json = excluded.history_json,
       retirement_json = excluded.retirement_json,
+      base_pay = excluded.base_pay,
+      meal_allowance = excluded.meal_allowance,
+      childcare_allowance = excluded.childcare_allowance,
+      vehicle_allowance = excluded.vehicle_allowance,
       updated_at = excluded.updated_at`)
     .bind(record.employeeId, record.name, record.birth, record.email, record.phone, record.address,
       record.department, record.manager, record.type, record.joinDate, record.position, record.jobTitle,
-      record.status, JSON.stringify(record.history), record.retirement ? JSON.stringify(record.retirement) : null, record.updatedAt)
+      record.status, JSON.stringify(record.history), record.retirement ? JSON.stringify(record.retirement) : null,
+      record.basePay, record.mealAllowance, record.childcareAllowance, record.vehicleAllowance, record.updatedAt)
     .run();
 
   await writeErpAudit(db, {

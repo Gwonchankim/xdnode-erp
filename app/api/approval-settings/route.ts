@@ -19,13 +19,14 @@ type DelegationRow = {
 };
 type AccessRow = { employee_id: string; roles_json: string };
 
-const modules = new Set<ApprovalModule>(["finance", "hr", "recruitment", "sales"]);
+const modules = new Set<ApprovalModule>(["finance", "hr", "recruitment", "sales", "settings"]);
 const delegationModules = new Set(["all", ...modules]);
 const moduleApproverRoles: Record<ApprovalModule, Set<ErpRole>> = {
   finance: new Set(["FINANCE_ADMIN", "SUPER_ADMIN"]),
   hr: new Set(["HR_ADMIN", "SUPER_ADMIN"]),
   recruitment: new Set(["HR_ADMIN", "SUPER_ADMIN"]),
   sales: new Set(["SALES_ADMIN", "SUPER_ADMIN"]),
+  settings: new Set(["SUPER_ADMIN"]),
 };
 
 const toPolicy = (row: PolicyRow, steps: PolicyStepRow[]) => ({

@@ -882,6 +882,38 @@ test("training ledgers preserve one employee assignment per course", async () =>
   db.close();
 });
 
+test("master impact report reviews and executive approvals remain unique and append-only", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO erp_master_impact_weekly_reports
+    (id,week_start,week_end,version,active_count,overdue_count,manager_escalated_count,executive_escalated_count,
+      snapshot_json,checksum,created_by,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    .run("report-review-1","2026-08-10","2026-08-16",1,2,1,1,0,'{"managers":[]}',"checksum-review-1","gc.kim",now);
+  const insertReview = db.prepare(`INSERT INTO erp_master_impact_weekly_report_reviews
+    (id,report_id,manager_name,manager_employee_id,outcome,note,reviewed_by,reviewed_at,
+      follow_up_owner_employee_id,follow_up_due_date,follow_up_task_id,version,created_at,updated_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+  insertReview.run("review-1","report-review-1","김조직","manager-1","PENDING","","",null,"","","",1,now,now);
+  assert.throws(() => insertReview.run("review-duplicate","report-review-1","김조직","manager-1","PENDING","","",null,"","","",1,now,now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+    (id,report_id,action,actor_employee_id,note,snapshot_json,created_at) VALUES (?,?,?,?,?,?,?)`)
+    .run("report-event-1","report-review-1","MANAGER_ACKNOWLEDGED","gc.kim","확인 기록","{}",now);
+  db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+    (id,report_id,action,actor_employee_id,note,snapshot_json,created_at) VALUES (?,?,?,?,?,?,?)`)
+    .run("report-event-2","report-review-1","SUBMITTED","gc.kim","전자결재 제출","{}",now+1);
+  assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_master_impact_weekly_report_events WHERE report_id=?").get("report-review-1").count,2);
+  assert.throws(() => db.prepare("UPDATE erp_master_impact_weekly_reports SET checksum=? WHERE id=?").run("tampered", "report-review-1"), /immutable/);
+  assert.throws(() => db.prepare("UPDATE erp_master_impact_weekly_reports SET snapshot_json=? WHERE id=?").run("{}", "report-review-1"), /immutable/);
+  const insertApproval = db.prepare(`INSERT INTO erp_approval_requests
+    (id,module,request_type,title,requester_employee_id,target_entity_type,target_entity_id,submitted_at,created_at,updated_at)
+    VALUES (?,'settings','MASTER_IMPACT_REPORT','주간보고','gc.kim','MASTER_IMPACT_WEEKLY_REPORT','report-review-1',?,?,?)`);
+  insertApproval.run("approval-report-1",now,now,now);
+  assert.throws(() => insertApproval.run("approval-report-duplicate",now+1,now+1,now+1), /UNIQUE constraint failed/);
+  const plan = db.prepare("EXPLAIN QUERY PLAN SELECT * FROM erp_master_impact_weekly_report_reviews WHERE report_id=? AND outcome=?").all("report-review-1","PENDING");
+  assert.ok(plan.some((row) => String(row.detail).includes("idx_erp_master_impact_weekly_review_outcome")));
+  db.close();
+});
+
 test("HR analytics reports preserve immutable period versions", async () => {
   const db = await migratedDatabase(); const now = Date.now();
   const insert = db.prepare(`INSERT INTO hr_analytics_reports
@@ -1250,6 +1282,22 @@ test("data integration ledgers preserve idempotency, retry lineage and reviewed 
   assert.equal(db.prepare("SELECT retry_of_run_id FROM erp_sync_runs WHERE id='run-retry'").get().retry_of_run_id, 'run-1');
   assert.equal(db.prepare("SELECT status FROM erp_integration_exceptions WHERE id='exception-1'").get().status, 'ACCEPTED_RISK');
   assert.equal(db.prepare("SELECT COUNT(*) AS count FROM erp_sync_run_events WHERE run_id='run-1'").get().count, 1);
+  db.close();
+});
+
+test("HR compensation runs preserve one monthly draft and employee snapshots", async () => {
+  const db = await migratedDatabase(); const now = Date.now();
+  db.prepare(`INSERT INTO hr_compensation_runs
+    (period,status,version,employee_count,gross_pay,created_by,created_at,updated_at)
+    VALUES ('2026-09','DRAFT',1,1,3100000,'gc.kim',?,?)`).run(now, now);
+  assert.throws(() => db.prepare(`INSERT INTO hr_compensation_runs
+    (period,status,version,employee_count,gross_pay,created_by,created_at,updated_at)
+    VALUES ('2026-09','DRAFT',1,0,0,'gc.kim',?,?)`).run(now, now), /UNIQUE constraint failed/);
+  db.prepare(`INSERT INTO hr_compensation_lines(period,employee_id,snapshot_json,gross_pay,updated_at)
+    VALUES ('2026-09','employee-1','{"name":"김직원","basePay":3100000}',3100000,?)`).run(now);
+  assert.throws(() => db.prepare(`INSERT INTO hr_compensation_lines(period,employee_id,snapshot_json,gross_pay,updated_at)
+    VALUES ('2026-09','employee-1','{}',0,?)`).run(now), /UNIQUE constraint failed/);
+  assert.equal(db.prepare("SELECT gross_pay FROM hr_compensation_lines WHERE period='2026-09' AND employee_id='employee-1'").get().gross_pay, 3100000);
   db.close();
 });
 

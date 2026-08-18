@@ -1,6 +1,6 @@
 import type { ErpPrincipal, ErpRole } from "./erp-platform";
 
-export type ApprovalModule = "finance" | "hr" | "recruitment" | "sales";
+export type ApprovalModule = "finance" | "hr" | "recruitment" | "sales" | "settings";
 export type ApprovalPriority = "LOW" | "NORMAL" | "HIGH" | "CRITICAL";
 
 export type ApprovalCreateInput = {
@@ -28,6 +28,7 @@ export const approvalTypeLabels: Record<ApprovalModule, Record<string, string>> 
   hr: { LEAVE_REQUEST: "휴가 승인", PERSONNEL_ACTION: "인사발령 승인", PAYROLL_RUN: "급여 승인", RETIREMENT: "퇴직 승인", WORKFORCE_PLAN: "인력계획 승인", PERFORMANCE_CYCLE: "성과평가 최종확정", DATA_IMPORT: "HR 데이터 반영 승인" },
   recruitment: { REQUISITION: "채용요청 승인", OFFER: "채용 제안 승인", DIRECT_INTERVIEW: "면접 직접등록 승인" },
   sales: { QUOTE: "견적 승인", ORDER: "수주 승인", DELIVERY: "납품 승인", INVOICE: "청구 승인", PAYMENT: "수금 승인", INCENTIVE_RULE: "인센티브 규정 승인", TARGET_PLAN: "영업 목표 승인", SPECIAL_INCENTIVE: "특별 인센티브 승인", DISCOUNT: "가격·할인 예외 승인", CONTRACT: "계약 활성화 승인", CONTRACT_CHANGE: "계약 변경 승인", SERVICE_POLICY: "고객지원 SLA 승인", SERVICE_RESOLUTION: "고객 이슈 처리 승인" },
+  settings: { MASTER_IMPACT_REPORT: "기준정보 위험 주간보고 승인" },
 };
 
 export function isApprovalType(module: ApprovalModule, requestType: string) {
@@ -46,6 +47,7 @@ function defaultRouteFor(input: ApprovalCreateInput): ApprovalRouteStep[] {
   if (input.module === "recruitment") {
     return [{ name: "인사 검토", role: "HR_ADMIN" }, { name: "대표 승인", role: "SUPER_ADMIN" }];
   }
+  if (input.module === "settings") return [{ name: "경영 책임자 승인", role: "SUPER_ADMIN" }];
   if (input.requestType === "QUOTE" && (input.amount ?? 0) < 10_000_000) {
     return [{ name: "영업 승인", role: "SALES_ADMIN" }];
   }
@@ -150,7 +152,21 @@ export async function createApprovalRequest(db: D1Database, principal: ErpPrinci
 
 export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType: string, targetEntityId: string, approved: boolean, actorEmployeeId: string, now: number, requestId: string, transitionToken: string) {
   if (!targetEntityType || !targetEntityId) return [];
-  if (targetEntityType === "FINANCE_OPENING_BALANCE_SET") {
+  if (targetEntityType === "MASTER_IMPACT_WEEKLY_REPORT") {
+    return [
+      db.prepare(`UPDATE erp_master_impact_weekly_reports SET status = ?, approved_by = ?, approved_at = ?, workflow_version = workflow_version + 1
+        WHERE id = ? AND status = 'SUBMITTED' AND approval_request_id = ?
+          AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
+        .bind(approved ? "APPROVED" : "REJECTED", actorEmployeeId, now, targetEntityId, requestId, requestId, transitionToken),
+      db.prepare(`INSERT INTO erp_master_impact_weekly_report_events
+        (id, report_id, action, actor_employee_id, note, snapshot_json, created_at)
+        SELECT ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (
+          SELECT 1 FROM erp_master_impact_weekly_reports WHERE id = ? AND approval_request_id = ? AND status = ?)`)
+        .bind(crypto.randomUUID(), targetEntityId, approved ? "APPROVED" : "REJECTED", actorEmployeeId,
+          approved ? "전자결재 최종 승인" : "전자결재 반려", JSON.stringify({ approvalRequestId: requestId }), now,
+          targetEntityId, requestId, approved ? "APPROVED" : "REJECTED"),
+    ];
+  } else if (targetEntityType === "FINANCE_OPENING_BALANCE_SET") {
     return [
       db.prepare(`UPDATE finance_opening_balance_sets SET status=?,approved_by=?,approved_at=?,updated_at=? WHERE id=? AND status='SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id=? AND transition_token=?)`).bind(approved?"APPROVED":"REJECTED",actorEmployeeId,now,now,targetEntityId,requestId,transitionToken),
       db.prepare(`INSERT INTO finance_opening_balance_events(id,set_id,action,from_status,to_status,actor_employee_id,note,snapshot_json,created_at) SELECT ?,?,?, 'SUBMITTED',?,?,?,'{}',? WHERE EXISTS (SELECT 1 FROM erp_approval_requests WHERE id=? AND transition_token=?)`).bind(crypto.randomUUID(),targetEntityId,approved?"APPROVED":"REJECTED",approved?"APPROVED":"REJECTED",actorEmployeeId,approved?"전자결재 최종 승인·공식 개시 기준선 잠금":"전자결재 반려",now,requestId,transitionToken),

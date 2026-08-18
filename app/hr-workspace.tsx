@@ -387,6 +387,10 @@ type Employee = {
   birth: string;
   history: { date: string; type: string; detail: string }[];
   retirement?: RetirementRecord;
+  basePay: number;
+  mealAllowance: number;
+  childcareAllowance: number;
+  vehicleAllowance: number;
 };
 
 type EmployeeInterviewRecord = {
@@ -562,6 +566,10 @@ type PersistedEmployeeRecord = {
   status: string;
   history: Employee["history"];
   retirement?: RetirementRecord;
+  basePay: number;
+  mealAllowance: number;
+  childcareAllowance: number;
+  vehicleAllowance: number;
 };
 
 type PersistedRetirementRequest = {
@@ -598,7 +606,7 @@ const initialRanks = [...companyRanks];
 const initialJobTitles = [...companyJobTitles];
 
 const initialEmployees: Employee[] = [
-  ...companyEmployees,
+  ...companyEmployees.map((employee) => ({ ...employee, basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0 })),
 ];
 
 const initialApplicants: Applicant[] = [];
@@ -679,7 +687,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       }));
       const persistedLeaderIds = new Set((leaders ?? []).map((leader) => leader.leaderEmployeeId).filter((id): id is string => Boolean(id)));
       const recordByEmployee = new Map((employeeRecords ?? []).map((record) => [record.employeeId, record]));
-      const activeRetirementByEmployee = new Map((retirementRequests ?? []).filter((request) => ["SUBMITTED", "IN_PROGRESS", "READY"].includes(request.status)).map((request) => [request.employee_id, request]));
+      const activeRetirementByEmployee = new Map((retirementRequests ?? []).filter((request) => ["SUBMITTED", "IN_PROGRESS", "READY", "EFFECTIVE", "COMPLETED"].includes(request.status)).map((request) => [request.employee_id, request]));
       const withActiveRetirement = (employee: Employee): Employee => {
         const request = activeRetirementByEmployee.get(employee.id);
         if (!request) return employee;
@@ -711,6 +719,10 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
           manager: record.manager,
           birth: record.birth,
           history: record.history,
+          basePay: record.basePay,
+          mealAllowance: record.mealAllowance,
+          childcareAllowance: record.childcareAllowance,
+          vehicleAllowance: record.vehicleAllowance,
           ...(record.retirement ? { retirement: record.retirement } : {}),
         } satisfies Employee)).map(withActiveRetirement);
         return [...mergedExisting, ...newlyRegistered];
@@ -790,6 +802,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       id: String(data.get("employeeId")), name: String(data.get("name")), email: String(data.get("email")), phone: String(data.get("phone")),
       department, type: String(data.get("type")), joinDate: String(data.get("joinDate")).replaceAll("-", "."), position: String(data.get("position")),
       jobTitle: String(data.get("jobTitle")), status: "재직", address: "미입력", manager: organizationLeader?.name ?? "", birth: "미입력", history: [{ date: String(data.get("joinDate")).replaceAll("-", "."), type: "입사", detail: `${department} ${String(data.get("position"))} 입사` }],
+      basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0,
     };
     if (employees.some((employee) => employee.id === newEmployee.id)) {
       showToast("이미 사용 중인 직원 ID입니다.");
@@ -835,6 +848,10 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
           status: next.status,
           history: next.history,
           retirement: next.retirement ?? null,
+          basePay: next.basePay,
+          mealAllowance: next.mealAllowance,
+          childcareAllowance: next.childcareAllowance,
+          vehicleAllowance: next.vehicleAllowance,
         }),
       });
       const data = await response.json() as { error?: string };
@@ -1027,7 +1044,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
         const payload = await response.json() as { item?: { status?: string }; error?: string };
         if (!response.ok) throw new Error(payload.error || "퇴직 체크리스트를 저장하지 못했습니다.");
         const status = payload.item?.status ?? "IN_PROGRESS";
-        setEmployees((items) => items.map((item) => item.id === employee.id ? { ...item, status: status === "COMPLETED" ? "퇴직" : "퇴직 예정", retirement: { ...record, status } } : item));
+        setEmployees((items) => items.map((item) => item.id === employee.id ? { ...item, status: ["EFFECTIVE", "COMPLETED"].includes(status) ? "퇴직" : "퇴직 예정", retirement: { ...record, status } } : item));
         setRetirementOpen(false);
         showToast(status === "COMPLETED" ? "퇴직 절차를 완료하고 인사 상태를 반영했습니다." : `퇴직 체크리스트를 저장했습니다. 미완료 업무 ${totalTasks - completed}건`);
         return;
@@ -1571,13 +1588,13 @@ function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, 
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const birth = String(data.get("birth"));
-    onUpdate(employee.id, { name: String(data.get("name")).trim(), birth: birth ? birth.replaceAll("-", ".") : "미입력", email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle });
+    onUpdate(employee.id, { name: String(data.get("name")).trim(), birth: birth ? birth.replaceAll("-", ".") : "미입력", email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle, basePay: Number(data.get("basePay")) || 0, mealAllowance: Number(data.get("mealAllowance")) || 0, childcareAllowance: Number(data.get("childcareAllowance")) || 0, vehicleAllowance: Number(data.get("vehicleAllowance")) || 0 });
   }
   return <div className="page-wrap detail-page">
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
     <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
-      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input required name="name" defaultValue={employee.name} /></label><label><span>생년월일</span><input name="birth" type="date" defaultValue={employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-")} /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label></div></form>
+      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보·급여 기준</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input required name="name" defaultValue={employee.name} /></label><label><span>생년월일</span><input name="birth" type="date" defaultValue={employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-")} /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>기본급</span><input name="basePay" type="number" min="0" step="10000" defaultValue={employee.basePay ?? 0} /></label><label><span>식대</span><input name="mealAllowance" type="number" min="0" step="10000" defaultValue={employee.mealAllowance ?? 0} /></label><label><span>육아수당</span><input name="childcareAllowance" type="number" min="0" step="10000" defaultValue={employee.childcareAllowance ?? 0} /></label><label><span>자가운전수당</span><input name="vehicleAllowance" type="number" min="0" step="10000" defaultValue={employee.vehicleAllowance ?? 0} /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
     </div>
     <EmployeeInterviewLog employee={employee} />
@@ -2440,9 +2457,13 @@ function PersonnelActionModal({ employee, ranks, organizations, onClose, onSubmi
 }
 
 type OnboardingTask = { id: string; employee_id: string; task_group: string; title: string; due_date: string; status: string };
+type LifecycleRetirementRequest = { id: string; employee_id: string; retirement_date: string; reason: string; status: string; checklist_json: string; completed_tasks: number; total_tasks: number };
+const safeJsonArray = (value: string) => { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
 
 function LifecycleManagementView() {
   const [tasks, setTasks] = useState<OnboardingTask[]>([]);
+  const [retirementTasks, setRetirementTasks] = useState<OnboardingTask[]>([]);
+  const [retirements, setRetirements] = useState<LifecycleRetirementRequest[]>([]);
   const [people, setPeople] = useState<Record<string, { name: string; department: string; joinDate: string; status: string }>>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
@@ -2450,11 +2471,13 @@ function LifecycleManagementView() {
     setLoading(true);
     try {
       const [operationsResponse, employeeResponse] = await Promise.all([fetch("/api/hr/operations"), fetch("/api/hr/employee-records")]);
-      const operations = await operationsResponse.json() as { lifecycleTasks?: OnboardingTask[]; error?: string };
+      const operations = await operationsResponse.json() as { lifecycleTasks?: OnboardingTask[]; retirementRequests?: LifecycleRetirementRequest[]; error?: string };
       const employeesPayload = await employeeResponse.json() as { records?: Array<{ employeeId: string; name: string; department: string; joinDate: string; status: string }>; error?: string };
       if (!operationsResponse.ok) throw new Error(operations.error || "온보딩 업무를 불러오지 못했습니다.");
       if (!employeeResponse.ok) throw new Error(employeesPayload.error || "입사예정자 정보를 불러오지 못했습니다.");
       setTasks((operations.lifecycleTasks ?? []).filter((task) => String((task as OnboardingTask & { lifecycle_type?: string }).lifecycle_type ?? "ONBOARDING") === "ONBOARDING"));
+      setRetirementTasks((operations.lifecycleTasks ?? []).filter((task) => String((task as OnboardingTask & { lifecycle_type?: string }).lifecycle_type ?? "") === "RETIREMENT"));
+      setRetirements((operations.retirementRequests ?? []).filter((request) => ["IN_PROGRESS", "READY", "EFFECTIVE", "COMPLETED"].includes(request.status)).sort((a, b) => b.retirement_date.localeCompare(a.retirement_date)));
       setPeople(Object.fromEntries((employeesPayload.records ?? []).map((employee) => [employee.employeeId, employee])));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "온보딩 현황을 불러오지 못했습니다.");
@@ -2472,10 +2495,22 @@ function LifecycleManagementView() {
     setMessage("온보딩 업무를 저장했습니다. 모든 업무가 완료되고 입사일이 도래하면 재직으로 전환됩니다.");
     await load();
   }
+  async function toggleRetirement(request: LifecycleRetirementRequest, logicalId: string) {
+    const completed = safeJsonArray(request.checklist_json);
+    const next = completed.includes(logicalId) ? completed.filter((id) => id !== logicalId) : [...completed, logicalId];
+    const response = await fetch("/api/hr/operations", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resource: "retirementChecklist", id: request.id, completedTaskIds: next }),
+    });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) return setMessage(payload.error || "퇴직 체크리스트를 변경하지 못했습니다.");
+    setMessage("퇴직 후속 절차를 저장했습니다. 퇴직일이 지난 인원은 절차 완료 여부와 관계없이 퇴직자로 유지됩니다.");
+    await load();
+  }
   const groups = Object.entries(tasks.reduce<Record<string, OnboardingTask[]>>((result, task) => {
     (result[task.employee_id] ??= []).push(task); return result;
   }, {}));
-  return <div className="page-wrap module-page lifecycle-page"><section className="module-hero"><div><p className="eyebrow">EMPLOYEE LIFECYCLE</p><h1>입·퇴사 관리</h1><p>채용 제안 수락부터 입사 전환까지 필수 준비 업무를 빠짐없이 관리합니다.</p></div></section>{message && <div className="finance-control-message" role="status">{message}</div>}<section className="metric-grid module-metrics"><div className="compact-metric"><p>입사예정자</p><h2>{groups.length}명</h2><small>채용 제안 수락 기준</small></div><div className="compact-metric"><p>필수 업무</p><h2>{tasks.length}건</h2><small>계약·계정·장비·인수인계</small></div><div className="compact-metric"><p>완료</p><h2>{tasks.filter((task) => task.status === "DONE").length}건</h2><small>저장된 실제 상태</small></div><div className="compact-metric"><p>전환 대기</p><h2>{groups.filter(([, items]) => items.some((task) => task.status !== "DONE")).length}명</h2><small>필수 업무 미완료</small></div></section><section className="lifecycle-groups">{loading ? <div className="panel finance-empty">온보딩 현황을 확인하고 있습니다…</div> : groups.map(([employeeId, items]) => { const person = people[employeeId]; const done = items.filter((task) => task.status === "DONE").length; return <article className="panel lifecycle-person" key={employeeId}><header><div><p>ONBOARDING</p><h2>{person?.name ?? employeeId}</h2><span>{person?.department ?? "소속 미지정"} · 입사일 {person?.joinDate ?? items[0]?.due_date}</span></div><strong>{done}/{items.length}</strong></header><div>{items.map((task) => <label className={task.status === "DONE" ? "checked" : ""} key={task.id}><input type="checkbox" checked={task.status === "DONE"} onChange={() => void toggle(task)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기한 {task.due_date}</small></p></label>)}</div></article>; })}{!loading && !groups.length && <div className="panel finance-empty">채용 제안을 수락 처리하면 입사예정자와 온보딩 필수 업무가 여기에 생성됩니다.</div>}</section></div>;
+  return <div className="page-wrap module-page lifecycle-page"><section className="module-hero"><div><p className="eyebrow">EMPLOYEE LIFECYCLE</p><h1>입·퇴사 관리</h1><p>입사 전 준비와 퇴직 효력 발생 이후의 정산·회수 절차를 한곳에서 관리합니다.</p></div></section>{message && <div className="finance-control-message" role="status">{message}</div>}<section className="metric-grid module-metrics"><div className="compact-metric"><p>입사예정자</p><h2>{groups.length}명</h2><small>온보딩 업무 기준</small></div><div className="compact-metric"><p>퇴직자·예정자</p><h2>{retirements.length}명</h2><small>승인 완료 요청 기준</small></div><div className="compact-metric"><p>퇴직 효력 발생</p><h2>{retirements.filter((item) => ["EFFECTIVE", "COMPLETED"].includes(item.status)).length}명</h2><small>조직·재직 명부에서 제외</small></div><div className="compact-metric"><p>후속절차 미완료</p><h2>{retirements.filter((item) => item.status !== "COMPLETED").length}명</h2><small>정산·회수 계속 관리</small></div></section><div className="lifecycle-section-heading"><p>ONBOARDING</p><h2>입사 관리</h2></div><section className="lifecycle-groups">{loading ? <div className="panel finance-empty">입·퇴사 현황을 확인하고 있습니다…</div> : groups.map(([employeeId, items]) => { const person = people[employeeId]; const done = items.filter((task) => task.status === "DONE").length; return <article className="panel lifecycle-person" key={employeeId}><header><div><p>ONBOARDING</p><h2>{person?.name ?? employeeId}</h2><span>{person?.department ?? "소속 미지정"} · 입사일 {person?.joinDate ?? items[0]?.due_date}</span></div><strong>{done}/{items.length}</strong></header><div>{items.map((task) => <label className={task.status === "DONE" ? "checked" : ""} key={task.id}><input type="checkbox" checked={task.status === "DONE"} onChange={() => void toggle(task)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기한 {task.due_date}</small></p></label>)}</div></article>; })}{!loading && !groups.length && <div className="panel finance-empty">현재 관리 중인 입사예정자가 없습니다.</div>}</section><div className="lifecycle-section-heading"><p>OFFBOARDING</p><h2>퇴직자 관리</h2></div><section className="lifecycle-groups">{retirements.map((request) => { const person = people[request.employee_id]; const items = retirementTasks.filter((task) => task.id.startsWith(`${request.id}:`)); const completed = safeJsonArray(request.checklist_json); const effective = ["EFFECTIVE", "COMPLETED"].includes(request.status); return <article className={`panel lifecycle-person retirement-lifecycle-person${effective ? " effective" : ""}`} key={request.id}><header><div><p>{request.status === "COMPLETED" ? "OFFBOARDING COMPLETE" : effective ? "RETIRED · FOLLOW-UP OPEN" : "RETIREMENT SCHEDULED"}</p><h2>{person?.name ?? request.employee_id}</h2><span>{person?.department ?? "소속 미지정"} · 퇴직일 {request.retirement_date} · {request.reason}</span></div><StatusPill value={request.status === "COMPLETED" ? "퇴직 절차 완료" : effective ? "퇴직 · 후속절차 진행" : "퇴직 예정"} /></header><div>{items.map((task) => { const logicalId = task.id.slice(request.id.length + 1); const checked = completed.includes(logicalId); return <label className={checked ? "checked" : ""} key={task.id}><input disabled={request.status === "COMPLETED"} type="checkbox" checked={checked} onChange={() => void toggleRetirement(request, logicalId)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기준일 {task.due_date}</small></p></label>; })}</div>{request.status !== "COMPLETED" && <RetirementSettlementPanel requestId={request.id} />}</article>; })}{!loading && !retirements.length && <div className="panel finance-empty">승인 완료된 퇴직 요청이 없습니다.</div>}</section></div>;
 }
 
 function RetirementSettlementPanel({ requestId }: { requestId: string }) {
@@ -2511,7 +2546,7 @@ function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; 
   const [completedTaskIds, setCompletedTaskIds] = useState<string[]>(employee.retirement?.completedTaskIds ?? []);
   const totalTasks = retirementChecklist.hr.length + retirementChecklist.employee.length;
   const progress = Math.round((completedTaskIds.length / totalTasks) * 100);
-  const checklistMode = Boolean(employee.retirement?.requestId && ["IN_PROGRESS", "READY"].includes(employee.retirement?.status ?? ""));
+  const checklistMode = Boolean(employee.retirement?.requestId && ["IN_PROGRESS", "READY", "EFFECTIVE"].includes(employee.retirement?.status ?? ""));
   const pendingApproval = Boolean(employee.retirement?.requestId && employee.retirement?.status === "SUBMITTED");
 
   function toggleTask(id: string) {
@@ -2531,7 +2566,7 @@ function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; 
     </section>
   );
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal retirement-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>RETIREMENT PROCESS</p><h2>퇴직 절차 관리</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div>{pendingApproval && <p className="optional-form-notice">퇴직 승인 결재가 진행 중입니다. 승인 결과가 반영된 뒤 체크리스트를 수정할 수 있습니다.</p>}{checklistMode && <p className="optional-form-notice">퇴직 승인이 완료되었습니다. 체크리스트를 모두 마치면 퇴직일에 인사 상태가 자동 반영됩니다.</p>}<div className="retirement-fields"><label><span>퇴직일 *</span><input required disabled={checklistMode || pendingApproval} type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label><span>퇴직사유 *</span><textarea required disabled={checklistMode || pendingApproval} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="퇴직 사유와 참고사항을 입력하세요."></textarea></label></div><div className="retirement-progress"><div><span>퇴직 절차 체크리스트</span><strong>{completedTaskIds.length}/{totalTasks} 완료</strong></div><div className="retirement-progress-track"><i style={{ width: `${progress}%` }}></i></div><small>{progress === 100 ? "모든 퇴직 절차를 완료했습니다." : `미완료 업무 ${totalTasks - completedTaskIds.length}건이 남아 있습니다.`}</small></div><div className="retirement-checklist-grid"><ChecklistGroup title="인사담당자 수행 업무" owner="HR OWNER" tasks={retirementChecklist.hr} /><ChecklistGroup title="퇴직자 수행 업무" owner="EMPLOYEE" tasks={retirementChecklist.employee} /></div><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" disabled={pendingApproval} className="primary-button">{pendingApproval ? "승인 대기 중" : checklistMode ? "체크리스트 저장" : "퇴직 승인 요청"}</button></div></form></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal retirement-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>RETIREMENT PROCESS</p><h2>퇴직 절차 관리</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div>{pendingApproval && <p className="optional-form-notice">퇴직 승인 결재가 진행 중입니다. 승인 결과가 반영된 뒤 체크리스트를 수정할 수 있습니다.</p>}{checklistMode && <p className="optional-form-notice">{employee.retirement?.status === "EFFECTIVE" ? "퇴직일이 지나 퇴직 상태가 반영되었습니다. 남은 정산·회수 업무는 입·퇴사 관리에서 계속 완료할 수 있습니다." : "퇴직 승인이 완료되었습니다. 퇴직일이 도래하면 재직·조직 명부에서 자동 제외되며, 체크리스트는 별도로 계속 관리됩니다."}</p>}<div className="retirement-fields"><label><span>퇴직일 *</span><input required disabled={checklistMode || pendingApproval} type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label><span>퇴직사유 *</span><textarea required disabled={checklistMode || pendingApproval} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="퇴직 사유와 참고사항을 입력하세요."></textarea></label></div><div className="retirement-progress"><div><span>퇴직 절차 체크리스트</span><strong>{completedTaskIds.length}/{totalTasks} 완료</strong></div><div className="retirement-progress-track"><i style={{ width: `${progress}%` }}></i></div><small>{progress === 100 ? "모든 퇴직 절차를 완료했습니다." : `미완료 업무 ${totalTasks - completedTaskIds.length}건이 남아 있습니다.`}</small></div><div className="retirement-checklist-grid"><ChecklistGroup title="인사담당자 수행 업무" owner="HR OWNER" tasks={retirementChecklist.hr} /><ChecklistGroup title="퇴직자 수행 업무" owner="EMPLOYEE" tasks={retirementChecklist.employee} /></div><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" disabled={pendingApproval} className="primary-button">{pendingApproval ? "승인 대기 중" : checklistMode ? "체크리스트 저장" : "퇴직 승인 요청"}</button></div></form></div>;
 }
 
 function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; onSave: () => void; onNotify: (message: string) => void }) {
@@ -2670,25 +2705,27 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
 }
 
 function ApprovalSettings({ employees, onNotify }: { employees: Employee[]; onNotify: (message: string) => void }) {
-  type Module = "finance" | "hr" | "recruitment" | "sales";
+  type Module = "finance" | "hr" | "recruitment" | "sales" | "settings";
   type Role = "SUPER_ADMIN" | "FINANCE_ADMIN" | "HR_ADMIN" | "SALES_ADMIN";
   type PolicyStep = { stepOrder: number; stepName: string; approverRole: Role; approverEmployeeId: string };
   type Policy = { id: string; module: Module; requestType: string; name: string; minAmount: number; maxAmount: number | null; priority: number; steps: PolicyStep[] };
   type Delegation = { id: string; delegatorEmployeeId: string; delegateEmployeeId: string; module: string; startsOn: string; endsOn: string; reason: string };
   type AccessUser = { employeeId: string; roles: string[] };
   type DefaultRoute = { module: Module; requestType: string; label: string; steps: PolicyStep[] };
-  const moduleLabels: Record<Module, string> = { finance: "재무회계", hr: "HR", recruitment: "채용", sales: "영업" };
-  const moduleRoles: Record<Module, Role[]> = { finance: ["FINANCE_ADMIN", "SUPER_ADMIN"], hr: ["HR_ADMIN", "SUPER_ADMIN"], recruitment: ["HR_ADMIN", "SUPER_ADMIN"], sales: ["SALES_ADMIN", "SUPER_ADMIN"] };
+  const moduleLabels: Record<Module, string> = { finance: "재무회계", hr: "HR", recruitment: "채용", sales: "영업", settings: "데이터 통제" };
+  const moduleRoles: Record<Module, Role[]> = { finance: ["FINANCE_ADMIN", "SUPER_ADMIN"], hr: ["HR_ADMIN", "SUPER_ADMIN"], recruitment: ["HR_ADMIN", "SUPER_ADMIN"], sales: ["SALES_ADMIN", "SUPER_ADMIN"], settings: ["SUPER_ADMIN"] };
   const roleLabels: Record<Role, string> = { SUPER_ADMIN: "대표 승인", FINANCE_ADMIN: "재무 관리자", HR_ADMIN: "HR 관리자", SALES_ADMIN: "영업 관리자" };
   const today = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const nextWeek = new Date(Date.now() + (7 * 24 + 9) * 60 * 60 * 1000).toISOString().slice(0, 10);
   const [loading, setLoading] = useState(true);
-  const [types, setTypes] = useState<Record<Module, Record<string, string>>>({ finance: {}, hr: {}, recruitment: {}, sales: {} });
+  const [types, setTypes] = useState<Record<Module, Record<string, string>>>({ finance: {}, hr: {}, recruitment: {}, sales: {}, settings: {} });
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [defaults, setDefaults] = useState<DefaultRoute[]>([]);
   const [delegations, setDelegations] = useState<Delegation[]>([]);
   const [users, setUsers] = useState<AccessUser[]>([]);
-  const emptySteps = (module: Module): PolicyStep[] => [{ stepOrder: 1, stepName: `${moduleLabels[module]} 검토`, approverRole: moduleRoles[module][0], approverEmployeeId: "" }, { stepOrder: 2, stepName: "대표 승인", approverRole: "SUPER_ADMIN", approverEmployeeId: "" }];
+  const emptySteps = (module: Module): PolicyStep[] => module === "settings"
+    ? [{ stepOrder: 1, stepName: "경영 책임자 승인", approverRole: "SUPER_ADMIN", approverEmployeeId: "" }]
+    : [{ stepOrder: 1, stepName: `${moduleLabels[module]} 검토`, approverRole: moduleRoles[module][0], approverEmployeeId: "" }, { stepOrder: 2, stepName: "대표 승인", approverRole: "SUPER_ADMIN", approverEmployeeId: "" }];
   const [policyDraft, setPolicyDraft] = useState({ id: "", module: "finance" as Module, requestType: "EXPENSE", name: "", minAmount: "0", maxAmount: "", priority: "0", steps: emptySteps("finance") });
   const [delegationDraft, setDelegationDraft] = useState({ delegatorEmployeeId: "", delegateEmployeeId: "", module: "all", startsOn: today, endsOn: nextWeek, reason: "" });
   const employeeName = (id: string) => employees.find((employee) => employee.id === id)?.name ?? id;

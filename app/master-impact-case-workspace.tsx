@@ -11,21 +11,31 @@ type ImpactCase = {
   resolutionNote: string; evidenceRef: string; lastRecheckedBy: string; lastRecheckedAt: number | null;
   version: number; createdAt: number; updatedAt: number; isOverdue: boolean; events: CaseEvent[];
 };
+type WeeklyReview = { id: string; reportId: string; managerName: string; managerEmployeeId: string; outcome: string; note: string;
+  reviewedBy: string; reviewedAt: number | null; followUpOwnerEmployeeId: string; followUpDueDate: string;
+  followUpTaskId: string; followUpTaskStatus: string; version: number; createdAt: number; updatedAt: number };
+type WeeklyReport = { id: string; weekStart: string; weekEnd: string; version: number; activeCount: number; overdueCount: number;
+  managerEscalatedCount: number; executiveEscalatedCount: number; checksum: string; status: string; approvalRequestId: string;
+  approvalStatus: string; workflowVersion: number; submittedBy: string; submittedAt: number | null; approvedBy: string;
+  approvedAt: number | null; createdBy: string; createdAt: number; reviews: WeeklyReview[] };
 type QueueData = {
   summary: { active: number; open: number; inProgress: number; verified: number; overdue: number; managerEscalated: number; executiveEscalated: number };
   cases: ImpactCase[]; employees: Array<{ id: string; name: string; department: string }>;
   managerSummary: Array<{ managerName: string; active: number; overdue: number; managerEscalated: number; executiveEscalated: number }>;
   policy: { defaultDueDays: number; managerEscalationDays: number; executiveEscalationDays: number; version: number; updatedBy: string; updatedAt: number };
-  weeklyReports: Array<{ id: string; weekStart: string; weekEnd: string; version: number; activeCount: number; overdueCount: number; managerEscalatedCount: number; executiveEscalatedCount: number; checksum: string; createdBy: string; createdAt: number }>;
-  controls: { automaticResolution: boolean; automaticReassignment: boolean; retrospectiveDueDateChange: boolean; companyEmployeesOnly: boolean; recheckRequired: boolean; evidenceRequired: boolean };
+  weeklyReports: WeeklyReport[];
+  controls: { automaticResolution: boolean; automaticReassignment: boolean; automaticApproval: boolean; retrospectiveDueDateChange: boolean; companyEmployeesOnly: boolean; recheckRequired: boolean; evidenceRequired: boolean; managerResponseRecorderVisible: boolean };
 };
 
 const statusLabels: Record<string, string> = { ALL: "전체", OPEN: "대기", IN_PROGRESS: "진행 중", VERIFIED: "재검증 통과", CLOSED: "종결" };
 const actionLabels: Record<string, string> = { UPDATE: "수정", DEACTIVATE: "비활성화", ACTIVATE: "재활성화", MERGE: "병합" };
 const entityLabels: Record<string, string> = { FINANCE_ACCOUNT: "계정과목", FINANCE_PARTNER: "재무 거래처", FINANCE_BANK: "은행계좌", FINANCE_TAX: "세금코드", SALES_ACCOUNT: "영업 거래처", HR_ORGANIZATION: "HR 조직" };
 const eventLabels: Record<string, string> = { CASE_CREATED: "업무 생성", SOURCE_REFRESHED: "원천 갱신", SLA_ESCALATED: "SLA 단계 상향", ASSIGN: "담당·기한 변경", START: "진행 시작", RECHECK: "원장 재검증", CLOSE: "종결" };
+const reportStatusLabels: Record<string, string> = { DRAFT: "조직장 확인 중", SUBMITTED: "전자결재 중", APPROVED: "승인 완료", REJECTED: "반려" };
+const reviewStatusLabels: Record<string, string> = { PENDING: "확인 대기", ACTION_REQUIRED: "보완조치 필요", ACKNOWLEDGED: "확인 완료" };
 const won = (value: number) => `₩${value.toLocaleString("ko-KR")}`;
 const formatTime = (value: number | null) => value ? new Date(value).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" }) : "미실행";
+const dateAfter = (days: number) => new Date(Date.now() + (days * 24 + 9) * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 async function requestQueue(status: string, query: string) {
   const params = new URLSearchParams({ status }); if (query) params.set("q", query);
@@ -41,10 +51,15 @@ export default function MasterImpactCaseWorkspace() {
   const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(""); const [message, setMessage] = useState("");
   const [expanded, setExpanded] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { ownerEmployeeId: string; dueDate: string }>>({});
+  const [reviewDrafts, setReviewDrafts] = useState<Record<string, { ownerEmployeeId: string; dueDate: string }>>({});
   const [policyDraft, setPolicyDraft] = useState({ defaultDueDays: 3, managerEscalationDays: 1, executiveEscalationDays: 3 });
 
   function applyData(payload: QueueData) {
     setData(payload); setDrafts(Object.fromEntries(payload.cases.map((item) => [item.id, { ownerEmployeeId: item.ownerEmployeeId, dueDate: item.dueDate }])));
+    setReviewDrafts(Object.fromEntries(payload.weeklyReports.flatMap((report) => report.reviews.map((review) => [review.id, {
+      ownerEmployeeId: review.followUpOwnerEmployeeId || review.managerEmployeeId || payload.employees[0]?.id || "",
+      dueDate: review.followUpDueDate || dateAfter(3),
+    }]))));
     setPolicyDraft({ defaultDueDays: payload.policy.defaultDueDays, managerEscalationDays: payload.policy.managerEscalationDays, executiveEscalationDays: payload.policy.executiveEscalationDays });
   }
 
@@ -68,15 +83,27 @@ export default function MasterImpactCaseWorkspace() {
     finally { setBusy(""); }
   }
 
-  async function mutateGlobal(action: "UPDATE_SLA_POLICY" | "CREATE_WEEKLY_REPORT", extra: Record<string, unknown> = {}) {
+  async function mutateGlobal(action: "UPDATE_SLA_POLICY" | "CREATE_WEEKLY_REPORT" | "ACK_MANAGER_REVIEW" | "REQUEST_MANAGER_ACTION" | "VERIFY_MANAGER_ACTION" | "SUBMIT_WEEKLY_REPORT", extra: Record<string, unknown> = {}) {
     setBusy(action); setMessage("");
     try {
       const response = await fetch("/api/master-impact-cases", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action, statusFilter: status, query, ...extra }) });
       const payload = await response.json() as QueueData & { error?: string };
       if (!response.ok) throw new Error(payload.error || "SLA 운영 정보를 저장하지 못했습니다.");
-      applyData(payload); setMessage(action === "UPDATE_SLA_POLICY" ? "새 차단 업무에 적용할 SLA 정책을 저장했습니다. 기존 기한은 변경하지 않았습니다." : "현재 해결 큐를 불변 주간 보고로 저장했습니다.");
+      applyData(payload); setMessage(action === "UPDATE_SLA_POLICY" ? "새 차단 업무에 적용할 SLA 정책을 저장했습니다. 기존 기한은 변경하지 않았습니다."
+        : action === "CREATE_WEEKLY_REPORT" ? "현재 해결 큐를 불변 주간 보고로 저장했습니다."
+        : action === "SUBMIT_WEEKLY_REPORT" ? "모든 조직장 확인을 마치고 경영 책임자 전자결재를 제출했습니다."
+        : action === "REQUEST_MANAGER_ACTION" ? "보완조치 업무와 기한을 알림센터에 등록했습니다." : "조직장 확인 결과를 감사기록과 함께 저장했습니다.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "SLA 운영 정보를 저장하지 못했습니다."); }
     finally { setBusy(""); }
+  }
+
+  function recordReview(action: "ACK_MANAGER_REVIEW" | "REQUEST_MANAGER_ACTION" | "VERIFY_MANAGER_ACTION", review: WeeklyReview) {
+    const minimum = action === "REQUEST_MANAGER_ACTION" ? 10 : 5;
+    const note = window.prompt(action === "REQUEST_MANAGER_ACTION" ? "필요한 보완조치와 판단 근거를 10자 이상 입력해 주세요." : "수신한 확인 내용과 근거를 5자 이상 입력해 주세요.", review.note || "");
+    if (!note || note.trim().length < minimum) { setMessage(`${minimum}자 이상의 확인 근거가 필요합니다.`); return; }
+    const draft = reviewDrafts[review.id];
+    void mutateGlobal(action, { reviewId: review.id, expectedReviewVersion: review.version, note: note.trim(),
+      ...(action === "REQUEST_MANAGER_ACTION" ? { ownerEmployeeId: draft?.ownerEmployeeId, dueDate: draft?.dueDate } : {}) });
   }
 
   function closeCase(item: ImpactCase) {
@@ -111,7 +138,20 @@ export default function MasterImpactCaseWorkspace() {
           <button type="submit" disabled={Boolean(busy)}>정책 저장</button>
         </form>
         <div className="master-impact-manager-summary"><header><div><strong>관리자별 현재 위험</strong><small>담당자의 인사기록에 등록된 조직장을 기준으로 집계합니다.</small></div><button type="button" disabled={Boolean(busy)} onClick={() => void mutateGlobal("CREATE_WEEKLY_REPORT")}>현재 상태 주간 보고 저장</button></header><div>{data.managerSummary.map((item) => <article key={item.managerName}><strong>{item.managerName}</strong><span>활성 {item.active} · 기한 경과 {item.overdue}</span><small>조직장 확인 {item.managerEscalated} · 경영 책임자 확인 {item.executiveEscalated}</small></article>)}{!data.managerSummary.length && <p>현재 활성 차단 업무가 없습니다.</p>}</div></div>
-        <div className="master-impact-weekly-reports"><header><strong>주간 위험 스냅샷</strong><small>같은 주에 다시 저장하면 이전 보고를 덮지 않고 새 버전을 남깁니다.</small></header><div>{data.weeklyReports.map((report) => <article key={report.id}><div><strong>{report.weekStart}~{report.weekEnd} · v{report.version}</strong><small>{formatTime(report.createdAt)} · {report.createdBy}</small></div><span>활성 {report.activeCount} · 경과 {report.overdueCount}</span><em>L1 {report.managerEscalatedCount} / L2 {report.executiveEscalatedCount}</em><code>{report.checksum.slice(0, 12)}</code></article>)}{!data.weeklyReports.length && <p>저장된 주간 보고가 없습니다.</p>}</div></div>
+        <div className="master-impact-weekly-reports"><header><strong>주간 위험 보고·승인</strong><small>스냅샷은 불변으로 보존하고 조직장 응답·보완조치·경영 책임자 결재를 별도 이력으로 남깁니다.</small></header><div>{data.weeklyReports.map((report) => {
+          const allAcknowledged = report.reviews.every((review) => review.outcome === "ACKNOWLEDGED");
+          return <article className={`weekly-report-${report.status.toLowerCase()}`} key={report.id}>
+            <div className="master-impact-report-head"><div><strong>{report.weekStart}~{report.weekEnd} · v{report.version}</strong><small>{formatTime(report.createdAt)} · 생성 {report.createdBy}</small></div><span>활성 {report.activeCount} · 경과 {report.overdueCount}</span><em>L1 {report.managerEscalatedCount} / L2 {report.executiveEscalatedCount}</em><code>{report.checksum.slice(0, 12)}</code><b>{reportStatusLabels[report.status] ?? report.status}{report.approvalStatus === "CHANGES_REQUESTED" ? " · 보완 요청" : ""}</b></div>
+            <div className="master-impact-report-reviews">{report.reviews.map((review) => {
+              const draft = reviewDrafts[review.id] ?? { ownerEmployeeId: review.managerEmployeeId || data.employees[0]?.id || "", dueDate: dateAfter(3) };
+              return <div className={`review-${review.outcome.toLowerCase()}`} key={review.id}><div><strong>{review.managerName}</strong><small>조직장 {data.employees.find((employee) => employee.id === review.managerEmployeeId)?.name || "계정 미연결"} · 기록자 {data.employees.find((employee) => employee.id === review.reviewedBy)?.name || review.reviewedBy || "미기록"}</small>{review.note && <span>{review.note}</span>}</div><em>{reviewStatusLabels[review.outcome] ?? review.outcome}</em>
+                {report.status === "DRAFT" && review.outcome === "PENDING" && <div className="master-impact-review-actions"><select value={draft.ownerEmployeeId} onChange={(event) => setReviewDrafts((current) => ({ ...current, [review.id]: { ...draft, ownerEmployeeId: event.target.value } }))}>{data.employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.department}</option>)}</select><input type="date" value={draft.dueDate} onChange={(event) => setReviewDrafts((current) => ({ ...current, [review.id]: { ...draft, dueDate: event.target.value } }))} /><button type="button" disabled={Boolean(busy)} onClick={() => recordReview("ACK_MANAGER_REVIEW", review)}>확인 기록</button><button type="button" className="request" disabled={Boolean(busy) || !draft.ownerEmployeeId || !draft.dueDate} onClick={() => recordReview("REQUEST_MANAGER_ACTION", review)}>보완업무 생성</button></div>}
+                {report.status === "DRAFT" && review.outcome === "ACTION_REQUIRED" && <div className="master-impact-review-actions follow-up"><span>후속업무 {review.followUpTaskStatus || "OPEN"} · {data.employees.find((employee) => employee.id === review.followUpOwnerEmployeeId)?.name || review.followUpOwnerEmployeeId} · {review.followUpDueDate}</span><button type="button" disabled={Boolean(busy) || review.followUpTaskStatus !== "DONE"} onClick={() => recordReview("VERIFY_MANAGER_ACTION", review)}>완료 결과 확인</button></div>}
+              </div>;
+            })}{!report.reviews.length && <p>확인할 조직장 위험 항목이 없습니다.</p>}</div>
+            <footer><span>조직장 확인 {report.reviews.filter((review) => review.outcome === "ACKNOWLEDGED").length}/{report.reviews.length} · 자동 승인 없음 · 실제 기록자 표시</span>{report.status === "DRAFT" && <button type="button" disabled={Boolean(busy) || !allAcknowledged} onClick={() => void mutateGlobal("SUBMIT_WEEKLY_REPORT", { reportId: report.id, expectedWorkflowVersion: report.workflowVersion })}>경영 책임자 전자결재 제출</button>}{report.status !== "DRAFT" && <strong>{report.approvalStatus ? `전자결재 ${report.approvalStatus}` : reportStatusLabels[report.status]}</strong>}</footer>
+          </article>;
+        })}{!data.weeklyReports.length && <p>저장된 주간 보고가 없습니다.</p>}</div></div>
       </section>
       <form className="master-impact-case-filters" onSubmit={(event) => { event.preventDefault(); setQuery(searchDraft.trim()); }}>
         <nav aria-label="영향 업무 상태">{["ALL","OPEN","IN_PROGRESS","VERIFIED","CLOSED"].map((value) => <button type="button" key={value} className={status === value ? "active" : ""} onClick={() => setStatus(value)}>{statusLabels[value]}</button>)}</nav>

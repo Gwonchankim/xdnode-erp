@@ -393,6 +393,15 @@ type Employee = {
   vehicleAllowance: number;
 };
 
+function isCurrentEmployee(employee: Employee, now = Date.now()) {
+  if (employee.status.trim() === "퇴직") return false;
+  const retirementStatus = employee.retirement?.status ?? "";
+  if (["EFFECTIVE", "COMPLETED"].includes(retirementStatus)) return false;
+  if (!["IN_PROGRESS", "READY"].includes(retirementStatus) || !employee.retirement?.date) return true;
+  const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return employee.retirement.date.replaceAll(".", "-") > koreaDate;
+}
+
 type EmployeeInterviewRecord = {
   id: string;
   employeeId: string;
@@ -771,7 +780,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
   const selectedApplicant = applicants.find((applicant) => applicant.id === selectedApplicantId) ?? null;
   const screeningApplicant = applicants.find((applicant) => applicant.id === screeningApplicantId) ?? null;
   const interviewApplicant = applicants.find((applicant) => applicant.id === interviewApplicantId) ?? null;
-  const recruiters = employees.filter((employee) => recruiterIds.includes(employee.id) && employee.status !== "퇴직");
+  const recruiters = employees.filter((employee) => recruiterIds.includes(employee.id) && isCurrentEmployee(employee));
   const moduleConfig = moduleConfigs[active];
 
   const filteredRows = useMemo(() => {
@@ -1452,8 +1461,8 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
   const departments = organizations.map((organization) => organization.name);
   const [expanded, setExpanded] = useState<string[]>(departments);
   const [exporting, setExporting] = useState(false);
-  const visibleEmployees = query ? employees.filter((employee) => Object.values(employee).some((value) => typeof value === "string" && value.toLowerCase().includes(query.toLowerCase()))) : employees;
-  const currentEmployees = employees.filter((employee) => employee.status !== "퇴직");
+  const currentEmployees = employees.filter(isCurrentEmployee);
+  const visibleEmployees = query ? currentEmployees.filter((employee) => Object.values(employee).some((value) => typeof value === "string" && value.toLowerCase().includes(query.toLowerCase()))) : currentEmployees;
   const hiresThisMonth = currentEmployees.filter((employee) => employee.joinDate.startsWith("2026.08")).length;
   const incompleteProfiles = currentEmployees.filter((employee) => [employee.email, employee.phone, employee.birth, employee.address].some((value) => !value || value === "미입력")).length;
   const toggle = (department: string) => setExpanded((value) => value.includes(department) ? value.filter((item) => item !== department) : [...value, department]);
@@ -1507,7 +1516,7 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
             const leaderOrder = Number(second.id === organization?.leaderEmployeeId) - Number(first.id === organization?.leaderEmployeeId);
             return leaderOrder || first.joinDate.localeCompare(second.joinDate) || first.name.localeCompare(second.name, "ko");
           });
-        const leader = employees.find((employee) => employee.id === organization?.leaderEmployeeId);
+        const leader = currentEmployees.find((employee) => employee.id === organization?.leaderEmployeeId);
         if (query && people.length === 0) return null;
         return <section className="panel department-panel" key={department}>
           <button type="button" className="department-heading" onClick={() => toggle(department)} aria-expanded={expanded.includes(department)}><span className={`chevron ${expanded.includes(department) ? "open" : ""}`}>›</span><div><strong>{department}</strong><small>재직 {people.length}명 · 실제 등록 인원</small></div><span className="dept-progress"><i style={{ width: "100%" }}></i></span><em>{expanded.includes(department) ? "접기" : "펼치기"}</em></button>
@@ -1537,7 +1546,7 @@ function OrganizationManagement({ organizations, employees, ranks, jobTitles, on
       <section className="panel organization-list-panel">
         <div className="table-toolbar"><div><h2>회사 조직 구성</h2><span>조직장을 지정하면 인사기록카드에 즉시 반영됩니다.</span></div></div>
         <div className="organization-list">{organizations.map((organization) => {
-          const members = employees.filter((employee) => employee.department === organization.name);
+          const members = employees.filter((employee) => isCurrentEmployee(employee) && employee.department === organization.name);
           return <OrganizationCard key={organization.id} organization={organization} members={members} onLeaderChange={onLeaderChange} onUpdate={onUpdateOrganization} />;
         })}</div>
         <form className="organization-add-form" onSubmit={(event) => { event.preventDefault(); onAddOrganization(newOrganization.name, newOrganization.description); setNewOrganization({ name: "", description: "" }); }}><div><label><span>새 조직명</span><input required value={newOrganization.name} onChange={(event) => setNewOrganization({ ...newOrganization, name: event.target.value })} placeholder="예: 사업전략팀" /></label><label><span>조직 설명</span><input value={newOrganization.description} onChange={(event) => setNewOrganization({ ...newOrganization, description: event.target.value })} placeholder="조직의 주요 역할" /></label></div><button type="submit" className="primary-button">+ 조직 추가</button></form>
@@ -2142,7 +2151,7 @@ function RecruitmentView({ applicants, recruiters, requisitions, query, onAdd, o
 function RecruiterManagement({ employees, recruiterIds, onAdd, onRemove }: { employees: Employee[]; recruiterIds: string[]; onAdd: (employeeId: string) => void; onRemove: (employeeId: string) => void }) {
   const [candidateId, setCandidateId] = useState("");
   const recruiters = employees.filter((employee) => recruiterIds.includes(employee.id));
-  const candidates = employees.filter((employee) => employee.status !== "퇴직" && !recruiterIds.includes(employee.id));
+  const candidates = employees.filter((employee) => isCurrentEmployee(employee) && !recruiterIds.includes(employee.id));
   return <div className="page-wrap module-page recruiter-page">
     <section className="module-hero"><div><p className="eyebrow">RECRUITING OWNERS</p><h1>채용담당자 관리</h1><p>회사에 등록된 재직자 중 지원자와 면접 과정을 담당할 인원을 지정합니다.</p></div></section>
     <section className="panel recruiter-manager">
@@ -2579,7 +2588,7 @@ function SettingsView({ employees, onSave, onNotify }: { employees: Employee[]; 
   const [candidateRole, setCandidateRole] = useState<AccessRole>("VIEWER");
   const [permissionsLoading, setPermissionsLoading] = useState(true);
   const authorizedUserIds = authorizedUsers.map((user) => user.employeeId);
-  const activeEmployees = employees.filter((employee) => employee.status !== "퇴직");
+  const activeEmployees = employees.filter(isCurrentEmployee);
   const availableEmployees = activeEmployees.filter((employee) => !authorizedUserIds.includes(employee.id));
 
   useEffect(() => {
@@ -2816,7 +2825,7 @@ function SettingToggle({ title, description, checked }: { title: string; descrip
 }
 
 function Dashboard({ employees, organizations, applicants, onNavigate }: { employees: Employee[]; organizations: Organization[]; applicants: Applicant[]; onNavigate: (id: string) => void }) {
-  const currentEmployees = employees.filter((employee) => employee.status !== "퇴직");
+  const currentEmployees = employees.filter(isCurrentEmployee);
   const employeeCount = currentEmployees.length;
   const hiresThisMonth = currentEmployees.filter((employee) => employee.joinDate.startsWith("2026.08")).length;
   const incompleteProfiles = currentEmployees.filter((employee) => [employee.email, employee.phone, employee.birth, employee.address].some((value) => !value || value === "미입력")).length;

@@ -34,6 +34,20 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(calculator, /수정하기/);
 });
 
+test("retired employees are excluded from directory and organization membership", async () => {
+  const [workspace, retirement, leaders, migration] = await Promise.all([
+    read("app/hr-workspace.tsx"), read("app/hr-retirements.ts"),
+    read("app/api/hr/organization-leaders/route.ts"), read("drizzle/0066_retired_employee_visibility.sql"),
+  ]);
+  assert.match(workspace, /function isCurrentEmployee/);
+  assert.match(workspace, /const visibleEmployees = query \? currentEmployees\.filter/);
+  assert.match(workspace, /isCurrentEmployee\(employee\) && employee\.department === organization\.name/);
+  assert.match(retirement, /UPDATE hr_organization_leaders SET leader_employee_id = NULL/);
+  assert.match(leaders, /퇴직자는 조직장으로 지정할 수 없습니다/);
+  assert.match(leaders, /THEN NULL ELSE leader\.leader_employee_id END/);
+  assert.match(migration, /WHERE status = '퇴직'/);
+});
+
 test("master data changes freeze, validate and consume a server-side impact assessment", async () => {
   const [server, api, dialog, finance, sales, hr, approvals, schema, migration, plan] = await Promise.all([
     read("app/master-impact.ts"), read("app/api/master-impact/route.ts"), read("app/master-impact-dialog.tsx"),

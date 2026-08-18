@@ -33,8 +33,14 @@ export async function GET() {
   await ensureSchema();
   const authorization = await authorizeErpRequest(db, "hr", "read");
   if (authorization.response) return authorization.response;
-  const result = await db.prepare(`SELECT organization_id, leader_employee_id, updated_at
-    FROM hr_organization_leaders ORDER BY organization_id`).all<LeaderRow>();
+  const result = await db.prepare(`SELECT leader.organization_id,
+    CASE WHEN employee.status = '퇴직'
+      OR json_extract(CASE WHEN json_valid(employee.retirement_json) THEN employee.retirement_json ELSE '{}' END, '$.status') IN ('EFFECTIVE', 'COMPLETED')
+      THEN NULL ELSE leader.leader_employee_id END AS leader_employee_id,
+    leader.updated_at
+    FROM hr_organization_leaders leader
+    LEFT JOIN hr_employee_records employee ON employee.employee_id = leader.leader_employee_id
+    ORDER BY leader.organization_id`).all<LeaderRow>();
   return Response.json({ leaders: result.results.map(toLeader) });
 }
 
@@ -50,6 +56,15 @@ export async function PUT(request: Request) {
 
   if (!organizationId) {
     return Response.json({ error: "organizationId is required." }, { status: 400 });
+  }
+  if (leaderEmployeeId) {
+    const employee = await db.prepare("SELECT status, retirement_json FROM hr_employee_records WHERE employee_id = ?")
+      .bind(leaderEmployeeId).first<{ status: string; retirement_json: string | null }>();
+    let retirementStatus = "";
+    try { retirementStatus = employee?.retirement_json ? String((JSON.parse(employee.retirement_json) as { status?: unknown }).status ?? "") : ""; } catch { retirementStatus = ""; }
+    if (!employee || employee.status === "퇴직" || ["EFFECTIVE", "COMPLETED"].includes(retirementStatus)) {
+      return Response.json({ error: "퇴직자는 조직장으로 지정할 수 없습니다." }, { status: 409 });
+    }
   }
 
   const updatedAt = Date.now();

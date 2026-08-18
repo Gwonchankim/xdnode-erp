@@ -26,7 +26,9 @@ export async function applyDueRetirements(db: D1Database, now = Date.now()) {
       LEFT JOIN hr_retirement_settlements settlement ON settlement.request_id = request.id
       WHERE request.id = ?`).bind(retirement.id).first<{ ready: number }>();
     const nextStatus = completion?.ready ? "COMPLETED" : "EFFECTIVE";
-    const result = await db.batch([
+    const organizationLeaderTable = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'hr_organization_leaders'")
+      .first<{ name: string }>();
+    const statements = [
       db.prepare(`UPDATE hr_retirement_requests SET status = ?, completed_at = CASE WHEN ? = 'COMPLETED' THEN ? ELSE completed_at END, updated_at = ?
         WHERE id = ? AND status IN ('IN_PROGRESS', 'READY', 'EFFECTIVE') AND retirement_date <= ?`)
         .bind(nextStatus, nextStatus, now, now, retirement.id, koreaDate),
@@ -52,7 +54,11 @@ export async function applyDueRetirements(db: D1Database, now = Date.now()) {
           AND NOT EXISTS (SELECT 1 FROM erp_audit_logs WHERE action = 'RETIREMENT_EFFECTIVE' AND entity_id = ?)`)
         .bind(crypto.randomUUID(), retirement.id, JSON.stringify({ employeeId: retirement.employee_id, retirementDate: retirement.retirement_date, status: nextStatus }),
           retirement.reason, now, retirement.id, nextStatus, now, retirement.id),
-    ]);
+    ];
+    if (organizationLeaderTable) statements.splice(2, 0,
+      db.prepare("UPDATE hr_organization_leaders SET leader_employee_id = NULL, updated_at = ? WHERE leader_employee_id = ?")
+        .bind(now, retirement.employee_id));
+    const result = await db.batch(statements);
     if ((result[0].meta.changes ?? 0) > 0) applied += 1;
   }
   return applied;

@@ -16,9 +16,10 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
 });
 
 test("retirement effectiveness and compensation confirmation are server-controlled", async () => {
-  const [retirement, operations, employees, compensation, calculator, migration] = await Promise.all([
+  const [retirement, operations, employees, compensation, calculator, workspace, wonInput, migration] = await Promise.all([
     read("app/hr-retirements.ts"), read("app/api/hr/operations/route.ts"), read("app/api/hr/employee-records/route.ts"),
-    read("app/api/hr/compensation/route.ts"), read("app/compensation-calculator.tsx"), read("drizzle/0065_hr_retirement_compensation.sql"),
+    read("app/api/hr/compensation/route.ts"), read("app/compensation-calculator.tsx"), read("app/hr-workspace.tsx"),
+    read("app/won-input.tsx"), read("drizzle/0065_hr_retirement_compensation.sql"),
   ]);
   assert.match(retirement, /status IN \('IN_PROGRESS', 'READY'\) OR \(status = 'EFFECTIVE'/);
   assert.match(retirement, /const nextStatus = completion\?\.ready \? "COMPLETED" : "EFFECTIVE"/);
@@ -31,7 +32,12 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(compensation, /hr_payroll_runs\.status='DRAFT'/);
   assert.match(compensation, /검토·승인·마감이 진행된 급여월은 임금안으로 덮어쓸 수 없습니다/);
   assert.match(calculator, /임금안을 확정해 HR 급여관리에 덮어썼습니다/);
+  assert.match(calculator, /"급여 확정"/);
   assert.match(calculator, /수정하기/);
+  assert.match(workspace, /기본급 · 1원 단위/);
+  assert.doesNotMatch(workspace, /step="10000"/);
+  assert.match(wonInput, /toLocaleString\("ko-KR"\)/);
+  assert.match(wonInput, /inputMode="numeric"/);
 });
 
 test("retired employees are excluded from directory and organization membership", async () => {
@@ -610,7 +616,7 @@ test("post-approval finance and HR workflows require explicit controls before co
   assert.match(onboarding, /ONBOARDING_EFFECTIVE/);
   assert.match(hr, /resource === "retirementSettlement"/);
   assert.match(hr, /settlement\?\.status !== "READY"/);
-  assert.match(workspace, /제안 수락·입사 전환/);
+  assert.match(workspace, /제안 수락 입사 전환/);
   assert.match(workspace, /퇴직 정산·회수 통제/);
   for (const table of ["finance_journal_entries", "hr_retirement_settlements"]) assert.match(migration, new RegExp(table));
 });
@@ -1000,37 +1006,40 @@ test("expense requests require evidence, approval and a unique payment ledger en
   assert.match(view, /증빙을 첨부한 뒤 결재를 제출/);
 });
 
-test("retirement approval activates a durable checklist and applies the due retirement once", async () => {
-  const [migration, api, engine, activator, records, workspace] = await Promise.all([
+test("direct retirement approval activates a durable checklist and applies the due retirement once", async () => {
+  const [migration, api, activator, records, workspace] = await Promise.all([
     read("drizzle/0014_talented_matthew_murdock.sql"), read("app/api/hr/operations/route.ts"),
-    read("app/approval-engine.ts"), read("app/hr-retirements.ts"),
+    read("app/hr-retirements.ts"),
     read("app/api/hr/employee-records/route.ts"), read("app/hr-workspace.tsx"),
   ]);
   assert.match(migration, /hr_retirement_requests/);
-  assert.match(api, /requestType: "RETIREMENT"/);
+  assert.match(api, /RETIREMENT_APPROVED/);
+  assert.match(api, /VALUES \(\?, \?, \?, \?, 'IN_PROGRESS'/);
+  assert.doesNotMatch(api, /requestType: "RETIREMENT"/);
   assert.match(api, /resource === "retirementChecklist"/);
-  assert.match(engine, /targetEntityType === "HR_RETIREMENT"/);
-  assert.match(engine, /status = '퇴직 예정'/);
   assert.match(activator, /WHERE retirement_date <= \? AND \(status IN \('IN_PROGRESS', 'READY'\) OR \(status = 'EFFECTIVE'/);
   assert.match(activator, /"COMPLETED" : "EFFECTIVE"/);
   assert.match(activator, /RETIREMENT_EFFECTIVE/);
   assert.match(records, /applyDueRetirements\(db\)/);
+  assert.match(workspace, /작성한 내용을 확인 후 퇴직 버튼을 클릭해 주세요/);
+  assert.match(workspace, />퇴직<\/button>/);
   assert.doesNotMatch(workspace, /const nextEmployee: Employee = \{[\s\S]*?status: "퇴직 예정"/);
 });
 
-test("recruitment offers are approval-gated and update the applicant stage on final decision", async () => {
-  const [migration, api, engine, workspace] = await Promise.all([
+test("recruitment offers move directly into the onboarding lifecycle", async () => {
+  const [migration, api, workspace] = await Promise.all([
     read("drizzle/0014_talented_matthew_murdock.sql"), read("app/api/hr/recruitment/route.ts"),
-    read("app/approval-engine.ts"), read("app/hr-workspace.tsx"),
+    read("app/hr-workspace.tsx"),
   ]);
   assert.match(migration, /hr_offer_requests/);
   assert.match(api, /resource === "offer"/);
-  assert.match(api, /requestType: "OFFER"/);
-  assert.match(api, /targetEntityType: "RECRUITMENT_OFFER"/);
-  assert.match(engine, /targetEntityType === "RECRUITMENT_OFFER"/);
-  assert.match(engine, /채용 제안 승인/);
-  assert.match(engine, /채용 제안 반려/);
-  assert.match(workspace, /채용 제안 결재 제출/);
+  assert.match(api, /'APPROVED'/);
+  assert.match(api, /\["onboardingUpdate", "onboardingComplete", "onboardingCancel"\]\.includes\(resource\)/);
+  assert.match(api, /resource === "onboardingCancel"/);
+  assert.doesNotMatch(api, /requestType: "OFFER"/);
+  assert.match(workspace, /제안 수락 입사 전환/);
+  assert.match(workspace, /입사 완료/);
+  assert.match(workspace, /입사 정보 수정/);
 });
 
 test("debt management keeps Clobe balances immutable and routes schedules through controlled payments", async () => {

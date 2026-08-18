@@ -167,9 +167,9 @@ export async function POST(request: Request) {
     statements.unshift(db.prepare(`INSERT INTO hr_retirement_requests
       (id, employee_id, retirement_date, reason, status, checklist_json, total_tasks, completed_tasks,
         requested_by, approved_by, approved_at, completed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, 'SUBMITTED', ?, ?, ?, ?, '', NULL, NULL, ?, ?)`)
+      VALUES (?, ?, ?, ?, 'IN_PROGRESS', ?, ?, ?, ?, ?, ?, NULL, ?, ?)`)
       .bind(id, employeeId, eventDate, reason, JSON.stringify(completedTaskIds), tasks.length, completedTaskIds.length,
-        authorization.principal.employeeId, now, now));
+        authorization.principal.employeeId, authorization.principal.employeeId, now, now, now));
     if (employee) {
       statements.unshift(db.prepare(`INSERT OR IGNORE INTO hr_employee_records
         (employee_id, name, birth, email, phone, address, department, manager, employment_type, join_date,
@@ -180,22 +180,10 @@ export async function POST(request: Request) {
           employee.jobTitle, employee.status, JSON.stringify(employee.history), now));
     }
     await db.batch(statements);
-    try {
-      const approval = await createApprovalRequest(db, authorization.principal, {
-        module: "hr", requestType: "RETIREMENT", title: `${employee?.name ?? persistedEmployee?.name ?? employeeId} 퇴직 승인 요청`,
-        description: `${eventDate} 퇴직 예정 · ${reason} · 체크리스트 ${completedTaskIds.length}/${tasks.length}`,
-        targetEntityType: "HR_RETIREMENT", targetEntityId: id, dueDate: eventDate, priority: "HIGH",
-        metadata: { employeeId, eventDate, reason, totalTasks: tasks.length, completedTasks: completedTaskIds.length },
-      });
-      await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_APPROVAL_SUBMITTED", entityType: "employeeRetirement", entityId: id, after: { employeeId, eventDate, reason, completedTaskIds, approvalId: approval.id } });
-      return Response.json({ item: { id, employeeId, eventDate, taskCount: tasks.length, completedTaskIds, status: "SUBMITTED" }, approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
-    } catch (error) {
-      await db.batch([
-        db.prepare("DELETE FROM hr_lifecycle_tasks WHERE id LIKE ?").bind(`${id}:%`),
-        db.prepare("DELETE FROM hr_retirement_requests WHERE id = ?").bind(id),
-      ]);
-      return Response.json({ error: error instanceof Error ? error.message : "퇴직 결재선을 만들지 못했습니다." }, { status: 409 });
-    }
+    await applyDueRetirements(db, now);
+    const created = await db.prepare("SELECT status FROM hr_retirement_requests WHERE id = ?").bind(id).first<{ status: string }>();
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_APPROVED", entityType: "employeeRetirement", entityId: id, after: { employeeId, employeeName: employee?.name ?? persistedEmployee?.name ?? employeeId, eventDate, reason, completedTaskIds, status: created?.status ?? "IN_PROGRESS" } });
+    return Response.json({ item: { id, employeeId, eventDate, taskCount: tasks.length, completedTaskIds, status: created?.status ?? "IN_PROGRESS" } }, { status: 201 });
   }
 
   if (resource === "leaveRequest") {

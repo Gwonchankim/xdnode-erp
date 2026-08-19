@@ -145,31 +145,43 @@ export async function POST(request: Request) {
 
   if (action === "CREATE") {
     if (beforeState.run) return Response.json({ run: runJson(beforeState.run, beforeState.lines), reused: true });
-    const [year, month] = period.split("-").map(Number);
-    const start = `${period}-01`;
-    const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-    const employees = await db.prepare(`SELECT employee_id, name, birth, department, position, job_title, join_date,
-      retirement_json, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
-      WHERE COALESCE(NULLIF(replace(join_date, '.', '-'), ''), '0000-01-01') <= ?
-        AND (retirement_json IS NULL OR json_valid(retirement_json) = 0
-          OR COALESCE(NULLIF(json_extract(retirement_json, '$.date'), ''), '9999-12-31') >= ?)
-      ORDER BY department, name`).bind(end, start).all<EmployeeRow>();
-    const snapshots = employees.results.map((employee) => ({
-      id: employee.employee_id, name: employee.name, department: employee.department,
-      title: employee.job_title || employee.position, birthDate: employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-"),
-      joinDate: employee.join_date.replaceAll(".", "-"),
-      leaveDate: safeJson<{ date?: string }>(employee.retirement_json ?? "", {}).date ?? "",
-      probationMonths: 0, annualSalary: 0, basePay: employee.base_pay, manualBasic: true,
-      meal: employee.meal_allowance, car: employee.vehicle_allowance, child: employee.childcare_allowance, monthly: {},
-    }));
+    let snapshots: Array<Record<string, unknown>>;
+    let grossPayByEmployee: number[];
+    const hasClientDraft = Array.isArray(body.employees) && body.employees.length > 0;
+    if (hasClientDraft) {
+      const draft = validateDraft(body);
+      if ("error" in draft) return Response.json({ error: draft.error }, { status: 400 });
+      snapshots = draft.employees;
+      grossPayByEmployee = draft.rows.map((row) => Number(row.total));
+    } else {
+      const [year, month] = period.split("-").map(Number);
+      const start = `${period}-01`;
+      const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+      const employees = await db.prepare(`SELECT employee_id, name, birth, department, position, job_title, join_date,
+        retirement_json, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
+        WHERE COALESCE(NULLIF(replace(join_date, '.', '-'), ''), '0000-01-01') <= ?
+          AND (retirement_json IS NULL OR json_valid(retirement_json) = 0
+            OR COALESCE(NULLIF(json_extract(retirement_json, '$.date'), ''), '9999-12-31') >= ?)
+        ORDER BY department, name`).bind(end, start).all<EmployeeRow>();
+      snapshots = employees.results.map((employee) => ({
+        id: employee.employee_id, name: employee.name, department: employee.department,
+        title: employee.job_title || employee.position, birthDate: employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-"),
+        joinDate: employee.join_date.replaceAll(".", "-"),
+        leaveDate: safeJson<{ date?: string }>(employee.retirement_json ?? "", {}).date ?? "",
+        probationMonths: 0, annualSalary: 0, basePay: employee.base_pay, manualBasic: true,
+        meal: employee.meal_allowance, car: employee.vehicle_allowance, child: employee.childcare_allowance, monthly: {},
+      }));
+      grossPayByEmployee = snapshots.map(() => 0);
+    }
+    const grossPay = grossPayByEmployee.reduce((sum, amount) => sum + amount, 0);
     await db.batch([
       db.prepare(`INSERT INTO hr_compensation_runs
         (period, status, version, employee_count, gross_pay, settings_json, created_by, confirmed_by, confirmed_at, created_at, updated_at)
-        VALUES (?, 'DRAFT', 1, ?, 0, ?, ?, '', NULL, ?, ?)`).bind(period, snapshots.length,
+        VALUES (?, 'DRAFT', 1, ?, ?, ?, ?, '', NULL, ?, ?)`).bind(period, snapshots.length, grossPay,
         JSON.stringify(normalizeSettings(body.settings)), authorization.principal.employeeId, now, now),
-      ...snapshots.map((snapshot) => db.prepare(`INSERT INTO hr_compensation_lines
-        (period, employee_id, snapshot_json, gross_pay, updated_at) VALUES (?, ?, ?, 0, ?)`)
-        .bind(period, snapshot.id, JSON.stringify(snapshot), now)),
+      ...snapshots.map((snapshot, index) => db.prepare(`INSERT INTO hr_compensation_lines
+        (period, employee_id, snapshot_json, gross_pay, updated_at) VALUES (?, ?, ?, ?, ?)`)
+        .bind(period, String(snapshot.id), JSON.stringify(snapshot), grossPayByEmployee[index], now)),
     ]);
     const afterState = await readRun(period);
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "COMPENSATION_DRAFT_CREATED", entityType: "compensationRun", entityId: period, after: runJson(afterState.run, afterState.lines) });

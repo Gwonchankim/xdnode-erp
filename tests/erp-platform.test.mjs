@@ -42,8 +42,17 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(calculator, /writeXlsxFile\(sheets\)\.toFile/);
   assert.match(calculator, /beginColumnResize/);
   assert.match(calculator, /column-resizer/);
+  assert.match(calculator, /COLUMN_VISIBILITY_OPTIONS/);
+  assert.match(calculator, /hiddenColumns/);
+  assert.match(calculator, /label: "부서"/);
+  assert.match(calculator, /label: "직책"/);
+  assert.match(calculator, /action === "CONFIRM" && !run/);
+  assert.match(compensation, /hasClientDraft/);
+  assert.match(compensation, /grossPayByEmployee/);
   assert.match(calculatorCss, /tbody tr:nth-child\(even\) td/);
   assert.match(calculatorCss, /border-right:1px solid/);
+  assert.match(calculatorCss, /font-size:13px;font-weight:800;text-align:center/);
+  assert.match(calculatorCss, /column-visibility/);
   assert.match(compensation, /settings_json/);
   assert.match(settingsMigration, /settings_json TEXT NOT NULL DEFAULT '\{\}'/);
   assert.match(workspace, /기본급 · 1원 단위/);

@@ -30,10 +30,11 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
 });
 
 test("retirement effectiveness and compensation confirmation are server-controlled", async () => {
-  const [retirement, operations, employees, compensation, calculator, calculatorCss, workspace, wonInput, migration, settingsMigration] = await Promise.all([
+  const [retirement, operations, employees, compensation, calculator, calculatorCss, workspace, wonInput, migration, settingsMigration, defaultsMigration] = await Promise.all([
     read("app/hr-retirements.ts"), read("app/api/hr/operations/route.ts"), read("app/api/hr/employee-records/route.ts"),
     read("app/api/hr/compensation/route.ts"), read("app/compensation-calculator.tsx"), read("app/compensation-calculator.css"), read("app/hr-workspace.tsx"),
     read("app/won-input.tsx"), read("drizzle/0065_hr_retirement_compensation.sql"), read("drizzle/0068_compensation_draft_settings.sql"),
+    read("drizzle/0069_hr_employee_compensation_defaults.sql"),
   ]);
   assert.match(retirement, /status IN \('IN_PROGRESS', 'READY'\) OR \(status = 'EFFECTIVE'/);
   assert.match(retirement, /const nextStatus = completion\?\.ready \? "COMPLETED" : "EFFECTIVE"/);
@@ -84,6 +85,10 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.doesNotMatch(calculator, /className="money-input" type="number"/);
   assert.match(compensation, /settings_json/);
   assert.match(settingsMigration, /settings_json TEXT NOT NULL DEFAULT '\{\}'/);
+  assert.match(defaultsMigration, /annual_salary INTEGER NOT NULL DEFAULT 0/);
+  assert.equal((defaultsMigration.match(/UPDATE hr_employee_records SET/g) ?? []).length, 27);
+  assert.match(compensation, /annualSalary: employee\.annual_salary/);
+  assert.match(workspace, /연봉 · 1원 단위/);
   assert.match(workspace, /기본급 · 1원 단위/);
   assert.doesNotMatch(workspace, /step="10000"/);
   assert.match(wonInput, /toLocaleString\("ko-KR"\)/);

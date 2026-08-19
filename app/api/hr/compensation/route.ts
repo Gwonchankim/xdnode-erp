@@ -15,7 +15,7 @@ type LineRow = { employee_id: string; snapshot_json: string; gross_pay: number }
 type EmployeeRow = {
   employee_id: string; name: string; birth: string; department: string; position: string; job_title: string;
   join_date: string; retirement_json: string | null; base_pay: number; meal_allowance: number;
-  childcare_allowance: number; vehicle_allowance: number;
+  childcare_allowance: number; vehicle_allowance: number; annual_salary: number;
 };
 
 const periodPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -68,6 +68,7 @@ async function ensureSchema() {
   const columns = await db.prepare("PRAGMA table_info(hr_employee_records)").all<{ name: string }>();
   const existing = new Set(columns.results.map((column) => column.name));
   for (const [name, definition] of [
+    ["annual_salary", "INTEGER NOT NULL DEFAULT 0"],
     ["base_pay", "INTEGER NOT NULL DEFAULT 0"], ["meal_allowance", "INTEGER NOT NULL DEFAULT 0"],
     ["childcare_allowance", "INTEGER NOT NULL DEFAULT 0"], ["vehicle_allowance", "INTEGER NOT NULL DEFAULT 0"],
   ].filter(([name]) => !existing.has(name))) await db.prepare(`ALTER TABLE hr_employee_records ADD COLUMN ${name} ${definition}`).run();
@@ -158,7 +159,7 @@ export async function POST(request: Request) {
       const start = `${period}-01`;
       const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
       const employees = await db.prepare(`SELECT employee_id, name, birth, department, position, job_title, join_date,
-        retirement_json, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
+        retirement_json, annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
         WHERE COALESCE(NULLIF(replace(join_date, '.', '-'), ''), '0000-01-01') <= ?
           AND (retirement_json IS NULL OR json_valid(retirement_json) = 0
             OR COALESCE(NULLIF(json_extract(retirement_json, '$.date'), ''), '9999-12-31') >= ?)
@@ -168,7 +169,7 @@ export async function POST(request: Request) {
         title: employee.job_title || employee.position, birthDate: employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-"),
         joinDate: employee.join_date.replaceAll(".", "-"),
         leaveDate: safeJson<{ date?: string }>(employee.retirement_json ?? "", {}).date ?? "",
-        probationMonths: 0, annualSalary: 0, basePay: employee.base_pay, manualBasic: true,
+        probationMonths: 0, annualSalary: employee.annual_salary, basePay: employee.base_pay, manualBasic: true,
         meal: employee.meal_allowance, car: employee.vehicle_allowance, child: employee.childcare_allowance, monthly: {},
       }));
       grossPayByEmployee = snapshots.map(() => 0);

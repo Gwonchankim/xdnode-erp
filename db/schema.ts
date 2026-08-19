@@ -92,6 +92,7 @@ export const hrEmployeeRecords = sqliteTable("hr_employee_records", {
   status: text("status").notNull().default("재직"),
   historyJson: text("history_json").notNull().default("[]"),
   retirementJson: text("retirement_json"),
+  annualSalary: integer("annual_salary").notNull().default(0),
   basePay: integer("base_pay").notNull().default(0),
   mealAllowance: integer("meal_allowance").notNull().default(0),
   childcareAllowance: integer("childcare_allowance").notNull().default(0),

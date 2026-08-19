@@ -388,6 +388,7 @@ type Employee = {
   birth: string;
   history: { date: string; type: string; detail: string }[];
   retirement?: RetirementRecord;
+  annualSalary: number;
   basePay: number;
   mealAllowance: number;
   childcareAllowance: number;
@@ -583,6 +584,7 @@ type PersistedEmployeeRecord = {
   status: string;
   history: Employee["history"];
   retirement?: RetirementRecord;
+  annualSalary: number;
   basePay: number;
   mealAllowance: number;
   childcareAllowance: number;
@@ -623,7 +625,7 @@ const initialRanks = [...companyRanks];
 const initialJobTitles = [...companyJobTitles];
 
 const initialEmployees: Employee[] = [
-  ...companyEmployees.map((employee) => ({ ...employee, basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0 })),
+  ...companyEmployees,
 ];
 
 const initialApplicants: Applicant[] = [];
@@ -736,6 +738,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
           manager: record.manager,
           birth: record.birth,
           history: record.history,
+          annualSalary: record.annualSalary,
           basePay: record.basePay,
           mealAllowance: record.mealAllowance,
           childcareAllowance: record.childcareAllowance,
@@ -819,7 +822,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
       id: String(data.get("employeeId")), name: String(data.get("name")), email: String(data.get("email")), phone: String(data.get("phone")),
       department, type: String(data.get("type")), joinDate: String(data.get("joinDate")).replaceAll("-", "."), position: String(data.get("position")),
       jobTitle: String(data.get("jobTitle")), status: "재직", address: "미입력", manager: organizationLeader?.name ?? "", birth: "미입력", history: [{ date: String(data.get("joinDate")).replaceAll("-", "."), type: "입사", detail: `${department} ${String(data.get("position"))} 입사` }],
-      basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0,
+      annualSalary: 0, basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0,
     };
     if (employees.some((employee) => employee.id === newEmployee.id)) {
       showToast("이미 사용 중인 직원 ID입니다.");
@@ -865,6 +868,7 @@ function XdnodeHrApp({ requestedView, navigationRequestKey }: { requestedView: s
           status: next.status,
           history: next.history,
           retirement: next.retirement ?? null,
+          annualSalary: next.annualSalary,
           basePay: next.basePay,
           mealAllowance: next.mealAllowance,
           childcareAllowance: next.childcareAllowance,
@@ -1606,13 +1610,13 @@ function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, 
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const birth = String(data.get("birth"));
-    onUpdate(employee.id, { name: String(data.get("name")).trim(), birth: birth ? birth.replaceAll("-", ".") : "미입력", email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle, basePay: Number(data.get("basePay")) || 0, mealAllowance: Number(data.get("mealAllowance")) || 0, childcareAllowance: Number(data.get("childcareAllowance")) || 0, vehicleAllowance: Number(data.get("vehicleAllowance")) || 0 });
+    onUpdate(employee.id, { name: String(data.get("name")).trim(), birth: birth ? birth.replaceAll("-", ".") : "미입력", email: String(data.get("email")), phone: String(data.get("phone")), address: String(data.get("address")), department: selectedDepartment, manager: organizationLeaderName, type: String(data.get("type")), position: String(data.get("position")), jobTitle: isOrganizationLeader ? "조직장" : selectedJobTitle, annualSalary: Number(data.get("annualSalary")) || 0, basePay: Number(data.get("basePay")) || 0, mealAllowance: Number(data.get("mealAllowance")) || 0, childcareAllowance: Number(data.get("childcareAllowance")) || 0, vehicleAllowance: Number(data.get("vehicleAllowance")) || 0 });
   }
   return <div className="page-wrap detail-page">
     <button type="button" className="back-button" onClick={onBack}>← 전체 인사기록</button>
     <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
-      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보·급여 기준</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input required name="name" defaultValue={employee.name} /></label><label><span>생년월일</span><input name="birth" type="date" defaultValue={employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-")} /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>기본급 · 1원 단위</span><WonInput name="basePay" ariaLabel="기본급" defaultValue={employee.basePay ?? 0} /></label><label><span>식대 · 1원 단위</span><WonInput name="mealAllowance" ariaLabel="식대" defaultValue={employee.mealAllowance ?? 0} /></label><label><span>육아수당 · 1원 단위</span><WonInput name="childcareAllowance" ariaLabel="육아수당" defaultValue={employee.childcareAllowance ?? 0} /></label><label><span>자가운전수당 · 1원 단위</span><WonInput name="vehicleAllowance" ariaLabel="자가운전수당" defaultValue={employee.vehicleAllowance ?? 0} /></label></div></form>
+      <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보·급여 기준</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input required name="name" defaultValue={employee.name} /></label><label><span>생년월일</span><input name="birth" type="date" defaultValue={employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-")} /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직급</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>연봉 · 1원 단위</span><WonInput name="annualSalary" ariaLabel="연봉" defaultValue={employee.annualSalary ?? 0} /></label><label><span>기본급 · 1원 단위</span><WonInput name="basePay" ariaLabel="기본급" defaultValue={employee.basePay ?? 0} /></label><label><span>식대 · 1원 단위</span><WonInput name="mealAllowance" ariaLabel="식대" defaultValue={employee.mealAllowance ?? 0} /></label><label><span>육아수당 · 1원 단위</span><WonInput name="childcareAllowance" ariaLabel="육아수당" defaultValue={employee.childcareAllowance ?? 0} /></label><label><span>자가운전수당 · 1원 단위</span><WonInput name="vehicleAllowance" ariaLabel="자가운전수당" defaultValue={employee.vehicleAllowance ?? 0} /></label></div></form>
       <aside className="panel detail-card history-card"><div className="detail-card-heading"><div><p className="eyebrow">HR HISTORY</p><h2>인사이력</h2></div><span>{employee.history.length}건</span></div><div className="history-list">{employee.history.map((item, index) => <div className="history-item" key={`${item.date}-${index}`}><span></span><div><strong>{item.type}</strong><p>{item.detail}</p><small>{item.date}</small></div></div>)}</div></aside>
     </div>
     <EmployeeInterviewLog employee={employee} />

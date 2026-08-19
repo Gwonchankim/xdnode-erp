@@ -13,6 +13,11 @@ export type CompanyEmployeeSeed = {
   manager: string;
   birth: string;
   history: { date: string; type: string; detail: string }[];
+  annualSalary: number;
+  basePay: number;
+  mealAllowance: number;
+  childcareAllowance: number;
+  vehicleAllowance: number;
 };
 
 export type CompanyOrganizationSeed = {
@@ -66,6 +71,38 @@ const rawEmployees: RawEmployee[] = [
   ["ys.hong", "홍윤서", "온라인팀", "매니저", "마케팅", "일반직4.5", "2026-04-06", "hys000904@gmail.com", "010-2733-5105", "2000-09-04", "경기 부천시 소사구 범안로 220 (옥길동, 옥길호반베르디움)"],
 ];
 
+const companyCompensationByEmployeeId: Record<string, {
+  annualSalary: number; basePay: number; mealAllowance: number; childcareAllowance: number; vehicleAllowance: number;
+}> = {
+  "ky.min": { annualSalary: 35_000_000, basePay: 2_716_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  sjcho: { annualSalary: 0, basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0 },
+  "js.kong": { annualSalary: 40_000_000, basePay: 3_133_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "gw.kim": { annualSalary: 34_000_000, basePay: 2_633_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "gc.kim": { annualSalary: 55_000_000, basePay: 4_183_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 200_000 },
+  "dy.kim": { annualSalary: 53_000_000, basePay: 4_216_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  ms1211: { annualSalary: 43_000_000, basePay: 3_383_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "sg.kim": { annualSalary: 34_000_000, basePay: 2_633_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "yh.kim": { annualSalary: 34_000_000, basePay: 2_633_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  owwon: { annualSalary: 28_000_000, basePay: 2_136_074, mealAllowance: 197_260, childcareAllowance: 0, vehicleAllowance: 0 },
+  juana11: { annualSalary: 36_000_000, basePay: 2_800_000, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  yj916938: { annualSalary: 35_000_000, basePay: 2_716_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  pjs: { annualSalary: 55_000_000, basePay: 4_383_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  jone: { annualSalary: 39_000_000, basePay: 3_164_521, mealAllowance: 85_479, childcareAllowance: 0, vehicleAllowance: 0 },
+  "hj.shin": { annualSalary: 32_000_000, basePay: 2_466_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "ks.yeom": { annualSalary: 38_000_000, basePay: 2_966_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "jy.oh": { annualSalary: 35_000_000, basePay: 2_716_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  wbs417: { annualSalary: 38_000_000, basePay: 2_966_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "sy.lee": { annualSalary: 33_000_000, basePay: 2_350_000, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 200_000 },
+  "sh.lee": { annualSalary: 42_000_000, basePay: 3_300_000, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  lhy0220: { annualSalary: 35_000_000, basePay: 2_716_667, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "ym.lim": { annualSalary: 60_000_000, basePay: 4_400_000, mealAllowance: 200_000, childcareAllowance: 200_000, vehicleAllowance: 200_000 },
+  meeso97: { annualSalary: 40_000_000, basePay: 3_133_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  softjcy: { annualSalary: 37_000_000, basePay: 2_883_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "ys.jung": { annualSalary: 30_000_000, basePay: 2_300_000, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "kh.choi": { annualSalary: 36_000_000, basePay: 2_800_000, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+  "ys.hong": { annualSalary: 31_000_000, basePay: 2_383_334, mealAllowance: 200_000, childcareAllowance: 0, vehicleAllowance: 0 },
+};
+
 const display = (value: string) => value || "미입력";
 const dotted = (value: string) => value.replaceAll("-", ".");
 
@@ -87,6 +124,7 @@ export const companyEmployees: CompanyEmployeeSeed[] = rawEmployees.map((employe
     manager: "",
     birth: birth ? dotted(birth) : "미입력",
     history: [{ date: formattedJoinDate, type: "입사", detail: `${department} ${position} 입사` }],
+    ...(companyCompensationByEmployeeId[id] ?? { annualSalary: 0, basePay: 0, mealAllowance: 0, childcareAllowance: 0, vehicleAllowance: 0 }),
   };
 });
 

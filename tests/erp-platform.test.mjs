@@ -88,6 +88,13 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(defaultsMigration, /annual_salary INTEGER NOT NULL DEFAULT 0/);
   assert.equal((defaultsMigration.match(/UPDATE hr_employee_records SET/g) ?? []).length, 27);
   assert.match(compensation, /annualSalary: employee\.annual_salary/);
+  assert.match(compensation, /\["CREATE", "LOAD_HR"\]\.includes\(action\)/);
+  assert.match(compensation, /NULLIF\(replace\(join_date, '\.', '-'\), ''\) IS NOT NULL/);
+  assert.match(compensation, /BETWEEN \? AND \?/);
+  assert.match(compensation, /COMPENSATION_HR_DRAFT_LOADED/);
+  assert.match(calculator, /: "급여 작성"\}<\/button>/);
+  assert.match(calculator, /compensationAction\("LOAD_HR"\)/);
+  assert.match(calculator, /현재 입력한 월별 수당과 메모는 초기화됩니다/);
   assert.match(workspace, /연봉 · 1원 단위/);
   assert.match(workspace, /기본급 · 1원 단위/);
   assert.doesNotMatch(workspace, /step="10000"/);

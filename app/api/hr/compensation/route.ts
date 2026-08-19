@@ -97,6 +97,32 @@ async function readRun(period: string) {
   return { run: run ?? null, lines: lines.results };
 }
 
+async function hrPayrollSnapshots(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  const start = `${period}-01`;
+  const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  const employees = await db.prepare(`SELECT employee_id, name, birth, department, position, job_title, join_date,
+    retirement_json, annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
+    WHERE NULLIF(replace(join_date, '.', '-'), '') IS NOT NULL
+      AND replace(join_date, '.', '-') <= ?
+      AND (
+        (COALESCE(status, '재직') <> '퇴직' AND (retirement_json IS NULL OR json_valid(retirement_json) = 0
+          OR NULLIF(json_extract(retirement_json, '$.date'), '') IS NULL
+          OR replace(json_extract(retirement_json, '$.date'), '.', '-') >= ?))
+        OR (json_valid(retirement_json) = 1
+          AND replace(json_extract(retirement_json, '$.date'), '.', '-') BETWEEN ? AND ?)
+      )
+    ORDER BY department, name`).bind(end, start, start, end).all<EmployeeRow>();
+  return employees.results.map((employee) => ({
+    id: employee.employee_id, name: employee.name, department: employee.department,
+    title: employee.job_title || employee.position, birthDate: employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-"),
+    joinDate: employee.join_date.replaceAll(".", "-"),
+    leaveDate: safeJson<{ date?: string }>(employee.retirement_json ?? "", {}).date?.replaceAll(".", "-") ?? "",
+    probationMonths: 0, annualSalary: employee.annual_salary, basePay: employee.base_pay, manualBasic: true,
+    meal: employee.meal_allowance, car: employee.vehicle_allowance, child: employee.childcare_allowance, monthly: {},
+  }));
+}
+
 function validateDraft(body: Record<string, unknown>) {
   if (!Array.isArray(body.employees) || !Array.isArray(body.rows)) return { error: "임금 대상자와 계산 결과가 필요합니다." } as const;
   const employees = body.employees as Array<Record<string, unknown>>;
@@ -144,48 +170,56 @@ export async function POST(request: Request) {
   const now = Date.now();
   const beforeState = await readRun(period);
 
-  if (action === "CREATE") {
-    if (beforeState.run) return Response.json({ run: runJson(beforeState.run, beforeState.lines), reused: true });
+  if (["CREATE", "LOAD_HR"].includes(action)) {
+    if (action === "CREATE" && beforeState.run) return Response.json({ run: runJson(beforeState.run, beforeState.lines), reused: true });
+    if (action === "LOAD_HR" && beforeState.run?.status === "CONFIRMED") {
+      return Response.json({ error: "확정된 임금안은 수정하기를 먼저 눌러 주세요." }, { status: 409 });
+    }
     let snapshots: Array<Record<string, unknown>>;
     let grossPayByEmployee: number[];
-    const hasClientDraft = Array.isArray(body.employees) && body.employees.length > 0;
+    const hasClientDraft = action === "CREATE" && Array.isArray(body.employees) && body.employees.length > 0;
     if (hasClientDraft) {
       const draft = validateDraft(body);
       if ("error" in draft) return Response.json({ error: draft.error }, { status: 400 });
       snapshots = draft.employees;
       grossPayByEmployee = draft.rows.map((row) => Number(row.total));
     } else {
-      const [year, month] = period.split("-").map(Number);
-      const start = `${period}-01`;
-      const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-      const employees = await db.prepare(`SELECT employee_id, name, birth, department, position, job_title, join_date,
-        retirement_json, annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
-        WHERE COALESCE(NULLIF(replace(join_date, '.', '-'), ''), '0000-01-01') <= ?
-          AND (retirement_json IS NULL OR json_valid(retirement_json) = 0
-            OR COALESCE(NULLIF(json_extract(retirement_json, '$.date'), ''), '9999-12-31') >= ?)
-        ORDER BY department, name`).bind(end, start).all<EmployeeRow>();
-      snapshots = employees.results.map((employee) => ({
-        id: employee.employee_id, name: employee.name, department: employee.department,
-        title: employee.job_title || employee.position, birthDate: employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-"),
-        joinDate: employee.join_date.replaceAll(".", "-"),
-        leaveDate: safeJson<{ date?: string }>(employee.retirement_json ?? "", {}).date ?? "",
-        probationMonths: 0, annualSalary: employee.annual_salary, basePay: employee.base_pay, manualBasic: true,
-        meal: employee.meal_allowance, car: employee.vehicle_allowance, child: employee.childcare_allowance, monthly: {},
-      }));
+      snapshots = await hrPayrollSnapshots(period);
       grossPayByEmployee = snapshots.map(() => 0);
     }
     const grossPay = grossPayByEmployee.reduce((sum, amount) => sum + amount, 0);
-    await db.batch([
-      db.prepare(`INSERT INTO hr_compensation_runs
-        (period, status, version, employee_count, gross_pay, settings_json, created_by, confirmed_by, confirmed_at, created_at, updated_at)
-        VALUES (?, 'DRAFT', 1, ?, ?, ?, ?, '', NULL, ?, ?)`).bind(period, snapshots.length, grossPay,
-        JSON.stringify(normalizeSettings(body.settings)), authorization.principal.employeeId, now, now),
-      ...snapshots.map((snapshot, index) => db.prepare(`INSERT INTO hr_compensation_lines
-        (period, employee_id, snapshot_json, gross_pay, updated_at) VALUES (?, ?, ?, ?, ?)`)
-        .bind(period, String(snapshot.id), JSON.stringify(snapshot), grossPayByEmployee[index], now)),
-    ]);
+    if (!beforeState.run) {
+      await db.batch([
+        db.prepare(`INSERT INTO hr_compensation_runs
+          (period, status, version, employee_count, gross_pay, settings_json, created_by, confirmed_by, confirmed_at, created_at, updated_at)
+          VALUES (?, 'DRAFT', 1, ?, ?, ?, ?, '', NULL, ?, ?)`).bind(period, snapshots.length, grossPay,
+          JSON.stringify(normalizeSettings(body.settings)), authorization.principal.employeeId, now, now),
+        ...snapshots.map((snapshot, index) => db.prepare(`INSERT INTO hr_compensation_lines
+          (period, employee_id, snapshot_json, gross_pay, updated_at) VALUES (?, ?, ?, ?, ?)`)
+          .bind(period, String(snapshot.id), JSON.stringify(snapshot), grossPayByEmployee[index], now)),
+      ]);
+    } else {
+      const expectedVersion = Number(body.version ?? 0);
+      if (expectedVersion !== beforeState.run.version) return Response.json({ error: "다른 사용자가 임금안을 변경했습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+      const nextVersion = expectedVersion + 1;
+      const results = await db.batch([
+        db.prepare(`UPDATE hr_compensation_runs SET version=version+1, employee_count=?, gross_pay=?, settings_json=?, updated_at=?
+          WHERE period=? AND status='DRAFT' AND version=?`).bind(snapshots.length, grossPay,
+          JSON.stringify(normalizeSettings(body.settings)), now, period, expectedVersion),
+        db.prepare(`DELETE FROM hr_compensation_lines WHERE period = ? AND EXISTS (
+          SELECT 1 FROM hr_compensation_runs WHERE period = ? AND status='DRAFT' AND version=? AND updated_at=?)`)
+          .bind(period, period, nextVersion, now),
+        ...snapshots.map((snapshot, index) => db.prepare(`INSERT INTO hr_compensation_lines
+          (period, employee_id, snapshot_json, gross_pay, updated_at)
+          SELECT ?, ?, ?, ?, ? WHERE EXISTS (
+            SELECT 1 FROM hr_compensation_runs WHERE period = ? AND status='DRAFT' AND version=? AND updated_at=?)`)
+          .bind(period, String(snapshot.id), JSON.stringify(snapshot), grossPayByEmployee[index], now,
+            period, nextVersion, now)),
+      ]);
+      if ((results[0]?.meta.changes ?? 0) < 1) return Response.json({ error: "임금안 상태가 변경되었습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+    }
     const afterState = await readRun(period);
-    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "COMPENSATION_DRAFT_CREATED", entityType: "compensationRun", entityId: period, after: runJson(afterState.run, afterState.lines) });
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: action === "LOAD_HR" ? "COMPENSATION_HR_DRAFT_LOADED" : "COMPENSATION_DRAFT_CREATED", entityType: "compensationRun", entityId: period, before: beforeState.run ? runJson(beforeState.run, beforeState.lines) : undefined, after: runJson(afterState.run, afterState.lines) });
     return Response.json({ run: runJson(afterState.run, afterState.lines) }, { status: 201 });
   }
 

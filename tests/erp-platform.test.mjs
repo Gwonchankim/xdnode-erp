@@ -16,10 +16,10 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
 });
 
 test("retirement effectiveness and compensation confirmation are server-controlled", async () => {
-  const [retirement, operations, employees, compensation, calculator, workspace, wonInput, migration] = await Promise.all([
+  const [retirement, operations, employees, compensation, calculator, workspace, wonInput, migration, settingsMigration] = await Promise.all([
     read("app/hr-retirements.ts"), read("app/api/hr/operations/route.ts"), read("app/api/hr/employee-records/route.ts"),
     read("app/api/hr/compensation/route.ts"), read("app/compensation-calculator.tsx"), read("app/hr-workspace.tsx"),
-    read("app/won-input.tsx"), read("drizzle/0065_hr_retirement_compensation.sql"),
+    read("app/won-input.tsx"), read("drizzle/0065_hr_retirement_compensation.sql"), read("drizzle/0068_compensation_draft_settings.sql"),
   ]);
   assert.match(retirement, /status IN \('IN_PROGRESS', 'READY'\) OR \(status = 'EFFECTIVE'/);
   assert.match(retirement, /const nextStatus = completion\?\.ready \? "COMPLETED" : "EFFECTIVE"/);
@@ -38,6 +38,8 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(calculator, /변경된 임금안이 서버에 자동 저장되었습니다/);
   assert.match(calculator, /서버 저장 완료 · 새로고침하거나 다시 접속해도 이 초안이 유지됩니다/);
   assert.match(calculator, /className="confirm"/);
+  assert.match(compensation, /settings_json/);
+  assert.match(settingsMigration, /settings_json TEXT NOT NULL DEFAULT '\{\}'/);
   assert.match(workspace, /기본급 · 1원 단위/);
   assert.doesNotMatch(workspace, /step="10000"/);
   assert.match(wonInput, /toLocaleString\("ko-KR"\)/);

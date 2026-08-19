@@ -173,6 +173,7 @@ export const hrCompensationRuns = sqliteTable("hr_compensation_runs", {
   version: integer("version").notNull().default(1),
   employeeCount: integer("employee_count").notNull().default(0),
   grossPay: integer("gross_pay").notNull().default(0),
+  settingsJson: text("settings_json").notNull().default("{}"),
   createdBy: text("created_by").notNull(),
   confirmedBy: text("confirmed_by").notNull().default(""),
   confirmedAt: integer("confirmed_at"),

@@ -7,6 +7,7 @@ const db = (env as unknown as Bindings).DB;
 
 type RunRow = {
   period: string; status: string; version: number; employee_count: number; gross_pay: number;
+  settings_json: string;
   created_by: string; confirmed_by: string; confirmed_at: number | null; created_at: number; updated_at: number;
 };
 
@@ -23,12 +24,28 @@ const money = (value: unknown) => {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) && parsed >= 0 ? Math.round(parsed) : null;
 };
+const normalizeSettings = (value: unknown) => {
+  const settings = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const rounding = ["round", "up", "down"].includes(String(settings.rounding)) ? String(settings.rounding) : "round";
+  const columns = settings.columns && typeof settings.columns === "object" ? settings.columns as Record<string, unknown> : {};
+  const standards = settings.standards && typeof settings.standards === "object" ? settings.standards as Record<string, unknown> : {};
+  const columnDefaults: Record<string, boolean> = { research: true, extra: true, welfare: false, severance: true };
+  const standardDefaults: Record<string, number> = { meal: 200_000, car: 200_000, child: 200_000 };
+  return {
+    rounding,
+    columns: Object.fromEntries(["research", "extra", "welfare", "severance"].map((field) => [field,
+      typeof columns[field] === "boolean" ? columns[field] : columnDefaults[field]])),
+    standards: Object.fromEntries(["meal", "car", "child"].map((field) => [field,
+      standards[field] === undefined ? standardDefaults[field] : money(standards[field]) ?? standardDefaults[field]])),
+  };
+};
 
 async function ensureSchema() {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_compensation_runs (
       period TEXT PRIMARY KEY NOT NULL, status TEXT NOT NULL DEFAULT 'DRAFT', version INTEGER NOT NULL DEFAULT 1,
-      employee_count INTEGER NOT NULL DEFAULT 0, gross_pay INTEGER NOT NULL DEFAULT 0, created_by TEXT NOT NULL,
+      employee_count INTEGER NOT NULL DEFAULT 0, gross_pay INTEGER NOT NULL DEFAULT 0,
+      settings_json TEXT NOT NULL DEFAULT '{}', created_by TEXT NOT NULL,
       confirmed_by TEXT NOT NULL DEFAULT '', confirmed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS hr_compensation_lines (
       period TEXT NOT NULL, employee_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, gross_pay INTEGER NOT NULL DEFAULT 0,
@@ -54,13 +71,18 @@ async function ensureSchema() {
     ["base_pay", "INTEGER NOT NULL DEFAULT 0"], ["meal_allowance", "INTEGER NOT NULL DEFAULT 0"],
     ["childcare_allowance", "INTEGER NOT NULL DEFAULT 0"], ["vehicle_allowance", "INTEGER NOT NULL DEFAULT 0"],
   ].filter(([name]) => !existing.has(name))) await db.prepare(`ALTER TABLE hr_employee_records ADD COLUMN ${name} ${definition}`).run();
+  const runColumns = await db.prepare("PRAGMA table_info(hr_compensation_runs)").all<{ name: string }>();
+  if (!runColumns.results.some((column) => column.name === "settings_json")) {
+    await db.prepare("ALTER TABLE hr_compensation_runs ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'").run();
+  }
 }
 
 function runJson(row: RunRow | null, lines: LineRow[]) {
   if (!row) return null;
   return {
     period: row.period, status: row.status, version: row.version, employeeCount: row.employee_count,
-    grossPay: row.gross_pay, createdBy: row.created_by, confirmedBy: row.confirmed_by,
+    grossPay: row.gross_pay, settings: normalizeSettings(safeJson(row.settings_json, {})),
+    createdBy: row.created_by, confirmedBy: row.confirmed_by,
     confirmedAt: row.confirmed_at, createdAt: row.created_at, updatedAt: row.updated_at,
     employees: lines.map((line) => safeJson<Record<string, unknown>>(line.snapshot_json, {})),
   };
@@ -142,8 +164,9 @@ export async function POST(request: Request) {
     }));
     await db.batch([
       db.prepare(`INSERT INTO hr_compensation_runs
-        (period, status, version, employee_count, gross_pay, created_by, confirmed_by, confirmed_at, created_at, updated_at)
-        VALUES (?, 'DRAFT', 1, ?, 0, ?, '', NULL, ?, ?)`).bind(period, snapshots.length, authorization.principal.employeeId, now, now),
+        (period, status, version, employee_count, gross_pay, settings_json, created_by, confirmed_by, confirmed_at, created_at, updated_at)
+        VALUES (?, 'DRAFT', 1, ?, 0, ?, ?, '', NULL, ?, ?)`).bind(period, snapshots.length,
+        JSON.stringify(normalizeSettings(body.settings)), authorization.principal.employeeId, now, now),
       ...snapshots.map((snapshot) => db.prepare(`INSERT INTO hr_compensation_lines
         (period, employee_id, snapshot_json, gross_pay, updated_at) VALUES (?, ?, ?, 0, ?)`)
         .bind(period, snapshot.id, JSON.stringify(snapshot), now)),
@@ -183,9 +206,10 @@ export async function POST(request: Request) {
     const nextStatus = action === "CONFIRM" ? "CONFIRMED" : "DRAFT";
     const statements = [
       ...lineStatements, deleteRemoved,
-      db.prepare(`UPDATE hr_compensation_runs SET status=?, version=version+1, employee_count=?, gross_pay=?,
+      db.prepare(`UPDATE hr_compensation_runs SET status=?, version=version+1, employee_count=?, gross_pay=?, settings_json=?,
         confirmed_by=?, confirmed_at=?, updated_at=? WHERE period=? AND status='DRAFT' AND version=?`)
-        .bind(nextStatus, draft.employees.length, grossPay, action === "CONFIRM" ? authorization.principal.employeeId : "", action === "CONFIRM" ? now : null, now, period, expectedVersion),
+        .bind(nextStatus, draft.employees.length, grossPay, JSON.stringify(normalizeSettings(body.settings)),
+          action === "CONFIRM" ? authorization.principal.employeeId : "", action === "CONFIRM" ? now : null, now, period, expectedVersion),
     ];
     if (action === "CONFIRM") {
       statements.push(db.prepare("DELETE FROM hr_payroll_records WHERE year_month = ?").bind(period));

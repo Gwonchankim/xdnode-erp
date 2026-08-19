@@ -15,11 +15,17 @@ import {
 
 type CalculatorMode = "incentive" | "wage";
 type ImportedCell = string | number | boolean | Date | null;
+type CompensationSettings = {
+  rounding: Rounding;
+  columns: { research: boolean; extra: boolean; welfare: boolean; severance: boolean };
+  standards: { meal: number; car: number; child: number };
+};
 
 const STORAGE_KEY = "xdnode-compensation-preferences-v2";
 const DAY = 86_400_000;
 const money = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
 const monthKey = compensationMonthKey;
+const draftSignature = (employees: Employee[], settings: CompensationSettings) => JSON.stringify({ employees, settings });
 const numberValue = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
@@ -88,7 +94,7 @@ function WageCalculator() {
   const [standards, setStandards] = useState({ meal: 200_000, car: 200_000, child: 200_000 });
   const [message, setMessage] = useState("직원 명부를 불러오거나 첫 직원을 추가해 주세요.");
   const [hydrated, setHydrated] = useState(false);
-  const [run, setRun] = useState<{ status: "DRAFT" | "CONFIRMED"; version: number; employeeCount: number; grossPay: number; confirmedAt: number | null; employees: Employee[] } | null>(null);
+  const [run, setRun] = useState<{ status: "DRAFT" | "CONFIRMED"; version: number; employeeCount: number; grossPay: number; confirmedAt: number | null; employees: Employee[]; settings?: CompensationSettings } | null>(null);
   const [saving, setSaving] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
   const [draftDirty, setDraftDirty] = useState(false);
@@ -101,14 +107,15 @@ function WageCalculator() {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        const data = JSON.parse(saved) as { columns?: typeof columns; standards?: typeof standards };
+        const data = JSON.parse(saved) as { columns?: typeof columns; standards?: typeof standards; rounding?: Rounding };
         if (data.columns) setColumns(data.columns);
         if (data.standards) setStandards(data.standards);
+        if (data.rounding) setRounding(data.rounding);
       }
     } catch { setMessage("저장된 명부를 읽지 못해 새 계산으로 시작합니다."); }
     setHydrated(true);
   }, []);
-  useEffect(() => { if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify({ columns, standards })); }, [columns, standards, hydrated]);
+  useEffect(() => { if (hydrated) localStorage.setItem(STORAGE_KEY, JSON.stringify({ columns, standards, rounding })); }, [columns, standards, rounding, hydrated]);
 
   const key = monthKey(year, month);
   useEffect(() => {
@@ -120,8 +127,14 @@ function WageCalculator() {
       if (cancelled) return;
       setRun(payload.run ?? null);
       const restoredEmployees = payload.run?.employees ?? [];
+      const restoredSettings = payload.run?.settings;
       setEmployees(restoredEmployees);
-      lastSavedEmployeesRef.current = payload.run ? JSON.stringify(restoredEmployees) : "";
+      if (restoredSettings) {
+        setRounding(restoredSettings.rounding);
+        setColumns(restoredSettings.columns);
+        setStandards(restoredSettings.standards);
+      }
+      lastSavedEmployeesRef.current = payload.run ? draftSignature(restoredEmployees, restoredSettings ?? { rounding, columns, standards }) : "";
       setDraftDirty(false);
       setMessage(payload.run ? `${key} 임금안을 불러왔습니다.` : `${month}월 임금 작성하기를 누르면 HR 인사기록을 불러옵니다.`);
     }).catch((error: Error) => { if (!cancelled) setMessage(error.message); }).finally(() => { if (!cancelled) setSaving(false); });
@@ -136,7 +149,8 @@ function WageCalculator() {
   useEffect(() => {
     if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
     if (!run || run.status !== "DRAFT" || saving || autoSaving) return;
-    const signature = JSON.stringify(employees);
+    const settings = { rounding, columns, standards };
+    const signature = draftSignature(employees, settings);
     if (signature === lastSavedEmployeesRef.current) { setDraftDirty(false); return; }
     setDraftDirty(true);
     const employeeSnapshot = employees;
@@ -148,7 +162,7 @@ function WageCalculator() {
         const response = await fetch("/api/hr/compensation", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "SAVE", period: key, version, employees: employeeSnapshot,
+            action: "SAVE", period: key, version, employees: employeeSnapshot, settings,
             rows: calculated.map((row) => ({
               employeeId: row.employee.id, basic: row.basic, meal: row.meal, car: row.car, child: row.child,
               incentive: row.incentive, bonus: row.bonus, extra: row.extra, research: row.research,
@@ -159,7 +173,7 @@ function WageCalculator() {
         const payload = await response.json() as { run?: typeof run; error?: string };
         if (!response.ok || !payload.run) throw new Error(payload.error || "임금안 자동 저장에 실패했습니다.");
         setRun(payload.run);
-        if (JSON.stringify(employeeSnapshot) === JSON.stringify(employees)) {
+        if (signature === draftSignature(employees, settings)) {
           lastSavedEmployeesRef.current = signature;
           setDraftDirty(false);
         }
@@ -169,7 +183,7 @@ function WageCalculator() {
       } finally { setAutoSaving(false); }
     }, 900);
     return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
-  }, [employees, run, saving, autoSaving, year, month, rounding, columns, key]);
+  }, [employees, run, saving, autoSaving, year, month, rounding, columns, standards, key]);
 
   function updateEmployee(id: string, patch: Partial<Employee>) { setEmployees((current) => current.map((employee) => employee.id === id ? { ...employee, ...patch } : employee)); }
   function updateMonthly(id: string, field: keyof MonthlyPay, value: string | number) {
@@ -260,13 +274,13 @@ function WageCalculator() {
     try {
       const response = await fetch("/api/hr/compensation", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, period: key, version: run?.version, employees, rows: apiRows() }),
+        body: JSON.stringify({ action, period: key, version: run?.version, employees, rows: apiRows(), settings: { rounding, columns, standards } }),
       });
       const payload = await response.json() as { run?: typeof run; error?: string; reused?: boolean };
       if (!response.ok || !payload.run) throw new Error(payload.error || "임금안을 처리하지 못했습니다.");
       setRun(payload.run);
       setEmployees(payload.run.employees ?? employees);
-      lastSavedEmployeesRef.current = JSON.stringify(payload.run.employees ?? employees);
+      lastSavedEmployeesRef.current = draftSignature(payload.run.employees ?? employees, payload.run.settings ?? { rounding, columns, standards });
       setDraftDirty(false);
       setMessage(action === "CREATE" ? `HR 인사기록에서 ${payload.run.employeeCount}명을 불러왔습니다.` : action === "SAVE" ? "임금안 초안을 서버에 저장했습니다." : action === "CONFIRM" ? "임금안을 확정해 HR 급여관리에 덮어썼습니다." : "임금안을 다시 수정할 수 있습니다.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "임금안을 처리하지 못했습니다."); }

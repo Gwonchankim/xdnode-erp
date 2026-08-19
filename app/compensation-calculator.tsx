@@ -363,8 +363,8 @@ function WageCalculator() {
     const calculated = employees.map((employee) => calculatePay(employee, targetYear, targetMonth, rounding, columns));
     const header = ["성명", "부서", "직책", "생년월일", "입사일", "퇴사일", "근무일", "수습(월)", "연봉", "기본급", "식대", "자가운전보조금", "육아수당", "인센티브", "상여금", ...(columns.extra ? ["추가수당"] : []), ...(columns.research ? ["연구수당"] : []), ...(columns.severance ? ["퇴직금"] : []), "지급총액", ...(columns.welfare ? ["복지기금", "복지기금 내역"] : []), "비고"];
     return [
-      [{ value: targetKey, fontWeight: "bold", backgroundColor: "18181B", color: "FFFFFF" }],
-      header.map((value) => ({ value, fontWeight: "bold", backgroundColor: "F4F4F5" })),
+      [{ value: targetKey, fontWeight: "bold", backgroundColor: "#18181B", color: "#FFFFFF" }],
+      header.map((value) => ({ value, fontWeight: "bold", backgroundColor: "#F4F4F5" })),
       ...calculated.map((row) => { const monthly = row.employee.monthly[targetKey] ?? {}; return [row.employee.name, row.employee.department, row.employee.title, row.employee.birthDate, row.employee.joinDate, row.employee.leaveDate, row.days, row.employee.probationMonths, row.employee.annualSalary, row.basic, row.meal, row.car, row.child, row.incentive, row.bonus, ...(columns.extra ? [row.extra] : []), ...(columns.research ? [row.research] : []), ...(columns.severance ? [row.severance] : []), row.total, ...(columns.welfare ? [row.welfare, monthly.welfareNote ?? ""] : []), monthly.note ?? ""].map((value, index) => ({ value, format: typeof value === "number" && index >= 8 ? "₩#,##0" : undefined })); }),
     ];
   }

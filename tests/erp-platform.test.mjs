@@ -59,6 +59,11 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(calculator, /aria-sort/);
   assert.match(calculatorCss, /column-sort/);
   assert.match(calculatorCss, /footer button\{font-size:11px\}/);
+  for (const label of ["연봉", "기본급 직접 입력", "추가수당", "연구수당", "퇴직금", "복지기금"]) {
+    assert.match(calculator, new RegExp(`WonInput className="money-input" ariaLabel="${label}"`));
+  }
+  assert.match(calculator, /field === "incentive" \? "인센티브" : "상여금"/);
+  assert.doesNotMatch(calculator, /className="money-input" type="number"/);
   assert.match(compensation, /settings_json/);
   assert.match(settingsMigration, /settings_json TEXT NOT NULL DEFAULT '\{\}'/);
   assert.match(workspace, /기본급 · 1원 단위/);

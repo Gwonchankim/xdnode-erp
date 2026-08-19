@@ -40,6 +40,10 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(calculator, /className="payroll-footer-action confirm"/);
   assert.match(calculator, /\.toFile\(`XD_NODE_급여_/);
   assert.match(calculator, /writeXlsxFile\(sheets\)\.toFile/);
+  assert.doesNotMatch(calculator, /<fieldset className="compensation-editable" disabled=/);
+  assert.match(calculator, /<fieldset className="compensation-editing-fields" disabled=\{locked \|\| saving\}>/);
+  assert.match(calculator, /<fieldset className="wage-table-editable" disabled=\{locked \|\| saving\}>/);
+  assert.match(calculator, /<\/fieldset><footer><button disabled=\{Boolean\(exporting\)\}/);
   assert.match(calculator, /beginColumnResize/);
   assert.match(calculator, /column-resizer/);
   assert.match(calculator, /COLUMN_VISIBILITY_OPTIONS/);

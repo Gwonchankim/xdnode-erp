@@ -7,9 +7,10 @@ const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("payroll Excel export accepts the styled title and header rows", async () => {
   const calculator = await read("app/compensation-calculator.tsx");
-  for (const color of ["#18181B", "#FFFFFF", "#F4F4F5"]) assert.match(calculator, new RegExp(color));
+  assert.match(calculator, /\[\{ value: targetKey, fontWeight: "bold" \}\]/);
+  assert.match(calculator, /backgroundColor: "#F4F4F5"/);
   const workbook = await writeXlsxFile([
-    [{ value: "2026-08", fontWeight: "bold", backgroundColor: "#18181B", color: "#FFFFFF" }],
+    [{ value: "2026-08", fontWeight: "bold" }],
     ["성명", "지급총액"].map((value) => ({ value, fontWeight: "bold", backgroundColor: "#F4F4F5" })),
     [{ value: "김권찬" }, { value: 3_465_751, format: "₩#,##0" }],
   ], { sheet: "2026-08", freezeRows: 2, showGridLines: true }).toBuffer();

@@ -51,8 +51,14 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(compensation, /grossPayByEmployee/);
   assert.match(calculatorCss, /tbody tr:nth-child\(even\) td/);
   assert.match(calculatorCss, /border-right:1px solid/);
-  assert.match(calculatorCss, /font-size:13px;font-weight:800;text-align:center/);
+  assert.match(calculatorCss, /font-size:12px;font-weight:800;text-align:center/);
   assert.match(calculatorCss, /column-visibility/);
+  assert.match(calculator, /type WageSortKey/);
+  assert.match(calculator, /toggleSort/);
+  assert.match(calculator, /sortedRows\.map/);
+  assert.match(calculator, /aria-sort/);
+  assert.match(calculatorCss, /column-sort/);
+  assert.match(calculatorCss, /footer button\{font-size:11px\}/);
   assert.match(compensation, /settings_json/);
   assert.match(settingsMigration, /settings_json TEXT NOT NULL DEFAULT '\{\}'/);
   assert.match(workspace, /기본급 · 1원 단위/);

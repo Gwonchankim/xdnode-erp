@@ -90,6 +90,10 @@ function WageCalculator() {
   const [hydrated, setHydrated] = useState(false);
   const [run, setRun] = useState<{ status: "DRAFT" | "CONFIRMED"; version: number; employeeCount: number; grossPay: number; confirmedAt: number | null; employees: Employee[] } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const lastSavedEmployeesRef = useRef("");
+  const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const rosterRef = useRef<HTMLInputElement>(null);
 
@@ -115,7 +119,10 @@ function WageCalculator() {
       if (!response.ok) throw new Error(payload.error || "임금안을 불러오지 못했습니다.");
       if (cancelled) return;
       setRun(payload.run ?? null);
-      setEmployees(payload.run?.employees ?? []);
+      const restoredEmployees = payload.run?.employees ?? [];
+      setEmployees(restoredEmployees);
+      lastSavedEmployeesRef.current = payload.run ? JSON.stringify(restoredEmployees) : "";
+      setDraftDirty(false);
       setMessage(payload.run ? `${key} 임금안을 불러왔습니다.` : `${month}월 임금 작성하기를 누르면 HR 인사기록을 불러옵니다.`);
     }).catch((error: Error) => { if (!cancelled) setMessage(error.message); }).finally(() => { if (!cancelled) setSaving(false); });
     return () => { cancelled = true; };
@@ -125,6 +132,44 @@ function WageCalculator() {
   const alerts = useMemo(() => ({ noJoin: rows.filter((row) => row.probationWithoutJoin), probationOver: rows.filter((row) => row.probationOver), partial: rows.filter((row) => row.days > 0 && row.days < row.daysInMonth), mixed: rows.filter((row) => row.mixedProbation), zero: rows.filter((row) => row.days === 0) }), [rows]);
   const departments = useMemo(() => Array.from(new Set(employees.map((employee) => employee.department).filter(Boolean))).sort(), [employees]);
   const titles = useMemo(() => Array.from(new Set(employees.map((employee) => employee.title).filter(Boolean))).sort(), [employees]);
+
+  useEffect(() => {
+    if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+    if (!run || run.status !== "DRAFT" || saving || autoSaving) return;
+    const signature = JSON.stringify(employees);
+    if (signature === lastSavedEmployeesRef.current) { setDraftDirty(false); return; }
+    setDraftDirty(true);
+    const employeeSnapshot = employees;
+    const version = run.version;
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setAutoSaving(true);
+      try {
+        const calculated = employeeSnapshot.map((employee) => calculatePay(employee, year, month, rounding, columns));
+        const response = await fetch("/api/hr/compensation", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "SAVE", period: key, version, employees: employeeSnapshot,
+            rows: calculated.map((row) => ({
+              employeeId: row.employee.id, basic: row.basic, meal: row.meal, car: row.car, child: row.child,
+              incentive: row.incentive, bonus: row.bonus, extra: row.extra, research: row.research,
+              severance: row.severance, welfare: row.welfare, total: row.total,
+            })),
+          }),
+        });
+        const payload = await response.json() as { run?: typeof run; error?: string };
+        if (!response.ok || !payload.run) throw new Error(payload.error || "임금안 자동 저장에 실패했습니다.");
+        setRun(payload.run);
+        if (JSON.stringify(employeeSnapshot) === JSON.stringify(employees)) {
+          lastSavedEmployeesRef.current = signature;
+          setDraftDirty(false);
+        }
+        setMessage("변경된 임금안이 서버에 자동 저장되었습니다.");
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "임금안 자동 저장에 실패했습니다.");
+      } finally { setAutoSaving(false); }
+    }, 900);
+    return () => { if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current); };
+  }, [employees, run, saving, autoSaving, year, month, rounding, columns, key]);
 
   function updateEmployee(id: string, patch: Partial<Employee>) { setEmployees((current) => current.map((employee) => employee.id === id ? { ...employee, ...patch } : employee)); }
   function updateMonthly(id: string, field: keyof MonthlyPay, value: string | number) {
@@ -221,6 +266,8 @@ function WageCalculator() {
       if (!response.ok || !payload.run) throw new Error(payload.error || "임금안을 처리하지 못했습니다.");
       setRun(payload.run);
       setEmployees(payload.run.employees ?? employees);
+      lastSavedEmployeesRef.current = JSON.stringify(payload.run.employees ?? employees);
+      setDraftDirty(false);
       setMessage(action === "CREATE" ? `HR 인사기록에서 ${payload.run.employeeCount}명을 불러왔습니다.` : action === "SAVE" ? "임금안 초안을 서버에 저장했습니다." : action === "CONFIRM" ? "임금안을 확정해 HR 급여관리에 덮어썼습니다." : "임금안을 다시 수정할 수 있습니다.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "임금안을 처리하지 못했습니다."); }
     finally { setSaving(false); }
@@ -242,10 +289,10 @@ function WageCalculator() {
   return <div className={`wage-calculator${locked ? " locked" : ""}`}>
     <section className="compensation-toolbar panel">
       <div><p className="eyebrow">PAYROLL BASIS</p><h2>대상 월과 계산 기준</h2><span>연봉에 비과세 수당이 포함된 회사 급여 기준으로 계산합니다.</span></div>
-      <div className="wage-period-controls"><label>연도<input type="number" value={year} onChange={(event) => setYear(Number(event.target.value) || now.getFullYear())} /></label><label>월<select value={month} onChange={(event) => setMonth(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}월</option>)}</select></label><label>단수 처리<select disabled={locked} value={rounding} onChange={(event) => setRounding(event.target.value as Rounding)}><option value="round">반올림</option><option value="up">올림</option><option value="down">내림</option></select></label>{!run && <div className="compensation-run-actions"><button disabled={saving} type="button" onClick={() => void compensationAction("CREATE")}>{saving ? "불러오는 중…" : `${month}월 임금 작성하기`}</button></div>}</div>
+      <div className="wage-period-controls"><label>연도<input type="number" value={year} onChange={(event) => setYear(Number(event.target.value) || now.getFullYear())} /></label><label>월<select value={month} onChange={(event) => setMonth(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}월</option>)}</select></label><label>단수 처리<select disabled={locked} value={rounding} onChange={(event) => setRounding(event.target.value as Rounding)}><option value="round">반올림</option><option value="up">올림</option><option value="down">내림</option></select></label><div className="compensation-run-actions">{!run ? <button disabled={saving} type="button" onClick={() => void compensationAction("CREATE")}>{saving ? "불러오는 중…" : `${month}월 임금 작성하기`}</button> : locked ? <button disabled={saving} type="button" onClick={() => void compensationAction("REOPEN")}>수정하기</button> : <><button disabled={saving || autoSaving} type="button" onClick={() => void compensationAction("SAVE")}>{autoSaving ? "자동 저장 중…" : "임금안 저장"}</button><button disabled={saving || autoSaving || !employees.length} className="confirm" type="button" onClick={() => void compensationAction("CONFIRM")}>{saving ? "처리 중…" : "급여 확정"}</button></>}</div></div>
     </section>
     <section className="compensation-kpis">{[["지급 인원", `${totals.people}명`, `${rows.length}명 중`], ["기본급 합계", money(totals.basic), "365일법·수습 반영"], ["비과세 수당", money(totals.allowances), "식대·자가운전·육아"], ["인센·상여 등", money(totals.variable), "월별 입력 항목"], ["지급총액", money(totals.total), `${key} 계산`]].map(([label, value, hint], index) => <article key={label} className={index === 4 ? "emphasis" : ""}><span>{label}</span><strong>{value}</strong><small>{hint}</small></article>)}</section>
-    {run && <section className={`compensation-run-status ${locked ? "confirmed" : "draft"}`}><div><strong>{locked ? "확정된 임금안" : "작성 중인 임금안"}</strong><span>{locked ? "HR 급여관리에 반영됨 · 수정하기 후 재확정하면 기존 월 기록을 덮어씁니다." : "현재 계산 결과를 저장하거나 HR 급여관리로 확정할 수 있습니다."}</span></div><div className="compensation-final-actions">{locked ? <button disabled={saving} type="button" onClick={() => void compensationAction("REOPEN")}>수정하기</button> : <><button disabled={saving} type="button" onClick={() => void compensationAction("SAVE")}>임금안 저장</button><button disabled={saving || !employees.length} className="primary" type="button" onClick={() => void compensationAction("CONFIRM")}>{saving ? "처리 중…" : "급여 확정"}</button></>}</div></section>}
+    {run && <section className={`compensation-run-status ${locked ? "confirmed" : "draft"}`}><div><strong>{locked ? "확정된 임금안" : "작성 중인 임금안"}</strong><span>{locked ? "HR 급여관리에 반영됨 · 수정하기 후 재확정하면 기존 월 기록을 덮어씁니다." : autoSaving ? "변경내용을 서버에 자동 저장하고 있습니다." : draftDirty ? "변경내용을 잠시 후 서버에 자동 저장합니다." : "서버 저장 완료 · 새로고침하거나 다시 접속해도 이 초안이 유지됩니다."}</span></div></section>}
     <fieldset className="compensation-editable" disabled={locked || saving}>
     <section className="wage-setup-grid">
       <article className="panel wage-setup-card"><header><div><p>EMPLOYEE ROSTER</p><h2>직원 명부</h2></div><span>{employees.length}명</span></header><div className="wage-actions"><button type="button" onClick={() => fileRef.current?.click()}>인건비 엑셀 불러오기</button><input ref={fileRef} hidden type="file" accept=".xlsx" onChange={importRoster} /><button type="button" onClick={addEmployee}>＋ 직원 추가</button><button type="button" onClick={copyPreviousMonth}>전월 값 이어받기</button><button type="button" onClick={loadExample}>예시 명부</button><button type="button" onClick={downloadRoster}>명부 저장</button><button type="button" onClick={() => rosterRef.current?.click()}>명부 불러오기</button><input ref={rosterRef} hidden type="file" accept=".json" onChange={loadRoster} /></div><p className="wage-message">{message}</p></article>

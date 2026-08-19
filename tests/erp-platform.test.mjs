@@ -34,6 +34,10 @@ test("retirement effectiveness and compensation confirmation are server-controll
   assert.match(calculator, /임금안을 확정해 HR 급여관리에 덮어썼습니다/);
   assert.match(calculator, /"급여 확정"/);
   assert.match(calculator, /수정하기/);
+  assert.match(calculator, /action: "SAVE", period: key/);
+  assert.match(calculator, /변경된 임금안이 서버에 자동 저장되었습니다/);
+  assert.match(calculator, /서버 저장 완료 · 새로고침하거나 다시 접속해도 이 초안이 유지됩니다/);
+  assert.match(calculator, /className="confirm"/);
   assert.match(workspace, /기본급 · 1원 단위/);
   assert.doesNotMatch(workspace, /step="10000"/);
   assert.match(wonInput, /toLocaleString\("ko-KR"\)/);

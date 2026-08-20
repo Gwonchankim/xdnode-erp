@@ -41,6 +41,7 @@ const DEAL_STORAGE = "xdnode-incentive-deals-v1";
 const ADJUSTMENT_STORAGE = "xdnode-incentive-adjustments-v1";
 const CONFIG_STORAGE = "xdnode-incentive-config-v1";
 const PAYROLL_RESULT_STORAGE = "xdnode-incentive-payroll-v1";
+const EXCLUDED_PEOPLE_STORAGE = "xdnode-incentive-excluded-people-v1";
 const KINDS: DealKind[] = ["일반", "인바운드", "단독 RAM", "케이블", "온라인"];
 const EXCLUDED_KINDS = new Set<DealKind>(["인바운드", "단독 RAM", "케이블", "온라인"]);
 const DEFAULT_CONFIG: IncentiveConfig = { hurdleRate: 5, payoutRate: 5, cableMode: "deduct", rounding: "none", fixCancelSign: true };
@@ -238,6 +239,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
   const [adjustmentDraft, setAdjustmentDraft] = useState({ person: "", kind: "추가지급" as AdjustmentKind, amount: 0, note: "" });
   const [dashboardPerson, setDashboardPerson] = useState("");
   const [dealFilterPerson, setDealFilterPerson] = useState("");
+  const [excludedPeople, setExcludedPeople] = useState<string[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -246,9 +248,11 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         const savedDeals = localStorage.getItem(DEAL_STORAGE);
         const savedAdjustments = localStorage.getItem(ADJUSTMENT_STORAGE);
         const savedConfig = localStorage.getItem(CONFIG_STORAGE);
+        const savedExcludedPeople = localStorage.getItem(EXCLUDED_PEOPLE_STORAGE);
         if (savedDeals) setDeals(JSON.parse(savedDeals));
         if (savedAdjustments) setAdjustments(JSON.parse(savedAdjustments));
         if (savedConfig) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) });
+        if (savedExcludedPeople) setExcludedPeople(JSON.parse(savedExcludedPeople));
       } catch { setMessage("저장된 이력을 읽지 못했습니다. 새 계산으로 시작합니다."); }
       setHydrated(true);
     }, 0);
@@ -260,9 +264,18 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
     localStorage.setItem(DEAL_STORAGE, JSON.stringify(deals));
     localStorage.setItem(ADJUSTMENT_STORAGE, JSON.stringify(adjustments));
     localStorage.setItem(CONFIG_STORAGE, JSON.stringify(config));
-  }, [deals, adjustments, config, hydrated]);
+    localStorage.setItem(EXCLUDED_PEOPLE_STORAGE, JSON.stringify(excludedPeople));
+  }, [deals, adjustments, config, excludedPeople, hydrated]);
 
-  const people = useMemo(() => Array.from(new Set([...deals.map((deal) => deal.person), ...adjustments.map((item) => item.person)].filter(Boolean))).sort(), [deals, adjustments]);
+  const allPeople = useMemo(() => Array.from(new Set([...deals.map((deal) => deal.person), ...adjustments.map((item) => item.person)].filter(Boolean))).sort(), [deals, adjustments]);
+  const excludedPeopleSet = useMemo(() => new Set(excludedPeople), [excludedPeople]);
+  const activeDeals = useMemo(() => deals.filter((deal) => !excludedPeopleSet.has(deal.person)), [deals, excludedPeopleSet]);
+  const activeAdjustments = useMemo(() => adjustments.filter((item) => !excludedPeopleSet.has(item.person)), [adjustments, excludedPeopleSet]);
+  const people = useMemo(() => allPeople.filter((person) => !excludedPeopleSet.has(person)), [allPeople, excludedPeopleSet]);
+
+  useEffect(() => {
+    setExcludedPeople((current) => current.filter((person) => allPeople.includes(person)));
+  }, [allPeople]);
 
   useEffect(() => {
     if (!people.length) { setDashboardPerson(""); setDealFilterPerson(""); return; }
@@ -271,8 +284,8 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
   }, [people, dashboardPerson, dealFilterPerson]);
 
   const summaries = useMemo(() => people.map((person) => {
-    const ownDeals = deals.filter((deal) => deal.person === person);
-    const ownAdjustments = adjustments.filter((item) => item.person === person);
+    const ownDeals = activeDeals.filter((deal) => deal.person === person);
+    const ownAdjustments = activeAdjustments.filter((item) => item.person === person);
     const foldedCosts = foldedCableCosts(ownDeals, config);
     const base = ownDeals.reduce((acc, deal) => {
       const result = calculate(deal, config, foldedCosts.get(deal.id) ?? 0);
@@ -292,7 +305,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
     const welfare = ownAdjustments.filter((item) => item.kind === "복지기금 전환").reduce((sum, item) => sum + item.amount, 0);
     const approved = Math.max(roundIncentive(base.incentive - cableDeduction + extra - deduction, config.rounding), 0);
     return { person, ...base, cableDeduction, extra, deduction, welfare: Math.min(welfare, approved), approved, payroll: Math.max(approved - welfare, 0), count: ownDeals.length };
-  }), [people, deals, adjustments, config]);
+  }), [people, activeDeals, activeAdjustments, config]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -304,10 +317,14 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
     return acc;
   }, { sales: 0, margin: 0, approved: 0, payroll: 0, welfare: 0 }), [summaries]);
 
-  const personalBreakdown = useMemo(() => incentiveBreakdown(deals.filter((deal) => deal.person === dashboardPerson), config), [deals, config, dashboardPerson]);
-  const overallBreakdown = useMemo(() => incentiveBreakdown(deals, config), [deals, config]);
-  const dealFoldedCosts = useMemo(() => foldedCableCosts(deals, config), [deals, config]);
-  const filteredDeals = useMemo(() => dealFilterPerson ? deals.filter((deal) => deal.person === dealFilterPerson) : deals, [deals, dealFilterPerson]);
+  const personalBreakdown = useMemo(() => incentiveBreakdown(activeDeals.filter((deal) => deal.person === dashboardPerson), config), [activeDeals, config, dashboardPerson]);
+  const overallBreakdown = useMemo(() => incentiveBreakdown(activeDeals, config), [activeDeals, config]);
+  const dealFoldedCosts = useMemo(() => foldedCableCosts(activeDeals, config), [activeDeals, config]);
+  const filteredDeals = useMemo(() => dealFilterPerson ? activeDeals.filter((deal) => deal.person === dealFilterPerson) : activeDeals, [activeDeals, dealFilterPerson]);
+
+  function toggleExcludedPerson(person: string) {
+    setExcludedPeople((current) => current.includes(person) ? current.filter((item) => item !== person) : [...current, person]);
+  }
 
   function addDeal() {
     if (!draft.person.trim() || !draft.item.trim()) { setMessage("담당자와 품목을 입력해 주세요."); return; }
@@ -383,7 +400,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
 
   function clearAll() {
     if (!confirm("현재 거래와 조정 내역을 모두 지울까요?")) return;
-    setDeals([]); setAdjustments([]); setFile(null); setSheets([]); setSheet("");
+    setDeals([]); setAdjustments([]); setExcludedPeople([]); setFile(null); setSheets([]); setSheet("");
     if (fileInput.current) fileInput.current.value = "";
     setMessage("새 계산으로 초기화했습니다.");
   }
@@ -414,7 +431,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         </section>
 
         <section className={styles.kpis}>
-          <article><span>총 매출</span><strong>{won(totals.sales)}</strong><small>{deals.length.toLocaleString("ko-KR")}건의 거래</small></article>
+          <article><span>총 매출</span><strong>{won(totals.sales)}</strong><small>{activeDeals.length.toLocaleString("ko-KR")}건의 거래</small></article>
           <article><span>총 마진</span><strong>{won(totals.margin)}</strong><small>비용 차감 후</small></article>
           <article className={styles.darkCard}><span>승인 인센티브</span><strong>{won(totals.approved)}</strong><small>추가·차감 반영</small></article>
           <article><span>급여 인센 열</span><strong>{won(totals.payroll)}</strong><small>복지기금 {won(totals.welfare)} 별도</small></article>
@@ -429,6 +446,11 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
             </button>
             {sheets.length > 1 && <label className={styles.sheetSelect}>계산할 시트<select value={sheet} onChange={(event) => importSheet(event.target.value)}>{sheets.map((name) => <option key={name}>{name}</option>)}</select></label>}
             <div className={styles.notice}>{message}</div>
+            <div className={styles.peopleExclusion}>
+              <div><strong>인센티브 완전 제외 인원</strong><small>선택된 인원은 계산·요약·그래프·거래 내역과 엑셀 결과에서 모두 제외됩니다.</small></div>
+              <div className={styles.peopleChoices}>{allPeople.map((person) => <label key={person} className={excludedPeopleSet.has(person) ? styles.personExcluded : undefined}><input type="checkbox" checked={excludedPeopleSet.has(person)} onChange={() => toggleExcludedPerson(person)} /><span>{person}</span></label>)}{!allPeople.length && <p>거래를 불러오면 담당자를 선택할 수 있습니다.</p>}</div>
+              {!!excludedPeople.length && <button type="button" onClick={() => setExcludedPeople([])}>제외 설정 모두 해제</button>}
+            </div>
           </article>
 
           <article className={styles.panel}>
@@ -468,7 +490,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         </section>
 
         <section className={`${styles.panel} ${styles.dealReviewPanel}`}>
-          <div className={styles.panelHead}><div><p>DEAL REVIEW</p><h2>거래별 계산 내역</h2></div><div className={styles.dealFilter}><label>담당자<select value={dealFilterPerson} onChange={(event) => setDealFilterPerson(event.target.value)}><option value="">전체 담당자</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label><span>{filteredDeals.length.toLocaleString("ko-KR")} / {deals.length.toLocaleString("ko-KR")}건</span></div></div>
+          <div className={styles.panelHead}><div><p>DEAL REVIEW</p><h2>거래별 계산 내역</h2></div><div className={styles.dealFilter}><label>담당자<select value={dealFilterPerson} onChange={(event) => setDealFilterPerson(event.target.value)}><option value="">전체 담당자</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label><span>{filteredDeals.length.toLocaleString("ko-KR")} / {activeDeals.length.toLocaleString("ko-KR")}건</span></div></div>
           <div className={styles.tableWrap}><table className={styles.dealTable}><thead><tr><th>담당자</th><th>거래처</th><th>구분</th><th>제품</th><th>수량</th><th>원가</th><th>매출합</th><th>마진</th><th>마진율</th><th>마진 계산식</th><th>발주일</th><th>매출계산서일</th></tr></thead>
           <tbody>{filteredDeals.map((deal) => { const result = calculate(deal, config, dealFoldedCosts.get(deal.id) ?? 0); const marginRate = result.sales ? result.margin / result.sales * 100 : 0; return <tr key={deal.id} className={deal.excluded ? styles.excludedRow : undefined}>
             <td><strong>{deal.person}</strong><button className={styles.delete} onClick={() => setDeals((items) => items.filter((item) => item.id !== deal.id))}>삭제</button></td>
@@ -477,7 +499,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
             <td>{deal.item}</td><td>{deal.quantity.toLocaleString("ko-KR")}</td><td>{won(deal.unitCost)}</td><td>{won(result.sales)}</td><td>{won(result.margin)}</td><td>{marginRate.toFixed(1)}%</td>
             <td className={styles.formulaCell}><strong>{won(result.incentive)}</strong><small>({won(result.margin)} − {won(result.threshold)}) × {config.payoutRate}%</small>{result.cancelBlocked && <small>취소 부호 보정</small>}</td>
             <td>{deal.date || "-"}</td><td>{deal.salesInvoiceDate || deal.date || "-"}</td>
-          </tr>; })}{!filteredDeals.length && <tr><td colSpan={12} className={styles.empty}>{deals.length ? "선택한 담당자의 거래가 없습니다." : "아직 거래가 없습니다. 엑셀을 불러오거나 첫 거래를 입력해 주세요."}</td></tr>}</tbody></table></div>
+          </tr>; })}{!filteredDeals.length && <tr><td colSpan={12} className={styles.empty}>{activeDeals.length ? "선택한 담당자의 거래가 없습니다." : deals.length ? "모든 담당자가 인센티브 완전 제외로 설정되었습니다." : "아직 거래가 없습니다. 엑셀을 불러오거나 첫 거래를 입력해 주세요."}</td></tr>}</tbody></table></div>
         </section>
 
         <section className={`${styles.panel} ${styles.adjustmentPanel}`}>

@@ -337,6 +337,9 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
   const overallBreakdown = useMemo(() => incentiveBreakdown(activeDeals, config), [activeDeals, config]);
   const dealFoldedCosts = useMemo(() => foldedCableCosts(activeDeals, config), [activeDeals, config]);
   const filteredDeals = useMemo(() => dealFilterPerson ? activeDeals.filter((deal) => deal.person === dealFilterPerson) : activeDeals, [activeDeals, dealFilterPerson]);
+  const selectedCableDeals = useMemo(() => dealFilterPerson
+    ? activeDeals.filter((deal) => deal.person === dealFilterPerson && deal.kind === "케이블" && !deal.excluded)
+    : [], [activeDeals, dealFilterPerson]);
 
   function toggleExcludedPerson(person: string) {
     setExcludedPeople((current) => current.includes(person) ? current.filter((item) => item !== person) : [...current, person]);
@@ -409,9 +412,39 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
   async function exportResults() {
     const header = ["담당자", "거래건수", "총매출", "총마진", "기본 인센", "케이블 차감", "추가지급", "차감", "승인 인센", "급여 인센", "복지기금"];
     const rows = summaries.map((item) => [item.person, item.count, item.sales, item.margin, item.incentive, -item.cableDeduction, item.extra, item.deduction, item.approved, item.payroll, item.welfare]);
-    const data = [header, ...rows].map((row, rowIndex) => row.map((value) => ({ value, fontWeight: rowIndex === 0 ? "bold" as const : undefined, backgroundColor: rowIndex === 0 ? "E8EEF0" : undefined })));
-    await writeXlsxFile(data, { fileName: `개인별_인센티브_${new Date().toISOString().slice(0, 10)}.xlsx` });
-    setMessage("개인별 인센티브 결과를 엑셀로 저장했습니다.");
+    const data = [header, ...rows].map((row, rowIndex) => row.map((value, columnIndex) => ({
+      value,
+      type: typeof value === "number" ? Number : String,
+      fontWeight: rowIndex === 0 ? "bold" as const : undefined,
+      backgroundColor: rowIndex === 0 ? "#E8EEF0" : undefined,
+      format: rowIndex > 0 && columnIndex >= 2 ? "₩#,##0" : undefined,
+    })));
+    try {
+      await writeXlsxFile(data, {
+        sheet: "개인별 인센티브",
+        freezeRows: 1,
+        showGridLines: true,
+      }).toFile(`개인별_인센티브_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      setMessage("개인별 인센티브 결과를 엑셀로 저장했습니다.");
+    } catch (error) {
+      console.error("개인별 인센티브 엑셀 저장 실패", error);
+      setMessage("엑셀 파일을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+  }
+
+  function excludeCableDealsForPerson() {
+    if (!dealFilterPerson) {
+      setMessage("케이블 미반영을 적용할 담당자를 먼저 선택해 주세요.");
+      return;
+    }
+    if (!selectedCableDeals.length) {
+      setMessage(`${dealFilterPerson} 담당자에게 반영 중인 케이블 거래가 없습니다.`);
+      return;
+    }
+    if (!confirm(`${dealFilterPerson} 담당자의 케이블 거래 ${selectedCableDeals.length.toLocaleString("ko-KR")}건을 인센티브 계산에서 미반영할까요?`)) return;
+    const targetIds = new Set(selectedCableDeals.map((deal) => deal.id));
+    setDeals((items) => items.map((item) => targetIds.has(item.id) ? { ...item, excluded: true } : item));
+    setMessage(`${dealFilterPerson} 담당자의 케이블 거래 ${selectedCableDeals.length.toLocaleString("ko-KR")}건을 미반영 처리했습니다.`);
   }
 
   function clearAll() {
@@ -506,9 +539,14 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         </section>
 
         <section className={`${styles.panel} ${styles.dealReviewPanel}`}>
-          <div className={styles.panelHead}><div><p>DEAL REVIEW</p><h2>거래별 계산 내역</h2></div><div className={styles.dealFilter}><label>담당자<select value={dealFilterPerson} onChange={(event) => setDealFilterPerson(event.target.value)}><option value="">전체 담당자</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label><span>{filteredDeals.length.toLocaleString("ko-KR")} / {activeDeals.length.toLocaleString("ko-KR")}건</span></div></div>
+          <div className={styles.panelHead}><div><p>DEAL REVIEW</p><h2>거래별 계산 내역</h2></div></div>
+          <div className={styles.dealTools}>
+            <div className={styles.dealFilter}><label>담당자<select value={dealFilterPerson} onChange={(event) => setDealFilterPerson(event.target.value)}><option value="">전체 담당자</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label></div>
+            <button type="button" className={styles.cableBulkButton} onClick={excludeCableDealsForPerson} disabled={!dealFilterPerson || !selectedCableDeals.length}>케이블 미반영 일괄 적용{selectedCableDeals.length ? ` · ${selectedCableDeals.length.toLocaleString("ko-KR")}건` : ""}</button>
+            <span className={styles.dealCount}>{filteredDeals.length.toLocaleString("ko-KR")} / {activeDeals.length.toLocaleString("ko-KR")}건</span>
+          </div>
           <div className={styles.tableWrap}><table className={styles.dealTable}><thead><tr><th>담당자</th><th>거래처</th><th>구분</th><th>제품</th><th>수량</th><th>원가</th><th>매출합</th><th>마진</th><th>마진율</th><th>마진 계산식</th><th>발주일</th><th>매출계산서일</th></tr></thead>
-          <tbody>{filteredDeals.map((deal) => { const result = calculate(deal, config, dealFoldedCosts.get(deal.id) ?? 0); const rowIncentive = roundIncentive(result.incentive, config.rounding); const marginRate = result.sales ? result.margin / result.sales * 100 : 0; return <tr key={deal.id} className={deal.excluded ? styles.excludedRow : undefined}>
+          <tbody>{filteredDeals.map((deal) => { const result = calculate(deal, config, dealFoldedCosts.get(deal.id) ?? 0); const rowIncentive = roundIncentive(result.incentive, config.rounding); const marginRate = result.sales ? result.margin / result.sales * 100 : 0; return <tr key={deal.id} className={[deal.kind === "케이블" ? styles.cableRow : "", deal.excluded ? styles.excludedRow : ""].filter(Boolean).join(" ") || undefined}>
             <td><strong>{deal.person}</strong><button className={styles.delete} onClick={() => setDeals((items) => items.filter((item) => item.id !== deal.id))}>삭제</button></td>
             <td>{deal.client || "-"}</td>
             <td><select value={deal.kind} onChange={(e) => { const kind = e.target.value as DealKind; setDeals((items) => items.map((item) => item.id === deal.id ? { ...item, kind, excluded: EXCLUDED_KINDS.has(kind) } : item)); }}>{KINDS.map((kind) => <option key={kind}>{kind}</option>)}</select><label className={styles.rowInclude}><input type="checkbox" checked={!deal.excluded} onChange={() => setDeals((items) => items.map((item) => item.id === deal.id ? { ...item, excluded: !item.excluded } : item))} />인센 반영</label></td>

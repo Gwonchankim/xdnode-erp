@@ -71,6 +71,7 @@ test("renders the incentive calculator analysis workspace", async () => {
   assert.match(html, /개인 인센티브 대시보드/);
   assert.match(html, /전체 인센티브 대시보드/);
   assert.match(html, /거래별 계산 내역/);
+  assert.match(html, /케이블 미반영 일괄 적용/);
   assert.match(html, /마진 계산식/);
   assert.match(html, /매출계산서일/);
 });
@@ -80,4 +81,13 @@ test("does not blanket-exclude cable transactions from incentives", async () => 
   assert.match(source, /new Set<DealKind>\(\["인바운드", "단독 RAM", "온라인"\]\)/);
   assert.doesNotMatch(source, /new Set<DealKind>\(\["인바운드", "단독 RAM", "케이블", "온라인"\]\)/);
   assert.match(source, /migrateCableExclusions/);
+  assert.match(source, /styles\.cableRow/);
+  assert.match(source, /excludeCableDealsForPerson/);
+});
+
+test("incentive result export uses the current workbook download API", async () => {
+  const source = await readFile(new URL("../app/incentive/incentive-calculator.tsx", import.meta.url), "utf8");
+  assert.match(source, /writeXlsxFile\(data,[\s\S]*?\)\.toFile\(`/);
+  assert.match(source, /backgroundColor: rowIndex === 0 \? "#E8EEF0"/);
+  assert.match(source, /엑셀 파일을 만들지 못했습니다/);
 });

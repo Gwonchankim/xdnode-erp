@@ -63,6 +63,7 @@ test("renders the incentive calculator analysis workspace", async () => {
   assert.match(html, /엑셀 또는 CSV 선택/);
   assert.match(html, /개인별 예상 인센티브/);
   assert.match(html, /각 거래의 인센티브를 먼저 계산하고 단수 처리한 뒤 개인별로 합산/);
+  assert.match(html, /케이블은 제품명만으로 제외하지 않으며 거래별 ‘인센 반영’ 설정/);
   assert.match(html, /거래별 확정액 합계/);
   assert.match(html, /인센티브 완전 제외 인원/);
   assert.match(html, /엑셀 결과에서 모두 제외/);
@@ -72,4 +73,11 @@ test("renders the incentive calculator analysis workspace", async () => {
   assert.match(html, /거래별 계산 내역/);
   assert.match(html, /마진 계산식/);
   assert.match(html, /매출계산서일/);
+});
+
+test("does not blanket-exclude cable transactions from incentives", async () => {
+  const source = await readFile(new URL("../app/incentive/incentive-calculator.tsx", import.meta.url), "utf8");
+  assert.match(source, /new Set<DealKind>\(\["인바운드", "단독 RAM", "온라인"\]\)/);
+  assert.doesNotMatch(source, /new Set<DealKind>\(\["인바운드", "단독 RAM", "케이블", "온라인"\]\)/);
+  assert.match(source, /migrateCableExclusions/);
 });

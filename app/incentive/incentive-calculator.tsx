@@ -42,8 +42,9 @@ const ADJUSTMENT_STORAGE = "xdnode-incentive-adjustments-v1";
 const CONFIG_STORAGE = "xdnode-incentive-config-v1";
 const PAYROLL_RESULT_STORAGE = "xdnode-incentive-payroll-v1";
 const EXCLUDED_PEOPLE_STORAGE = "xdnode-incentive-excluded-people-v1";
+const CABLE_EXCLUSION_MIGRATION = "xdnode-incentive-cable-exclusion-v2";
 const KINDS: DealKind[] = ["일반", "인바운드", "단독 RAM", "케이블", "온라인"];
-const EXCLUDED_KINDS = new Set<DealKind>(["인바운드", "단독 RAM", "케이블", "온라인"]);
+const EXCLUDED_KINDS = new Set<DealKind>(["인바운드", "단독 RAM", "온라인"]);
 const DEFAULT_CONFIG: IncentiveConfig = { hurdleRate: 5, payoutRate: 5, cableMode: "deduct", rounding: "none", fixCancelSign: true };
 
 const emptyDeal = (): Deal => ({
@@ -187,6 +188,15 @@ function foldedCableCosts(deals: Deal[], config: IncentiveConfig) {
   return foldedCosts;
 }
 
+function migrateCableExclusions(deals: Deal[]) {
+  const groupedExclusions = new Set(deals
+    .filter((deal) => deal.kind !== "케이블" && deal.excluded)
+    .map((deal) => `${deal.date}|${deal.client}`));
+  return deals.map((deal) => deal.kind === "케이블" && deal.excluded && !groupedExclusions.has(`${deal.date}|${deal.client}`)
+    ? { ...deal, excluded: false }
+    : deal);
+}
+
 const CHART_COLORS = ["#ff5b18", "#172126", "#4d756c", "#90a09a", "#c4cbc7", "#e7ebe8"];
 
 function incentiveBreakdown(deals: Deal[], config: IncentiveConfig) {
@@ -249,7 +259,12 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         const savedAdjustments = localStorage.getItem(ADJUSTMENT_STORAGE);
         const savedConfig = localStorage.getItem(CONFIG_STORAGE);
         const savedExcludedPeople = localStorage.getItem(EXCLUDED_PEOPLE_STORAGE);
-        if (savedDeals) setDeals(JSON.parse(savedDeals));
+        if (savedDeals) {
+          const parsedDeals = JSON.parse(savedDeals) as Deal[];
+          const cableMigrationDone = localStorage.getItem(CABLE_EXCLUSION_MIGRATION) === "done";
+          setDeals(cableMigrationDone ? parsedDeals : migrateCableExclusions(parsedDeals));
+          if (!cableMigrationDone) localStorage.setItem(CABLE_EXCLUSION_MIGRATION, "done");
+        }
         if (savedAdjustments) setAdjustments(JSON.parse(savedAdjustments));
         if (savedConfig) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(savedConfig) });
         if (savedExcludedPeople) setExcludedPeople(JSON.parse(savedExcludedPeople));
@@ -416,7 +431,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
       <div className={styles.container}>
         <section className={styles.hero}>
           <div><p>2026 INCENTIVE RULE</p><h1>매출을 넣으면<br />지급액까지 한 번에.</h1><span>거래별 초과마진을 계산하고, 제외 매출과 지급 조정을 반영해 개인별 급여 입력액을 만듭니다.</span></div>
-          <div className={styles.formula}><small>현재 적용 산식</small><strong>MAX((마진 − 매출×{config.hurdleRate}%) × {config.payoutRate}%, 0)</strong><p>인바운드 · 단독 RAM · 케이블 · 온라인은 기본 제외</p></div>
+          <div className={styles.formula}><small>현재 적용 산식</small><strong>MAX((마진 − 매출×{config.hurdleRate}%) × {config.payoutRate}%, 0)</strong><p>인바운드 · 단독 RAM · 온라인은 기본 제외 · 케이블은 거래별 판단</p></div>
         </section>
 
         <section className={styles.panel}>
@@ -428,7 +443,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
             <label>단수 처리<select value={config.rounding} onChange={(event) => setConfig((current) => ({ ...current, rounding: event.target.value as IncentiveRounding }))}><option value="none">없음</option><option value="round">반올림</option><option value="floor">버림</option></select></label>
             <label className={styles.ruleCheck}><input type="checkbox" checked={config.fixCancelSign} onChange={(event) => setConfig((current) => ({ ...current, fixCancelSign: event.target.checked }))} />취소·반품 부호 보정</label>
           </div>
-          <div className={styles.notice}>각 거래의 인센티브를 먼저 계산하고 단수 처리한 뒤 개인별로 합산합니다. 이후 케이블 차감과 지급 조정을 별도로 반영합니다. 매출합이 0원 이하인 취소·반품 행은 부호 보정 시 0원 처리합니다.</div>
+          <div className={styles.notice}>각 거래의 인센티브를 먼저 계산하고 단수 처리한 뒤 개인별로 합산합니다. 케이블은 제품명만으로 제외하지 않으며 거래별 ‘인센 반영’ 설정을 따릅니다. 이후 케이블 차감과 지급 조정을 별도로 반영합니다.</div>
         </section>
 
         <section className={styles.kpis}>

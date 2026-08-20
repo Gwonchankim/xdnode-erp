@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { applyDueRetirements } from "../../../hr-retirements";
+import { ensureEmployeeRosterSeeded } from "../../../hr-employee-roster";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -76,6 +77,9 @@ async function ensureSchema() {
   if (!runColumns.results.some((column) => column.name === "settings_json")) {
     await db.prepare("ALTER TABLE hr_compensation_runs ADD COLUMN settings_json TEXT NOT NULL DEFAULT '{}'").run();
   }
+  // hrPayrollSnapshots() drafts payroll straight from hr_employee_records, so an unseeded roster
+  // silently produces a payroll run covering only the few edited employees.
+  await ensureEmployeeRosterSeeded(db);
 }
 
 function runJson(row: RunRow | null, lines: LineRow[]) {

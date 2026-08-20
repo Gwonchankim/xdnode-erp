@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import readXlsxFile from "read-excel-file/browser";
 import writeXlsxFile from "write-excel-file/browser";
+import { companyEmployees } from "../hr-company-data";
 import styles from "./incentive.module.css";
 
 type DealKind = "일반" | "인바운드" | "단독 RAM" | "케이블" | "온라인";
@@ -98,6 +99,25 @@ function inferKind(value: unknown, person: unknown, item: unknown): DealKind {
   if (text.includes("케이블") || text.includes("cable")) return "케이블";
   if (text.includes("단독 ram") || text.includes("단독램")) return "단독 RAM";
   return "일반";
+}
+
+// The HR module treats the static company roster as the base and layers DB rows on top
+// (see initialEmployees in hr-workspace.tsx). hr_employee_records only holds people who have been
+// explicitly edited or imported, so reading that table alone hides most of the company — including
+// every salesperson — which would leave their incentive rows permanently stuck on "확인필요"
+// with no assignable option in the dropdown.
+const COMPANY_EMPLOYEE_OPTIONS: EmployeeOption[] = companyEmployees.map((employee) => ({
+  id: employee.id, name: employee.name, department: employee.department, status: employee.status,
+}));
+
+function mergeEmployeeOptions(records: Array<{ employeeId: string; name: string; department: string; status: string }>) {
+  const merged = new Map(COMPANY_EMPLOYEE_OPTIONS.map((employee) => [employee.id, employee]));
+  for (const record of records) {
+    if (!record.employeeId) continue;
+    merged.set(record.employeeId, { id: record.employeeId, name: record.name, department: record.department, status: record.status });
+  }
+  return [...merged.values()].sort((a, b) =>
+    Number(a.status === "퇴직") - Number(b.status === "퇴직") || a.name.localeCompare(b.name, "ko"));
 }
 
 function resolvePersonId(name: string, employees: EmployeeOption[]) {
@@ -304,7 +324,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
   const [dashboardPerson, setDashboardPerson] = useState("");
   const [dealFilterPerson, setDealFilterPerson] = useState("");
   const [excludedPeople, setExcludedPeople] = useState<string[]>([]);
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>(COMPANY_EMPLOYEE_OPTIONS);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -313,7 +333,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
       .then((response) => response.json())
       .then((data: { records?: Array<{ employeeId: string; name: string; department: string; status: string }> }) => {
         if (cancelled) return;
-        setEmployees((data.records ?? []).map((record) => ({ id: record.employeeId, name: record.name, department: record.department, status: record.status })));
+        setEmployees(mergeEmployeeOptions(data.records ?? []));
       })
       .catch(() => undefined);
     return () => { cancelled = true; };

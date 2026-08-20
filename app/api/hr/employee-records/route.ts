@@ -3,6 +3,7 @@ import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { applyDuePersonnelActions } from "../../../hr-personnel-actions";
 import { applyDueRetirements } from "../../../hr-retirements";
 import { applyDueOnboarding } from "../../../hr-onboarding";
+import { ensureEmployeeRosterSeeded } from "../../../hr-employee-roster";
 
 type EmployeeRecordRow = {
   employee_id: string;
@@ -71,6 +72,7 @@ async function ensureSchema() {
   for (const [name, definition] of additions) {
     await db.prepare(`ALTER TABLE hr_employee_records ADD COLUMN ${name} ${definition}`).run();
   }
+  await ensureEmployeeRosterSeeded(db);
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {

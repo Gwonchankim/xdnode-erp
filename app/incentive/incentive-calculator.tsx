@@ -193,7 +193,7 @@ function incentiveBreakdown(deals: Deal[], config: IncentiveConfig) {
   const foldedCosts = foldedCableCosts(deals, config);
   const byProduct = new Map<string, number>();
   for (const deal of deals) {
-    const incentive = calculate(deal, config, foldedCosts.get(deal.id) ?? 0).incentive;
+    const incentive = roundIncentive(calculate(deal, config, foldedCosts.get(deal.id) ?? 0).incentive, config.rounding);
     if (incentive <= 0) continue;
     const label = deal.item.trim() || "제품 미입력";
     byProduct.set(label, (byProduct.get(label) ?? 0) + incentive);
@@ -289,7 +289,8 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
     const foldedCosts = foldedCableCosts(ownDeals, config);
     const base = ownDeals.reduce((acc, deal) => {
       const result = calculate(deal, config, foldedCosts.get(deal.id) ?? 0);
-      acc.sales += result.sales; acc.margin += result.margin; acc.incentive += result.incentive;
+      const rowIncentive = roundIncentive(result.incentive, config.rounding);
+      acc.sales += result.sales; acc.margin += result.margin; acc.incentive += rowIncentive;
       if (deal.excluded) acc.excluded += result.sales;
       if (!deal.excluded) acc.eligibleSales += result.sales;
       if (deal.kind === "인바운드") acc.inboundSales += result.sales;
@@ -298,12 +299,12 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
       return acc;
     }, { sales: 0, margin: 0, incentive: 0, excluded: 0, eligibleSales: 0, inboundSales: 0, ramSales: 0, cableSales: 0 });
     const cableDeduction = config.cableMode === "deduct"
-      ? ownDeals.filter((deal) => deal.kind === "케이블" && deal.excluded).reduce((sum, deal) => sum + Math.max(deal.quantity * deal.unitCost, 0) * config.payoutRate / 100, 0)
+      ? ownDeals.filter((deal) => deal.kind === "케이블" && deal.excluded).reduce((sum, deal) => sum + roundIncentive(Math.max(deal.quantity * deal.unitCost, 0) * config.payoutRate / 100, config.rounding), 0)
       : 0;
     const extra = ownAdjustments.filter((item) => item.kind === "추가지급").reduce((sum, item) => sum + item.amount, 0);
     const deduction = ownAdjustments.filter((item) => item.kind === "차감").reduce((sum, item) => sum + item.amount, 0);
     const welfare = ownAdjustments.filter((item) => item.kind === "복지기금 전환").reduce((sum, item) => sum + item.amount, 0);
-    const approved = Math.max(roundIncentive(base.incentive - cableDeduction + extra - deduction, config.rounding), 0);
+    const approved = Math.max(base.incentive - cableDeduction + extra - deduction, 0);
     return { person, ...base, cableDeduction, extra, deduction, welfare: Math.min(welfare, approved), approved, payroll: Math.max(approved - welfare, 0), count: ownDeals.length };
   }), [people, activeDeals, activeAdjustments, config]);
 
@@ -427,7 +428,7 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
             <label>단수 처리<select value={config.rounding} onChange={(event) => setConfig((current) => ({ ...current, rounding: event.target.value as IncentiveRounding }))}><option value="none">없음</option><option value="round">반올림</option><option value="floor">버림</option></select></label>
             <label className={styles.ruleCheck}><input type="checkbox" checked={config.fixCancelSign} onChange={(event) => setConfig((current) => ({ ...current, fixCancelSign: event.target.checked }))} />취소·반품 부호 보정</label>
           </div>
-          <div className={styles.notice}>행 인센티브를 합산한 뒤 케이블 차감과 지급 조정을 반영합니다. 매출합이 0원 이하인 취소·반품 행은 부호 보정 시 0원 처리합니다.</div>
+          <div className={styles.notice}>각 거래의 인센티브를 먼저 계산하고 단수 처리한 뒤 개인별로 합산합니다. 이후 케이블 차감과 지급 조정을 별도로 반영합니다. 매출합이 0원 이하인 취소·반품 행은 부호 보정 시 0원 처리합니다.</div>
         </section>
 
         <section className={styles.kpis}>
@@ -472,9 +473,9 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         </section>
 
         <section className={`${styles.panel} ${styles.resultPanel}`}>
-          <div className={styles.panelHead}><div><p>EXPECTED INCENTIVE</p><h2>개인별 예상 인센티브</h2></div><button type="button" onClick={exportResults} disabled={!summaries.length}>개인별 결과 엑셀 저장</button></div>
+          <div className={styles.panelHead}><div><p>EXPECTED INCENTIVE</p><h2>개인별 예상 인센티브</h2><span className={styles.calculationHint}>월 인센티브 액은 거래별 확정액 합계입니다.</span></div><button type="button" onClick={exportResults} disabled={!summaries.length}>개인별 결과 엑셀 저장</button></div>
           <div className={styles.summaryTableWrap}><table className={styles.summaryTable}><thead><tr><th>인물</th><th>월 총 매출</th><th>월 총 마진</th><th>월 인바운드 매출</th><th>단독램 매출</th><th>케이블 매출</th><th>인센 인정 매출</th><th>월 인센티브 액</th></tr></thead>
-          <tbody>{summaries.map((item) => <tr key={item.person}><td><strong>{item.person}</strong><small>{item.count}건</small></td><td>{won(item.sales)}</td><td>{won(item.margin)}</td><td>{won(item.inboundSales)}</td><td>{won(item.ramSales)}</td><td>{won(item.cableSales)}</td><td>{won(item.eligibleSales)}</td><td><strong>{won(item.approved)}</strong></td></tr>)}{!summaries.length && <tr><td colSpan={8} className={styles.empty}>거래를 불러오면 개인별 예상 인센티브가 표시됩니다.</td></tr>}</tbody></table></div>
+          <tbody>{summaries.map((item) => <tr key={item.person}><td><strong>{item.person}</strong><small>{item.count}건</small></td><td>{won(item.sales)}</td><td>{won(item.margin)}</td><td>{won(item.inboundSales)}</td><td>{won(item.ramSales)}</td><td>{won(item.cableSales)}</td><td>{won(item.eligibleSales)}</td><td><strong>{won(item.incentive)}</strong><small>거래별 확정액 합계</small></td></tr>)}{!summaries.length && <tr><td colSpan={8} className={styles.empty}>거래를 불러오면 개인별 예상 인센티브가 표시됩니다.</td></tr>}</tbody></table></div>
         </section>
 
         <section className={styles.analysisGrid}>
@@ -492,12 +493,12 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
         <section className={`${styles.panel} ${styles.dealReviewPanel}`}>
           <div className={styles.panelHead}><div><p>DEAL REVIEW</p><h2>거래별 계산 내역</h2></div><div className={styles.dealFilter}><label>담당자<select value={dealFilterPerson} onChange={(event) => setDealFilterPerson(event.target.value)}><option value="">전체 담당자</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label><span>{filteredDeals.length.toLocaleString("ko-KR")} / {activeDeals.length.toLocaleString("ko-KR")}건</span></div></div>
           <div className={styles.tableWrap}><table className={styles.dealTable}><thead><tr><th>담당자</th><th>거래처</th><th>구분</th><th>제품</th><th>수량</th><th>원가</th><th>매출합</th><th>마진</th><th>마진율</th><th>마진 계산식</th><th>발주일</th><th>매출계산서일</th></tr></thead>
-          <tbody>{filteredDeals.map((deal) => { const result = calculate(deal, config, dealFoldedCosts.get(deal.id) ?? 0); const marginRate = result.sales ? result.margin / result.sales * 100 : 0; return <tr key={deal.id} className={deal.excluded ? styles.excludedRow : undefined}>
+          <tbody>{filteredDeals.map((deal) => { const result = calculate(deal, config, dealFoldedCosts.get(deal.id) ?? 0); const rowIncentive = roundIncentive(result.incentive, config.rounding); const marginRate = result.sales ? result.margin / result.sales * 100 : 0; return <tr key={deal.id} className={deal.excluded ? styles.excludedRow : undefined}>
             <td><strong>{deal.person}</strong><button className={styles.delete} onClick={() => setDeals((items) => items.filter((item) => item.id !== deal.id))}>삭제</button></td>
             <td>{deal.client || "-"}</td>
             <td><select value={deal.kind} onChange={(e) => { const kind = e.target.value as DealKind; setDeals((items) => items.map((item) => item.id === deal.id ? { ...item, kind, excluded: EXCLUDED_KINDS.has(kind) } : item)); }}>{KINDS.map((kind) => <option key={kind}>{kind}</option>)}</select><label className={styles.rowInclude}><input type="checkbox" checked={!deal.excluded} onChange={() => setDeals((items) => items.map((item) => item.id === deal.id ? { ...item, excluded: !item.excluded } : item))} />인센 반영</label></td>
             <td>{deal.item}</td><td>{deal.quantity.toLocaleString("ko-KR")}</td><td>{won(deal.unitCost)}</td><td>{won(result.sales)}</td><td>{won(result.margin)}</td><td>{marginRate.toFixed(1)}%</td>
-            <td className={styles.formulaCell}><strong>{won(result.incentive)}</strong><small>({won(result.margin)} − {won(result.threshold)}) × {config.payoutRate}%</small>{result.cancelBlocked && <small>취소 부호 보정</small>}</td>
+            <td className={styles.formulaCell}><strong>{won(rowIncentive)}</strong><small>({won(result.margin)} − {won(result.threshold)}) × {config.payoutRate}%</small>{result.cancelBlocked && <small>취소 부호 보정</small>}</td>
             <td>{deal.date || "-"}</td><td>{deal.salesInvoiceDate || deal.date || "-"}</td>
           </tr>; })}{!filteredDeals.length && <tr><td colSpan={12} className={styles.empty}>{activeDeals.length ? "선택한 담당자의 거래가 없습니다." : deals.length ? "모든 담당자가 인센티브 완전 제외로 설정되었습니다." : "아직 거래가 없습니다. 엑셀을 불러오거나 첫 거래를 입력해 주세요."}</td></tr>}</tbody></table></div>
         </section>

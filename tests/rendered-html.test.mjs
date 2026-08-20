@@ -62,6 +62,8 @@ test("renders the incentive calculator analysis workspace", async () => {
   assert.match(html, /인센티브 계산기/);
   assert.match(html, /엑셀 또는 CSV 선택/);
   assert.match(html, /개인별 예상 인센티브/);
+  assert.match(html, /각 거래의 인센티브를 먼저 계산하고 단수 처리한 뒤 개인별로 합산/);
+  assert.match(html, /거래별 확정액 합계/);
   assert.match(html, /인센티브 완전 제외 인원/);
   assert.match(html, /엑셀 결과에서 모두 제외/);
   assert.match(html, /월 인바운드 매출/);

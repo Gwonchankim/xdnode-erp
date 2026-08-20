@@ -110,6 +110,13 @@ async function resolveApprovers(db: D1Database, steps: ApprovalRouteStep[], requ
   });
 }
 
+// Single-operator deployments hold every approver role themselves, so a route that resolves entirely
+// to the requester is a self-approval — waiting on it is pure friction with no real second reviewer.
+// Scoped to an explicit allowlist (currently PAYROLL_RUN only) rather than every request type, since
+// each target entity's outcome side effects (buildApprovalOutcomeStatements) need to be safe to fire
+// immediately, unattended, at submit time.
+const AUTO_APPROVE_WHEN_SELF = new Set<string>(["hr:PAYROLL_RUN"]);
+
 export async function createApprovalRequest(db: D1Database, principal: ErpPrincipal, input: ApprovalCreateInput) {
   if (!isApprovalType(input.module, input.requestType)) throw new Error("지원하지 않는 결재 유형입니다.");
   const configured = await configuredRouteFor(db, input);
@@ -121,6 +128,43 @@ export async function createApprovalRequest(db: D1Database, principal: ErpPrinci
   const amount = Math.max(0, Math.round(input.amount ?? 0));
   const priority = input.priority ?? "NORMAL";
   const dueDate = input.dueDate ?? "";
+
+  const selfApprovable = AUTO_APPROVE_WHEN_SELF.has(`${input.module}:${input.requestType}`)
+    && route.length > 0 && route.every((step) => step.employeeId === principal.employeeId);
+  if (selfApprovable) {
+    const transitionToken = crypto.randomUUID();
+    const autoNote = "요청자와 승인자가 동일하여 자동 승인";
+    const statements: D1PreparedStatement[] = [
+      db.prepare(`INSERT INTO erp_approval_requests
+        (id, module, request_type, title, description, requester_employee_id, target_entity_type,
+          target_entity_id, amount, currency, priority, status, current_step, due_date, metadata_json,
+          version, transition_token, submitted_at, decided_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, 1, ?, ?, ?, ?, ?)`)
+        .bind(id, input.module, input.requestType, input.title, input.description ?? "", principal.employeeId,
+          input.targetEntityType ?? "", input.targetEntityId ?? "", amount, input.currency ?? "KRW", priority,
+          route.length, dueDate, JSON.stringify(input.metadata ?? {}), transitionToken, now, now, now, now),
+      db.prepare(`INSERT INTO erp_approval_events
+        (id, request_id, step_order, action, actor_employee_id, comment, snapshot_json, created_at)
+        VALUES (?, ?, 0, 'SUBMITTED', ?, '', ?, ?)`)
+        .bind(crypto.randomUUID(), id, principal.employeeId, JSON.stringify({ module: input.module, requestType: input.requestType, title: input.title, policyId: configured.policyId, route, autoApproved: true }), now),
+    ];
+    route.forEach((step, index) => {
+      statements.push(db.prepare(`INSERT INTO erp_approval_steps
+        (id, request_id, step_order, step_name, approver_role, approver_employee_id, delegated_from_employee_id, status,
+          comment, acted_by, acted_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'APPROVED', ?, ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), id, index + 1, step.name, step.role, step.employeeId, step.delegatedFromEmployeeId,
+          autoNote, principal.employeeId, now, now, now));
+      statements.push(db.prepare(`INSERT INTO erp_approval_events
+        (id, request_id, step_order, action, actor_employee_id, comment, snapshot_json, created_at)
+        VALUES (?, ?, ?, 'APPROVE', ?, ?, ?, ?)`)
+        .bind(crypto.randomUUID(), id, index + 1, principal.employeeId, autoNote, JSON.stringify({ autoApproved: true }), now));
+    });
+    statements.push(...buildApprovalOutcomeStatements(db, input.targetEntityType ?? "", input.targetEntityId ?? "", true, principal.employeeId, now, id, transitionToken));
+    await db.batch(statements);
+    return { id, status: "APPROVED", currentStep: route.length, version: 1, route, autoApproved: true };
+  }
+
   const statements = [
     db.prepare(`INSERT INTO erp_approval_requests
       (id, module, request_type, title, description, requester_employee_id, target_entity_type,

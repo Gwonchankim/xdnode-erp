@@ -296,27 +296,30 @@ function WageCalculator() {
   }
   function importIncentive() {
     try {
-      const savedResult = JSON.parse(localStorage.getItem("xdnode-incentive-payroll-v1") || "null") as { summaries?: Array<{ person: string; payroll: number }> } | null;
+      const savedResult = JSON.parse(localStorage.getItem("xdnode-incentive-payroll-v1") || "null") as { summaries?: Array<{ personId?: string; payroll: number }> } | null;
       if (Array.isArray(savedResult?.summaries)) {
-        const byPerson = new Map(savedResult.summaries.map((item) => [item.person, numberValue(item.payroll)]));
+        const byPersonId = new Map(savedResult.summaries.filter((item) => item.personId).map((item) => [item.personId as string, numberValue(item.payroll)]));
+        const unresolvedCount = savedResult.summaries.filter((item) => !item.personId).length;
         let matched = 0;
         setEmployees((current) => current.map((employee) => {
-          const found = Array.from(byPerson.entries()).find(([name]) => employee.name === name || employee.name.endsWith(name) || name.endsWith(employee.name));
-          if (!found) return employee;
+          const payroll = byPersonId.get(employee.id);
+          if (payroll === undefined) return employee;
           matched++;
-          return { ...employee, monthly: { ...employee.monthly, [key]: { ...employee.monthly[key], incentive: Math.round(found[1]) } } };
+          return { ...employee, monthly: { ...employee.monthly, [key]: { ...employee.monthly[key], incentive: Math.round(payroll) } } };
         }));
-        setMessage(matched ? `확정된 인센티브 결과를 ${matched}명의 ${key} 급여에 반영했습니다.` : "이름이 일치하는 인센티브 결과를 찾지 못했습니다.");
+        setMessage(matched
+          ? `확정된 인센티브 결과를 ${matched}명의 ${key} 급여에 반영했습니다.${unresolvedCount ? ` (담당자 미확인 ${unresolvedCount}명은 인센티브 계산기에서 먼저 직원을 지정해 주세요.)` : ""}`
+          : "직원 ID가 일치하는 인센티브 결과를 찾지 못했습니다. 인센티브 계산기에서 담당자를 직원으로 지정했는지 확인해 주세요.");
         return;
       }
-      const deals = JSON.parse(localStorage.getItem("xdnode-incentive-deals-v1") || "[]") as Array<{ person: string; quantity: number; unitCost: number; unitSale: number; expense: number; excluded: boolean }>;
-      const adjustments = JSON.parse(localStorage.getItem("xdnode-incentive-adjustments-v1") || "[]") as Array<{ person: string; kind: string; amount: number }>;
-      const byPerson = new Map<string, number>();
-      for (const deal of deals) { const sales = deal.quantity * deal.unitSale; const margin = sales - deal.quantity * deal.unitCost - deal.expense; const incentive = deal.excluded ? 0 : Math.max((margin - sales * 0.05) * 0.05, 0); byPerson.set(deal.person, (byPerson.get(deal.person) ?? 0) + incentive); }
-      for (const adjustment of adjustments) { const sign = adjustment.kind === "추가지급" ? 1 : adjustment.kind === "차감" || adjustment.kind === "복지기금 전환" ? -1 : 0; byPerson.set(adjustment.person, Math.max(0, (byPerson.get(adjustment.person) ?? 0) + adjustment.amount * sign)); }
+      const deals = JSON.parse(localStorage.getItem("xdnode-incentive-deals-v1") || "[]") as Array<{ personId?: string; quantity: number; unitCost: number; unitSale: number; expense: number; excluded: boolean }>;
+      const adjustments = JSON.parse(localStorage.getItem("xdnode-incentive-adjustments-v1") || "[]") as Array<{ personId?: string; kind: string; amount: number }>;
+      const byPersonId = new Map<string, number>();
+      for (const deal of deals) { if (!deal.personId) continue; const sales = deal.quantity * deal.unitSale; const margin = sales - deal.quantity * deal.unitCost - deal.expense; const incentive = deal.excluded ? 0 : Math.max((margin - sales * 0.05) * 0.05, 0); byPersonId.set(deal.personId, (byPersonId.get(deal.personId) ?? 0) + incentive); }
+      for (const adjustment of adjustments) { if (!adjustment.personId) continue; const sign = adjustment.kind === "추가지급" ? 1 : adjustment.kind === "차감" || adjustment.kind === "복지기금 전환" ? -1 : 0; byPersonId.set(adjustment.personId, Math.max(0, (byPersonId.get(adjustment.personId) ?? 0) + adjustment.amount * sign)); }
       let matched = 0;
-      setEmployees((current) => current.map((employee) => { const found = Array.from(byPerson.entries()).find(([name]) => employee.name === name || employee.name.endsWith(name) || name.endsWith(employee.name)); if (!found) return employee; matched++; return { ...employee, monthly: { ...employee.monthly, [key]: { ...employee.monthly[key], incentive: Math.round(found[1]) } } }; }));
-      setMessage(matched ? `인센티브 계산 결과를 ${matched}명의 ${key} 급여에 반영했습니다.` : "이름이 일치하는 인센티브 결과를 찾지 못했습니다.");
+      setEmployees((current) => current.map((employee) => { const payroll = byPersonId.get(employee.id); if (payroll === undefined) return employee; matched++; return { ...employee, monthly: { ...employee.monthly, [key]: { ...employee.monthly[key], incentive: Math.round(payroll) } } }; }));
+      setMessage(matched ? `인센티브 계산 결과를 ${matched}명의 ${key} 급여에 반영했습니다.` : "직원 ID가 일치하는 인센티브 결과를 찾지 못했습니다. 인센티브 계산기에서 담당자를 직원으로 지정했는지 확인해 주세요.");
     } catch { setMessage("저장된 인센티브 계산 결과를 읽지 못했습니다."); }
   }
   function copyPreviousMonth() {
@@ -336,6 +339,17 @@ function WageCalculator() {
     incentive: row.incentive, bonus: row.bonus, extra: row.extra, research: row.research,
     severance: row.severance, welfare: row.welfare, total: row.total,
   }));
+  async function unlockPayrollRun() {
+    const reason = window.prompt(`${key} 급여월이 HR 급여관리에서 검토·승인·마감 처리되어 있어 수정할 수 없습니다.\n잠금을 해제할 사유를 입력하면 계속 진행합니다.`)?.trim();
+    if (!reason) return false;
+    const response = await fetch("/api/hr/payroll", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ period: key, status: "DRAFT", reopenedReason: reason }),
+    });
+    const payload = await response.json() as { error?: string };
+    if (!response.ok) { setMessage(payload.error || "급여월 잠금을 해제하지 못했습니다."); return false; }
+    return true;
+  }
   async function compensationAction(action: "CREATE" | "LOAD_HR" | "SAVE" | "CONFIRM" | "REOPEN") {
     setSaving(true);
     try {
@@ -348,7 +362,18 @@ function WageCalculator() {
         if (!response.ok || !payload.run) throw new Error(payload.error || "임금안을 처리하지 못했습니다.");
         return payload;
       };
-      let payload = await requestAction(action === "CONFIRM" && !run ? "CREATE" : action, run?.version);
+      const runOnce = () => requestAction(action === "CONFIRM" && !run ? "CREATE" : action, run?.version);
+      let payload;
+      try {
+        payload = await runOnce();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        const isPayrollLockBlock = (action === "CONFIRM" || action === "REOPEN") && (
+          message === "HR 급여관리에서 검토·승인·마감이 진행된 급여월은 임금안으로 덮어쓸 수 없습니다." ||
+          message === "HR 급여관리에서 검토·승인·마감이 진행된 급여월은 먼저 작성 중으로 되돌려야 합니다.");
+        if (isPayrollLockBlock && await unlockPayrollRun()) payload = await runOnce();
+        else throw error;
+      }
       if (action === "CONFIRM" && !run) payload = await requestAction("CONFIRM", payload.run?.version);
       setRun(payload.run);
       setEmployees(payload.run.employees ?? employees);
@@ -399,7 +424,9 @@ function WageCalculator() {
   }
 
   const locked = run?.status === "CONFIRMED";
-  return <div className={`wage-calculator${locked ? " locked" : ""}`}>
+  return <div className="compensation-page">
+    <section className="compensation-hero"><p className="eyebrow">COMPENSATION WORKSPACE</p><h1>임금과 인센티브를 한 흐름으로 계산합니다.</h1><p>매출 원장의 인센티브 결과를 직원별 월 급여에 이어 붙이고, 입·퇴사와 수습기간까지 반영합니다.</p></section>
+    <div className={`wage-calculator${locked ? " locked" : ""}`}>
     <section className="compensation-toolbar panel">
       <div><p className="eyebrow">PAYROLL BASIS</p><h2>대상 월과 계산 기준</h2><span>연봉에 비과세 수당이 포함된 회사 급여 기준으로 계산합니다.</span></div>
       <div className="wage-period-controls"><label>연도<input type="number" value={year} onChange={(event) => setYear(Number(event.target.value) || now.getFullYear())} /></label><label>월<select value={month} onChange={(event) => setMonth(Number(event.target.value))}>{Array.from({ length: 12 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1}월</option>)}</select></label><label>단수 처리<select disabled={locked} value={rounding} onChange={(event) => setRounding(event.target.value as Rounding)}><option value="round">반올림</option><option value="up">올림</option><option value="down">내림</option></select></label><div className="compensation-run-actions"><button className="confirm" disabled={saving || autoSaving || locked} type="button" onClick={loadPayrollFromHr}>{saving ? "불러오는 중…" : "급여 작성"}</button></div></div>
@@ -416,14 +443,30 @@ function WageCalculator() {
     </fieldset>
     <section className="panel wage-table-panel"><header><div><p>PAYROLL CALCULATION</p><h2>{year}년 {month}월 임금 계산 결과</h2></div><span>열 제목 오른쪽 경계를 드래그해 너비를 조정할 수 있습니다.</span></header><fieldset className="wage-table-editable" disabled={locked || saving}><div className="wage-table-scroll"><table style={{ width: tableWidth }}><colgroup>{tableColumns.map((column) => <col key={column.key} style={{ width: columnWidths[column.key] ?? DEFAULT_COLUMN_WIDTHS[column.key] }} />)}</colgroup><thead><tr>{tableColumns.map((column) => { const sortable = (["employee", "department", "joinDate"] as string[]).includes(column.key); const activeSort = sort?.key === column.key ? sort : null; return <th key={column.key} aria-sort={activeSort ? activeSort.direction === "asc" ? "ascending" : "descending" : sortable ? "none" : undefined}><div className="wage-column-heading"><span>{column.label}</span>{sortable && <button type="button" className={`column-sort${activeSort ? " active" : ""}`} onClick={() => toggleSort(column.key as WageSortKey)} aria-label={`${column.label} ${activeSort?.direction === "asc" ? "내림차순" : "오름차순"} 정렬`}>{activeSort?.direction === "asc" ? "↑" : activeSort?.direction === "desc" ? "↓" : "↕"}</button>}</div><button type="button" className="column-resizer" aria-label={`${column.label || "작업"} 열 너비 조절`} onPointerDown={(event) => beginColumnResize(event, column.key)} /></th>; })}</tr></thead><tbody>{sortedRows.map((row) => { const employee = row.employee; const monthly = employee.monthly[key] ?? {}; return <tr key={employee.id} className={row.days ? "" : "inactive"}><td><input aria-label="성명" value={employee.name} onChange={(event) => updateEmployee(employee.id, { name: event.target.value })} placeholder="성명" /></td>{isColumnVisible("department") && <td><input list="wage-departments" aria-label="부서" value={employee.department} onChange={(event) => updateEmployee(employee.id, { department: event.target.value })} placeholder="부서" /></td>}{isColumnVisible("title") && <td><input list="wage-titles" aria-label="직책" value={employee.title} onChange={(event) => updateEmployee(employee.id, { title: event.target.value })} placeholder="직책" /></td>}{isColumnVisible("joinDate") && <td><input type="date" aria-label="입사일" value={employee.joinDate} onChange={(event) => updateEmployee(employee.id, { joinDate: event.target.value })} /></td>}{isColumnVisible("leaveDate") && <td><input type="date" aria-label="퇴사일" value={employee.leaveDate} onChange={(event) => updateEmployee(employee.id, { leaveDate: event.target.value })} /></td>}{isColumnVisible("days") && <td className="calculated">{row.days}일</td>}{isColumnVisible("probation") && <td><select aria-label="수습 기간" value={employee.probationMonths} onChange={(event) => updateEmployee(employee.id, { probationMonths: Number(event.target.value) })}>{[0, 1, 2, 3, 6, 12].map((value) => <option key={value} value={value}>{value ? `${value}개월` : "—"}</option>)}</select></td>}{isColumnVisible("annualSalary") && <td><WonInput className="money-input" ariaLabel="연봉" value={employee.annualSalary} onValueChange={(value) => updateEmployee(employee.id, { annualSalary: value })} /></td>}{isColumnVisible("basic") && <td><div className="basic-cell">{employee.manualBasic ? <WonInput className="money-input" ariaLabel="기본급 직접 입력" value={Number(monthly.basic ?? employee.basePay ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "basic", value)} /> : <b>{money(row.basic)}</b>}<label title="기본급 직접 입력"><input type="checkbox" checked={employee.manualBasic} onChange={(event) => { updateEmployee(employee.id, { manualBasic: event.target.checked }); if (event.target.checked && monthly.basic === undefined) updateMonthly(employee.id, "basic", employee.basePay || row.basic); }} />직접</label></div></td>}{(["meal", "car", "child"] as const).map((field) => isColumnVisible(field) && <td key={field}><div className="allowance-cell"><b>{money(row[field])}</b><input type="checkbox" aria-label={`${field} 지급`} checked={employee[field] > 0} onChange={(event) => setAllowance(employee.id, field, event.target.checked)} /></div></td>)}{(["incentive", "bonus"] as const).map((field) => isColumnVisible(field) && <td key={field}><WonInput className="money-input" ariaLabel={field === "incentive" ? "인센티브" : "상여금"} value={Number(monthly[field] ?? 0)} onValueChange={(value) => updateMonthly(employee.id, field, value)} /></td>)}{columns.extra && isColumnVisible("extra") && <td><WonInput className="money-input" ariaLabel="추가수당" value={Number(monthly.extra ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "extra", value)} /></td>}{columns.research && isColumnVisible("research") && <td><WonInput className="money-input" ariaLabel="연구수당" value={Number(monthly.research ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "research", value)} /></td>}{columns.severance && isColumnVisible("severance") && <td><WonInput className="money-input" ariaLabel="퇴직금" value={Number(monthly.severance ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "severance", value)} /></td>}<td className="total-cell">{money(row.total)}</td>{columns.welfare && isColumnVisible("welfare") && <td><WonInput className="money-input" ariaLabel="복지기금" value={Number(monthly.welfare ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "welfare", value)} /></td>}{isColumnVisible("note") && <td><input aria-label="비고" value={monthly.note ?? ""} onChange={(event) => updateMonthly(employee.id, "note", event.target.value)} placeholder="비고" /></td>}<td><button type="button" className="remove-row" aria-label={`${employee.name || "직원"} 삭제`} onClick={() => { if (confirm(`${employee.name || "이 직원"}을 명부에서 삭제할까요?`)) setEmployees((current) => current.filter((item) => item.id !== employee.id)); }}>×</button></td></tr>; })}{!rows.length && <tr><td colSpan={tableColumns.length} className="wage-empty">{run ? "해당 월 임금 대상자가 없습니다." : `${month}월 임금 작성하기를 눌러 HR 인사기록을 불러오세요.`}</td></tr>}</tbody></table><datalist id="wage-departments">{departments.map((value) => <option key={value} value={value} />)}</datalist><datalist id="wage-titles">{titles.map((value) => <option key={value} value={value} />)}</datalist></div></fieldset><footer><button disabled={Boolean(exporting)} type="button" onClick={() => void exportCurrent()}>{exporting === "month" ? "파일 만드는 중…" : "현재 월 엑셀 내려받기"}</button><button disabled={Boolean(exporting)} type="button" onClick={() => void exportYear()}>{exporting === "year" ? "파일 만드는 중…" : "1~12월 일괄 내려받기"}</button>{locked ? <button disabled={saving} className="payroll-footer-action edit" type="button" onClick={() => void compensationAction("REOPEN")}>수정하기</button> : <button disabled={saving || autoSaving || !employees.length} className="payroll-footer-action confirm" type="button" onClick={() => void compensationAction("CONFIRM")}>{saving ? "처리 중…" : "급여 확정"}</button>}<span>초안은 서버에 저장되고 확정 시 HR 급여관리로 반영됩니다.</span></footer></section>
     </div>
+  </div>
   </div>;
 }
+
+const COMPENSATION_NAV_ITEMS: Array<{ id: CalculatorMode; label: string; hint: string; icon: string }> = [
+  { id: "wage", label: "임금 계산", hint: "기본급·수당·일할계산", icon: "임" },
+  { id: "incentive", label: "인센티브 계산", hint: "매출·마진·급여 반영액", icon: "인" },
+];
 
 export default function CompensationCalculator() {
   const [mode, setMode] = useState<CalculatorMode>("wage");
   return <div className="compensation-module-shell">
-    <section className="compensation-hero"><div><p>COMPENSATION WORKSPACE</p><h1>임금과 인센티브를<br />한 흐름으로 계산합니다.</h1><span>매출 원장의 인센티브 결과를 직원별 월 급여에 이어 붙이고, 입·퇴사와 수습기간까지 반영합니다.</span></div><div className="compensation-formula"><small>현재 임금 계산 기준</small><strong>연봉 포함 수당 · 365일 일할계산</strong><p>수습 종료 월은 90%·100% 구간을 분리하고, 비과세 수당도 근무일수에 맞춰 자동 계산합니다.</p></div></section>
-    <nav className="compensation-tabs" aria-label="보상 계산 방식"><button type="button" className={mode === "wage" ? "active" : ""} onClick={() => setMode("wage")}><span>₩</span><div><strong>임금 계산</strong><small>기본급·수당·일할계산</small></div></button><button type="button" className={mode === "incentive" ? "active" : ""} onClick={() => setMode("incentive")}><span>↗</span><div><strong>인센티브 계산</strong><small>매출·마진·급여 반영액</small></div></button></nav>
-    {mode === "wage" ? <WageCalculator /> : <div className="compensation-incentive-embed"><IncentiveCalculator embedded /></div>}
+    <aside className="compensation-sidebar">
+      <div className="compensation-sidebar-brand"><span>₩</span><div><strong>XDNODE PAYROLL</strong><small>COMPENSATION</small></div></div>
+      <nav className="compensation-sidebar-nav" aria-label="임금·인센티브 메뉴">
+        <p>급여 관리</p>
+        {COMPENSATION_NAV_ITEMS.map((item) => <button type="button" key={item.id} className={`compensation-sidebar-item${mode === item.id ? " active" : ""}`} onClick={() => setMode(item.id)}>
+          <span className="compensation-sidebar-icon">{item.icon}</span>
+          <span><strong>{item.label}</strong><small>{item.hint}</small></span>
+        </button>)}
+      </nav>
+    </aside>
+    <main className="compensation-main">
+      {mode === "wage" ? <WageCalculator /> : <div className="compensation-incentive-embed"><IncentiveCalculator embedded /></div>}
+    </main>
   </div>;
 }

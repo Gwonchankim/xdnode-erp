@@ -262,6 +262,33 @@ export async function GET(request: Request) {
   })) });
 }
 
+export async function POST(request: Request) {
+  await ensureSchema();
+  const authorization = await authorizeErpRequest(db, "hr", "write");
+  if (authorization.response) return authorization.response;
+  const body = await request.json() as { id?: unknown; deductions?: unknown };
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  const deductions = Math.round(Number(body.deductions));
+  if (!id || !Number.isFinite(deductions) || deductions < 0) {
+    return Response.json({ error: "공제액은 0 이상의 정수로 입력해 주세요." }, { status: 400 });
+  }
+  await seedPayrollRecords();
+  await syncPayrollRuns();
+  const before = await db.prepare("SELECT * FROM hr_payroll_records WHERE id = ?").bind(id).first<PayrollRow>();
+  if (!before) return Response.json({ error: "급여 기록을 찾을 수 없습니다." }, { status: 404 });
+  if (deductions > before.gross_pay) return Response.json({ error: "공제액이 지급총액을 초과할 수 없습니다." }, { status: 400 });
+  const run = await db.prepare("SELECT status FROM hr_payroll_runs WHERE period = ?").bind(before.year_month).first<{ status: string }>();
+  if (run && !["DRAFT", "REVIEW"].includes(run.status)) {
+    return Response.json({ error: "승인 또는 마감된 급여월은 공제값을 수정할 수 없습니다. 먼저 작성 중으로 되돌려 주세요." }, { status: 409 });
+  }
+  const netPay = before.gross_pay - deductions;
+  await db.prepare("UPDATE hr_payroll_records SET deductions = ?, net_pay = ? WHERE id = ?").bind(deductions, netPay, id).run();
+  await syncPayrollRuns();
+  const after = await db.prepare("SELECT * FROM hr_payroll_records WHERE id = ?").bind(id).first<PayrollRow>();
+  await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_DEDUCTIONS_SET", entityType: "payrollRecord", entityId: id, before: toRecord(before), after: after ? toRecord(after) : null });
+  return Response.json({ record: after ? toRecord(after) : null });
+}
+
 export async function PUT(request: Request) {
   await ensureSchema();
   const body = await request.json() as { period?: unknown; status?: unknown; reopenedReason?: unknown };
@@ -300,7 +327,12 @@ export async function PUT(request: Request) {
       description: `${Number(before.employee_count ?? 0)}명 · 기록상 지급액 ${netPay.toLocaleString("ko-KR")}원`,
       targetEntityType: "PAYROLL_RUN", targetEntityId: period, amount: netPay,
       metadata: { period, employeeCount: Number(before.employee_count ?? 0), grossPay: Number(before.gross_pay ?? 0), deductions: Number(before.deductions ?? 0), netPay },
-    });
+    }) as { id: string; status: string; autoApproved?: boolean };
+    if (approval.autoApproved) {
+      const after = await db.prepare("SELECT * FROM hr_payroll_runs WHERE period = ?").bind(period).first<Record<string, unknown>>();
+      await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_APPROVAL_AUTO_APPROVED", entityType: "payrollRun", entityId: period, before, after: { ...after, approvalId: approval.id } });
+      return Response.json({ item: after, approvalSubmitted: false, autoApproved: true, approvalId: approval.id });
+    }
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_APPROVAL_SUBMITTED", entityType: "payrollRun", entityId: period, before, after: approval });
     return Response.json({ item: before, approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
   }

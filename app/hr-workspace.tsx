@@ -2060,6 +2060,13 @@ function PayrollOverview({ onSelectMonth }: { onSelectMonth: (month: string) => 
   return <div className="page-wrap module-page payroll-page"><section className="module-hero"><div><p className="eyebrow">PAYROLL RECORDS</p><h1>급여관리</h1><p>2025~2026년 인건비 자료를 월별로 확인합니다. 세금·4대보험 전체 공제 자료가 아니므로 지급액은 원본 기록 기준입니다.</p></div><span className="payroll-import-badge">20개월 자료 반영</span></section><section className="metric-grid module-metrics">{metrics.map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section><section className="panel table-panel"><div className="table-toolbar"><div><h2>급여월 현황</h2><span>{period === "all" ? `전체 ${rows.length}개월` : `${period}년 ${rows.length}개월`} · 급여월을 클릭하면 개인별 항목과 원본 메모를 확인할 수 있습니다.</span></div><div className="payroll-year-filter" role="group" aria-label="급여 조회 기간"><button type="button" className={period === "all" ? "active" : ""} onClick={() => setPeriod("all")}>전체 기간</button><button type="button" className={period === "2026" ? "active" : ""} onClick={() => setPeriod("2026")}>2026년</button><button type="button" className={period === "2025" ? "active" : ""} onClick={() => setPeriod("2025")}>2025년</button></div></div><div className="data-table-wrap"><table className="data-table payroll-table"><thead><tr>{["급여월", "대상 인원", "지급총액", "공제총액", "기록상 지급액", "상태"].map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={6} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={6} className="table-message error">{error}</td></tr> : rows.map((summary) => <tr key={summary.yearMonth} onClick={() => onSelectMonth(summary.yearMonth)} tabIndex={0} onKeyDown={(event) => event.key === "Enter" && onSelectMonth(summary.yearMonth)}><td><button type="button" className="month-link">{payrollMonthLabel(summary.yearMonth)}<span>상세 보기 →</span></button></td><td>{summary.employeeCount}명</td><td>{formatWon(summary.grossPay)}</td><td>{formatWon(summary.deductions)}</td><td>{formatWon(summary.netPay)}</td><td><StatusPill value={payrollStatusLabels[summary.status]} /></td></tr>)}</tbody></table></div></section></div>;
 }
 
+async function fetchPayrollMonth(month: string) {
+  const response = await fetch(`/api/hr/payroll?month=${encodeURIComponent(month)}`);
+  const payload = await response.json() as { summary?: PayrollSummary | null; records?: PayrollRecord[]; error?: string };
+  if (!response.ok) throw new Error(payload.error || "월별 급여 기록을 불러오지 못했습니다.");
+  return { summary: payload.summary ?? null, records: payload.records ?? [] };
+}
+
 function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => void }) {
   const [records, setRecords] = useState<PayrollRecord[]>([]);
   const [summary, setSummary] = useState<PayrollSummary | null>(null);
@@ -2067,35 +2074,84 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [deductionInput, setDeductionInput] = useState("");
+  const [deductionSaving, setDeductionSaving] = useState(false);
+  const [deductionError, setDeductionError] = useState("");
+
+  useEffect(() => {
+    setDeductionInput(selectedRecord ? String(selectedRecord.deductions) : "");
+    setDeductionError("");
+  }, [selectedRecord]);
+
+  const PAYROLL_DEDUCTION_LOCK_MESSAGE = "승인 또는 마감된 급여월은 공제값을 수정할 수 없습니다. 먼저 작성 중으로 되돌려 주세요.";
+
+  async function submitDeduction(deductions: number) {
+    if (!selectedRecord) return;
+    const response = await fetch("/api/hr/payroll", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: selectedRecord.id, deductions }),
+    });
+    const payload = await response.json() as { record?: PayrollRecord; error?: string };
+    if (!response.ok || !payload.record) throw new Error(payload.error || "공제값을 저장하지 못했습니다.");
+    const refreshed = await fetchPayrollMonth(month);
+    setSummary(refreshed.summary); setRecords(refreshed.records);
+    setSelectedRecord(refreshed.records.find((item) => item.id === selectedRecord.id) ?? payload.record);
+    setNotice("공제 확정값을 저장했습니다.");
+  }
+
+  async function saveDeduction() {
+    if (!selectedRecord) return;
+    const deductions = Number(deductionInput);
+    if (!Number.isFinite(deductions) || deductions < 0) { setDeductionError("공제액은 0 이상의 정수로 입력해 주세요."); return; }
+    setDeductionSaving(true); setDeductionError("");
+    try {
+      await submitDeduction(Math.round(deductions));
+    } catch (saveError) {
+      const message = saveError instanceof Error ? saveError.message : "공제값을 저장하지 못했습니다.";
+      if (message === PAYROLL_DEDUCTION_LOCK_MESSAGE && window.confirm(`${message}\n지금 급여월 잠금을 해제하고 계속할까요?`)) {
+        const unlocked = await updatePayrollStatus("DRAFT");
+        if (unlocked) {
+          try { await submitDeduction(Math.round(deductions)); }
+          catch (retryError) { setDeductionError(retryError instanceof Error ? retryError.message : "공제값을 저장하지 못했습니다."); }
+        }
+      } else {
+        setDeductionError(message);
+      }
+    } finally {
+      setDeductionSaving(false);
+    }
+  }
 
   async function updatePayrollStatus(status: PayrollSummary["status"]) {
     setError(""); setNotice("");
     let reopenedReason = "";
     if (status === "DRAFT" && summary && ["APPROVED", "LOCKED"].includes(summary.status)) {
       reopenedReason = window.prompt("승인·마감된 급여월을 다시 여는 사유를 입력해 주세요.")?.trim() ?? "";
-      if (!reopenedReason) { setError("급여월 재개방 사유가 필요합니다."); return; }
+      if (!reopenedReason) { setError("급여월 재개방 사유가 필요합니다."); return false; }
     }
     const response = await fetch("/api/hr/payroll", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ period: month, status, reopenedReason }) });
-    const payload = await response.json() as { error?: string; approvalSubmitted?: boolean; financeExpenseId?: string };
-    if (!response.ok) { setError(payload.error || "급여 처리 상태를 변경하지 못했습니다."); return; }
-    if (payload.approvalSubmitted) setNotice("전자결재를 제출했습니다. 최종 승인 후 급여 상태가 반영됩니다.");
-    else {
+    const payload = await response.json() as { error?: string; approvalSubmitted?: boolean; autoApproved?: boolean; financeExpenseId?: string };
+    if (!response.ok) { setError(payload.error || "급여 처리 상태를 변경하지 못했습니다."); return false; }
+    if (payload.autoApproved) {
       setSummary((current) => current ? { ...current, status } : current);
-      if (payload.financeExpenseId) setNotice("급여월을 마감하고 재무회계 지급대기 원장에 연결했습니다.");
-      else if (status === "DRAFT" && reopenedReason) setNotice("급여월을 다시 열고 미지급 재무 요청을 취소했습니다.");
+      setNotice("요청자와 승인자가 동일해 승인을 자동 처리했습니다. 전자결재 기록은 남습니다.");
+      return true;
     }
+    if (payload.approvalSubmitted) { setNotice("전자결재를 제출했습니다. 최종 승인 후 급여 상태가 반영됩니다."); return false; }
+    setSummary((current) => current ? { ...current, status } : current);
+    if (payload.financeExpenseId) setNotice("급여월을 마감하고 재무회계 지급대기 원장에 연결했습니다.");
+    else if (status === "DRAFT" && reopenedReason) setNotice("급여월을 다시 열고 미지급 재무 요청을 취소했습니다.");
+    return true;
   }
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch(`/api/hr/payroll?month=${encodeURIComponent(month)}`);
-        const payload = await response.json() as { summary?: PayrollSummary | null; records?: PayrollRecord[]; error?: string };
-        if (!response.ok) throw new Error(payload.error || "월별 급여 기록을 불러오지 못했습니다.");
+        const payload = await fetchPayrollMonth(month);
         if (!cancelled) {
-          setSummary(payload.summary ?? null);
-          setRecords(payload.records ?? []);
+          setSummary(payload.summary);
+          setRecords(payload.records);
         }
       } catch (fetchError) {
         if (!cancelled) setError(fetchError instanceof Error ? fetchError.message : "월별 급여 기록을 불러오지 못했습니다.");
@@ -2116,7 +2172,7 @@ function PayrollMonthDetail({ month, onBack }: { month: string; onBack: () => vo
     <section className="panel table-panel"><div className="table-toolbar"><div><h2>개인별 급여 내역</h2><span>전체 {records.length}명 · 가로로 이동하면 모든 수당 항목을 확인할 수 있습니다.</span></div><span className="payroll-source-note">인건비 정리 원본 기준</span></div><div className="data-table-wrap payroll-detail-scroll"><table className="data-table payroll-detail-table"><thead><tr>{payrollColumns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{loading ? <tr><td colSpan={payrollColumns.length} className="table-message">급여 기록을 불러오는 중입니다.</td></tr> : error ? <tr><td colSpan={payrollColumns.length} className="table-message error">{error}</td></tr> : records.map((record) => <tr key={record.id}><td><button type="button" className="payroll-person-link" onClick={() => setSelectedRecord(record)}>{record.employeeName}</button></td><td>{record.department ?? "퇴직·미등록"}</td><td>{formatWon(record.basePay)}</td><td>{formatWon(record.mealAllowance)}</td><td>{formatWon(record.childcareAllowance)}</td><td>{formatWon(record.vehicleAllowance)}</td><td>{formatWon(record.incentive)}</td><td>{formatWon(record.bonus)}</td><td>{formatWon(record.annualLeavePay)}</td><td>{formatWon(record.retirementPay)}</td><td>{formatWon(record.deductions)}</td><td>{formatWon(record.netPay)}</td><td><StatusPill value="자료 반영" /></td></tr>)}</tbody></table></div></section>
     {selectedRecord && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setSelectedRecord(null)}><section className="payroll-record-modal" role="dialog" aria-modal="true" aria-label={`${selectedRecord.employeeName} 급여 세부 항목`}><div className="modal-header"><div><p className="eyebrow">PAYROLL BREAKDOWN</p><h2>{selectedRecord.employeeName} · {payrollMonthLabel(selectedRecord.yearMonth)}</h2></div><button type="button" className="modal-close" onClick={() => setSelectedRecord(null)}>×</button></div><div className="payroll-record-summary"><div><span>연봉 기준</span><strong>{formatWon(selectedRecord.annualSalary)}</strong></div><div><span>지급총액</span><strong>{formatWon(selectedRecord.grossPay)}</strong></div><div><span>기록상 지급액</span><strong>{formatWon(selectedRecord.netPay)}</strong></div></div><div className="payroll-breakdown-grid">{[
       ["기본급", selectedRecord.basePay], ["식대", selectedRecord.mealAllowance], ["육아수당", selectedRecord.childcareAllowance], ["차량보조", selectedRecord.vehicleAllowance], ["인센티브", selectedRecord.incentive], ["상여", selectedRecord.bonus], ["연차수당", selectedRecord.annualLeavePay], ["퇴직금", selectedRecord.retirementPay], ["공제", selectedRecord.deductions], ["비과세", selectedRecord.nonTaxable], ["복지기금", selectedRecord.welfareFund], ["카드 사용액", selectedRecord.cardUsage], ["개인매입", selectedRecord.personalPurchase],
-    ].map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{formatWon(Number(value))}</strong></div>)}</div><div className="payroll-record-note"><span>원본 메모</span><p>{selectedRecord.notes || "등록된 메모가 없습니다."}</p><small>{selectedRecord.sourceSheet} · {selectedRecord.sourceRow}행</small></div></section></div>}
+    ].map(([label, value]) => <div key={String(label)}><span>{label}</span><strong>{formatWon(Number(value))}</strong></div>)}</div><div className="payroll-deduction-edit"><span>공제 확정값 (세무법인 회신 기준)</span>{summary && ["DRAFT", "REVIEW"].includes(summary.status) ? <form onSubmit={(event) => { event.preventDefault(); void saveDeduction(); }}><input type="number" min="0" step="1" value={deductionInput} onChange={(event) => setDeductionInput(event.target.value)} disabled={deductionSaving} aria-label="공제 확정값" /><button type="submit" className="outline-button" disabled={deductionSaving}>{deductionSaving ? "저장 중…" : "저장"}</button></form> : <strong>{formatWon(selectedRecord.deductions)}</strong>}{deductionError && <p className="finance-control-message" role="alert">{deductionError}</p>}<small>저장하면 기록상 지급액이 지급총액 − 공제로 다시 계산됩니다. 승인·마감된 급여월은 먼저 작성 중으로 되돌려야 수정할 수 있습니다.</small></div><div className="payroll-record-note"><span>원본 메모</span><p>{selectedRecord.notes || "등록된 메모가 없습니다."}</p><small>{selectedRecord.sourceSheet} · {selectedRecord.sourceRow}행</small></div></section></div>}
   </div>;
 }
 

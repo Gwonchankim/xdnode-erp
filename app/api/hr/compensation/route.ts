@@ -259,19 +259,38 @@ export async function POST(request: Request) {
           action === "CONFIRM" ? authorization.principal.employeeId : "", action === "CONFIRM" ? now : null, now, period, expectedVersion),
     ];
     if (action === "CONFIRM") {
+      // Re-confirming an already-CONFIRMED wage plan (via REOPEN → edit → CONFIRM) rebuilds hr_payroll_records
+      // from this draft's snapshot alone. Any sales incentive already merged in via APPLY_PAYROLL
+      // (app/api/sales/incentives/route.ts) lives only in the DB row, not in this snapshot, so it must be
+      // re-added here or it silently disappears while sales_incentive_results still shows PAYROLL_APPLIED.
+      let appliedByRecordId = new Map<string, number>();
+      let totalAppliedIncentive = 0;
+      try {
+        const appliedIncentives = await db.prepare(`SELECT payroll_record_id, COALESCE(SUM(applied_amount), 0) AS amount
+          FROM sales_incentive_payroll_links WHERE payroll_period = ? GROUP BY payroll_record_id`)
+          .bind(period).all<{ payroll_record_id: string; amount: number }>();
+        appliedByRecordId = new Map(appliedIncentives.results.map((row) => [row.payroll_record_id, row.amount]));
+        totalAppliedIncentive = appliedIncentives.results.reduce((sum, row) => sum + row.amount, 0);
+      } catch {
+        // sales_incentive_payroll_links may not exist yet if the incentive workflow route has never run.
+      }
       statements.push(db.prepare("DELETE FROM hr_payroll_records WHERE year_month = ?").bind(period));
       draft.rows.forEach((row, index) => {
         const employee = draft.employees[index];
         const combinedBonus = Number(row.bonus) + Number(row.extra) + Number(row.research);
+        const recordId = `compensation:${period}:${String(employee.id)}`;
+        const appliedIncentiveAmount = appliedByRecordId.get(recordId) ?? 0;
+        const incentiveTotal = Number(row.incentive) + appliedIncentiveAmount;
+        const payTotal = Number(row.total) + appliedIncentiveAmount;
         statements.push(db.prepare(`INSERT INTO hr_payroll_records
           (id, year_month, employee_id, employee_name, department, annual_salary, base_pay, meal_allowance,
             childcare_allowance, vehicle_allowance, incentive, bonus, annual_leave_pay, retirement_pay, deductions,
             gross_pay, net_pay, card_allowance, card_usage, personal_purchase, non_taxable, welfare_fund,
             notes, source_sheet, source_row, imported_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, 0, 0, 0, ?, ?, ?, 'ERP 임금계산', ?, ?)`)
-          .bind(`compensation:${period}:${String(employee.id)}`, period, String(employee.id), String(employee.name), String(employee.department ?? ""),
-            money(employee.annualSalary) ?? 0, Number(row.basic), Number(row.meal), Number(row.child), Number(row.car), Number(row.incentive), combinedBonus,
-            Number(row.severance), Number(row.total), Number(row.total), Number(row.meal) + Number(row.child) + Number(row.car), Number(row.welfare),
+          .bind(recordId, period, String(employee.id), String(employee.name), String(employee.department ?? ""),
+            money(employee.annualSalary) ?? 0, Number(row.basic), Number(row.meal), Number(row.child), Number(row.car), incentiveTotal, combinedBonus,
+            Number(row.severance), payTotal, payTotal, Number(row.meal) + Number(row.child) + Number(row.car), Number(row.welfare),
             String((employee.monthly as Record<string, Record<string, unknown>> | undefined)?.[period]?.note ?? ""), index + 1, now));
       });
       statements.push(db.prepare(`INSERT INTO hr_payroll_runs
@@ -280,7 +299,7 @@ export async function POST(request: Request) {
         ON CONFLICT(period) DO UPDATE SET employee_count=excluded.employee_count, gross_pay=excluded.gross_pay,
           deductions=0, net_pay=excluded.net_pay, prepared_by=excluded.prepared_by, reviewed_by='', approved_by='',
           locked_at=NULL, reopened_reason='', updated_at=excluded.updated_at WHERE hr_payroll_runs.status='DRAFT'`)
-        .bind(period, draft.employees.length, grossPay, grossPay, authorization.principal.employeeId, now, now));
+        .bind(period, draft.employees.length, grossPay + totalAppliedIncentive, grossPay + totalAppliedIncentive, authorization.principal.employeeId, now, now));
     }
     const results = await db.batch(statements);
     const runResult = results[lineStatements.length + 1];

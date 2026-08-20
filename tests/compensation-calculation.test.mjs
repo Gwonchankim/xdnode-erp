@@ -34,7 +34,7 @@ test("full-month salary removes included tax-free allowances from basic pay", ()
   assert.equal(result.total, 5_000_000);
 });
 
-test("partial-month pay follows the confirmed 365-day method and floors each component", () => {
+test("partial-month pay follows the confirmed 365-day method and rounds basic pay per the selected mode", () => {
   const result = calculateCompensation(employee({
     annualSalary: 39_000_000,
     joinDate: "2026-08-19",
@@ -43,9 +43,17 @@ test("partial-month pay follows the confirmed 365-day method and floors each com
     child: 0,
   }), 2026, 8, "round", columns);
   assert.equal(result.days, 13);
-  assert.equal(result.basic, 1_303_561);
+  assert.equal(result.basic, 1_303_562);
   assert.equal(result.meal, 85_479);
-  assert.equal(result.total, 1_389_040);
+  assert.equal(result.total, 1_389_041);
+});
+
+test("partial-month basic pay honors down/up rounding instead of always flooring", () => {
+  const base = employee({ annualSalary: 39_000_000, joinDate: "2026-08-19", meal: 200_000, car: 0, child: 0 });
+  const down = calculateCompensation(base, 2026, 8, "down", columns);
+  const up = calculateCompensation(base, 2026, 8, "up", columns);
+  assert.equal(down.basic, 1_303_561);
+  assert.equal(up.basic, 1_303_562);
 });
 
 test("probation ending mid-month splits 90 and 100 percent salary segments", () => {

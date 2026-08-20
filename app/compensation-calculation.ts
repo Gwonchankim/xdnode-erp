@@ -99,7 +99,7 @@ export function calculateCompensation(employee: CompensationEmployee, year: numb
   else if (days && employee.annualSalary > 0) {
     basic = days === totalDays && segments.length === 1
       ? Math.max(0, roundPay(employee.annualSalary / 12 * segments[0].rate - allowanceMonthly, rounding))
-      : segments.reduce((sum, segment) => sum + Math.max(0, Math.floor((employee.annualSalary * segment.rate - allowanceMonthly * 12) / 365 * segment.days)), 0);
+      : segments.reduce((sum, segment) => sum + Math.max(0, roundPay((employee.annualSalary * segment.rate - allowanceMonthly * 12) / 365 * segment.days, rounding)), 0);
   }
   const allowance = (value: number) => !value || !days ? 0 : days === totalDays ? value : Math.floor(value * 12 / 365 * days);
   const incentive = monthly.incentive ?? 0;

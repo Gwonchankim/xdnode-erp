@@ -55,11 +55,17 @@ test("keeps the finance connection notice in the alarm center configuration", as
   assert.match(source, /destination: \{ module: "finance", financeView: "quality" \}/);
 });
 
-test("renders the incentive calculator after the Excel import compatibility fix", async () => {
+test("renders the incentive calculator analysis workspace", async () => {
   const response = await render("/incentive");
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(html, /인센티브 계산기/);
   assert.match(html, /엑셀 또는 CSV 선택/);
-  assert.match(html, /개인별 급여 반영/);
+  assert.match(html, /개인별 예상 인센티브/);
+  assert.match(html, /월 인바운드 매출/);
+  assert.match(html, /개인 인센티브 대시보드/);
+  assert.match(html, /전체 인센티브 대시보드/);
+  assert.match(html, /거래별 계산 내역/);
+  assert.match(html, /마진 계산식/);
+  assert.match(html, /매출계산서일/);
 });

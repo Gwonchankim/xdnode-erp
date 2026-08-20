@@ -2547,3 +2547,13 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 
 /* Employee lifecycle: onboarding and effective retirement */
 .lifecycle-section-heading{margin:18px 0 10px}.lifecycle-section-heading p{margin:0;color:#a1a1aa;font:700 10px var(--font-mono);letter-spacing:.12em}.lifecycle-section-heading h2{margin:6px 0 0;font-size:24px}.retirement-lifecycle-person.effective{border-color:#18181b}.retirement-lifecycle-person .retirement-settlement{margin:18px}
+
+/* Payroll record modal: confirmed deduction entry */
+.payroll-deduction-edit{margin:16px 0 0;padding:14px 16px;display:grid;gap:9px;border:1px solid #e4e4e7;border-radius:16px;background:#fafafa}
+.payroll-deduction-edit>span{color:#52525b;font-size:11px;font-weight:800}
+.payroll-deduction-locked{color:#9a3412;font-size:10px;font-style:normal;font-weight:700}
+.payroll-deduction-edit form{display:flex;align-items:center;gap:8px}
+.payroll-deduction-edit input{min-width:0;flex:1 1 auto;height:40px;padding:0 11px;border:1px solid #d4d4d8;border-radius:11px;background:#fff;font-size:12px;font-variant-numeric:tabular-nums;text-align:right}
+.payroll-deduction-edit button{flex:0 0 auto;min-height:40px;padding:0 16px;border:1px solid #18181b;border-radius:11px;color:#fff;background:#18181b;font-size:11px;font-weight:900;cursor:pointer}
+.payroll-deduction-edit button:disabled{cursor:wait;opacity:.55}
+.payroll-deduction-edit>small{color:#71717a;font-size:10px;line-height:1.5}

@@ -31,4 +31,19 @@ export async function ensureEmployeeRosterSeeded(db: D1Database) {
       WHERE employee_id = ? AND NULLIF(TRIM(join_date), '') IS NULL`)
       .bind(employee.joinDate, now, employee.id)));
   }
+
+  // The compensation columns were added to this table by a later migration defaulting to 0, so rows
+  // that already existed kept zeros. Payroll drafts base pay from annual_salary, which would put those
+  // employees on the payroll at zero. Restore the roster figures only where the compensation block was
+  // never populated — a row that already carries a salary is left untouched, and so is anyone the
+  // roster itself records as unsalaried.
+  const salariedEmployees = companyEmployees.filter((employee) => employee.annualSalary > 0);
+  if (salariedEmployees.length) {
+    await db.batch(salariedEmployees.map((employee) => db.prepare(`UPDATE hr_employee_records
+      SET annual_salary = ?, base_pay = ?, meal_allowance = ?, childcare_allowance = ?,
+        vehicle_allowance = ?, updated_at = ?
+      WHERE employee_id = ? AND annual_salary = 0`)
+      .bind(employee.annualSalary, employee.basePay, employee.mealAllowance, employee.childcareAllowance,
+        employee.vehicleAllowance, now, employee.id)));
+  }
 }

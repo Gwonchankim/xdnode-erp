@@ -198,32 +198,62 @@ function migrateCableExclusions(deals: Deal[]) {
 }
 
 const CHART_COLORS = ["#ff5b18", "#172126", "#4d756c", "#90a09a", "#c4cbc7", "#e7ebe8"];
+const KIND_CHART_COLORS = ["#ff5b18", "#172126", "#c4cbc7"];
 
-function incentiveBreakdown(deals: Deal[], config: IncentiveConfig) {
-  const foldedCosts = foldedCableCosts(deals, config);
-  const byProduct = new Map<string, number>();
-  for (const deal of deals) {
-    const incentive = roundIncentive(calculate(deal, config, foldedCosts.get(deal.id) ?? 0).incentive, config.rounding);
-    if (incentive <= 0) continue;
-    const label = deal.item.trim() || "제품 미입력";
-    byProduct.set(label, (byProduct.get(label) ?? 0) + incentive);
+function chartBreakdown(entries: Array<[string, number]>, otherLabel = "기타", colors = CHART_COLORS) {
+  const grouped = new Map<string, number>();
+  for (const [rawLabel, rawValue] of entries) {
+    const value = Math.max(rawValue, 0);
+    if (value <= 0) continue;
+    const label = rawLabel.trim() || "미입력";
+    grouped.set(label, (grouped.get(label) ?? 0) + value);
   }
-  const ordered = [...byProduct.entries()].sort((a, b) => b[1] - a[1]);
+  const ordered = [...grouped.entries()].sort((a, b) => b[1] - a[1]);
   const visible = ordered.slice(0, 5);
   const other = ordered.slice(5).reduce((sum, [, value]) => sum + value, 0);
-  if (other > 0) visible.push(["기타 제품", other]);
+  if (other > 0) visible.push([otherLabel, other]);
   const total = visible.reduce((sum, [, value]) => sum + value, 0);
   let cursor = 0;
   const segments = visible.map(([label, value], index) => {
     const start = total > 0 ? cursor / total * 100 : 0;
     cursor += value;
     const end = total > 0 ? cursor / total * 100 : 0;
-    return { label, value, color: CHART_COLORS[index % CHART_COLORS.length], start, end };
+    return { label, value, color: colors[index % colors.length], start, end };
   });
   const gradient = segments.length
     ? `conic-gradient(${segments.map((segment) => `${segment.color} ${segment.start}% ${segment.end}%`).join(", ")})`
     : "conic-gradient(#e7ebe8 0 100%)";
   return { total, segments, gradient };
+}
+
+function salesBreakdown(deals: Deal[], label: (deal: Deal) => string, otherLabel: string) {
+  return chartBreakdown(deals.map((deal) => [label(deal), deal.quantity * deal.unitSale]), otherLabel);
+}
+
+function kindSalesBreakdown(deals: Deal[]) {
+  return chartBreakdown(deals.map((deal) => [deal.kind === "일반" || deal.kind === "인바운드" ? deal.kind : "기타 구분", deal.quantity * deal.unitSale]), "기타 구분", KIND_CHART_COLORS);
+}
+
+function incentiveBreakdown(deals: Deal[], config: IncentiveConfig) {
+  const foldedCosts = foldedCableCosts(deals, config);
+  return chartBreakdown(deals.map((deal) => [
+    deal.item.trim() || "제품 미입력",
+    roundIncentive(calculate(deal, config, foldedCosts.get(deal.id) ?? 0).incentive, config.rounding),
+  ]), "기타 제품");
+}
+
+type ChartBreakdown = ReturnType<typeof chartBreakdown>;
+
+function PieLegend({ breakdown, emptyLabel }: { breakdown: ChartBreakdown; emptyLabel: string }) {
+  return <div className={styles.pieLegend}>{breakdown.segments.map((segment) => <div key={segment.label}><i style={{ backgroundColor: segment.color }} /><span>{segment.label}</span><strong>{won(segment.value)}</strong><small>{breakdown.total ? `${(segment.value / breakdown.total * 100).toFixed(1)}%` : "0%"}</small></div>)}{!breakdown.segments.length && <p>{emptyLabel}</p>}</div>;
+}
+
+function DonutChart({ breakdown, label }: { breakdown: ChartBreakdown; label: string }) {
+  return <div className={styles.pieChart} style={{ background: breakdown.gradient }} role="img" aria-label={`${label} 원그래프`}><div className={styles.pieCenter}><small>{label}</small><strong>{won(breakdown.total)}</strong></div></div>;
+}
+
+function DoubleDonutChart({ inner, outer, label }: { inner: ChartBreakdown; outer: ChartBreakdown; label: string }) {
+  return <div className={styles.doublePieChart} style={{ background: outer.gradient }} role="img" aria-label={`${label} 제품 및 거래 구분 2중 원그래프`}><div className={styles.innerPieChart} style={{ background: inner.gradient }}><div className={styles.doublePieCenter}><small>{label}</small><strong>{won(inner.total)}</strong></div></div></div>;
 }
 
 function roundIncentive(value: number, rounding: IncentiveRounding) {
@@ -333,8 +363,14 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
     return acc;
   }, { sales: 0, margin: 0, approved: 0, payroll: 0, welfare: 0 }), [summaries]);
 
-  const personalBreakdown = useMemo(() => incentiveBreakdown(activeDeals.filter((deal) => deal.person === dashboardPerson), config), [activeDeals, config, dashboardPerson]);
-  const overallBreakdown = useMemo(() => incentiveBreakdown(activeDeals, config), [activeDeals, config]);
+  const dashboardPersonDeals = useMemo(() => activeDeals.filter((deal) => deal.person === dashboardPerson), [activeDeals, dashboardPerson]);
+  const overallSalesByPerson = useMemo(() => salesBreakdown(deals, (deal) => deal.person || "담당자 미입력", "기타 담당자"), [deals]);
+  const overallSalesByProduct = useMemo(() => salesBreakdown(deals, (deal) => deal.item || "제품 미입력", "기타 제품"), [deals]);
+  const overallSalesByKind = useMemo(() => kindSalesBreakdown(deals), [deals]);
+  const overallIncentiveByPerson = useMemo(() => chartBreakdown(summaries.map((item) => [item.person, item.incentive]), "기타 담당자"), [summaries]);
+  const personalSalesByProduct = useMemo(() => salesBreakdown(dashboardPersonDeals, (deal) => deal.item || "제품 미입력", "기타 제품"), [dashboardPersonDeals]);
+  const personalSalesByKind = useMemo(() => kindSalesBreakdown(dashboardPersonDeals), [dashboardPersonDeals]);
+  const personalIncentiveByProduct = useMemo(() => incentiveBreakdown(dashboardPersonDeals, config), [dashboardPersonDeals, config]);
   const dealFoldedCosts = useMemo(() => foldedCableCosts(activeDeals, config), [activeDeals, config]);
   const filteredDeals = useMemo(() => dealFilterPerson ? activeDeals.filter((deal) => deal.person === dealFilterPerson) : activeDeals, [activeDeals, dealFilterPerson]);
   const selectedCableDeals = useMemo(() => dealFilterPerson
@@ -526,16 +562,36 @@ export default function IncentiveCalculator({ embedded = false }: { embedded?: b
           <tbody>{summaries.map((item) => <tr key={item.person}><td><strong>{item.person}</strong><small>{item.count}건</small></td><td>{won(item.sales)}</td><td>{won(item.margin)}</td><td>{won(item.inboundSales)}</td><td>{won(item.ramSales)}</td><td>{won(item.cableSales)}</td><td>{won(item.eligibleSales)}</td><td><strong>{won(item.incentive)}</strong><small>거래별 확정액 합계</small></td></tr>)}{!summaries.length && <tr><td colSpan={8} className={styles.empty}>거래를 불러오면 개인별 예상 인센티브가 표시됩니다.</td></tr>}</tbody></table></div>
         </section>
 
-        <section className={styles.analysisGrid}>
-          <article className={`${styles.panel} ${styles.analysisPanel}`}>
-            <div className={styles.panelHead}><div><p>PERSONAL ANALYSIS</p><h2>개인 인센티브 대시보드</h2></div><label className={styles.dashboardSelect}>인원<select value={dashboardPerson} onChange={(event) => setDashboardPerson(event.target.value)}><option value="">선택</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label></div>
-            <div className={styles.pieContent}><div className={styles.pieChart} style={{ background: personalBreakdown.gradient }}><div className={styles.pieCenter}><small>발생 인센티브</small><strong>{won(personalBreakdown.total)}</strong></div></div><div className={styles.pieLegend}>{personalBreakdown.segments.map((segment) => <div key={segment.label}><i style={{ backgroundColor: segment.color }} /><span>{segment.label}</span><strong>{won(segment.value)}</strong><small>{personalBreakdown.total ? `${(segment.value / personalBreakdown.total * 100).toFixed(1)}%` : "0%"}</small></div>)}{!personalBreakdown.segments.length && <p>인센티브가 발생한 거래가 없습니다.</p>}</div></div>
-          </article>
+        <section className={`${styles.panel} ${styles.companyDashboard}`}>
+          <div className={styles.panelHead}><div><p>COMPANY ANALYSIS</p><h2>전체 인센티브 대시보드</h2><span className={styles.dashboardHint}>전체 매출 비중은 완전 제외 인원 설정과 무관하게 모든 원본 거래를 포함합니다.</span></div></div>
+          <div className={styles.companyDashboardGrid}>
+            <article className={styles.dashboardTile}>
+              <div className={styles.tileHeading}><span>SALES BY PERSON</span><h3>인원별 전체 매출 비중</h3></div>
+              <div className={styles.chartAndLegend}><DonutChart breakdown={overallSalesByPerson} label="전체 매출" /><PieLegend breakdown={overallSalesByPerson} emptyLabel="매출 거래가 없습니다." /></div>
+            </article>
+            <article className={styles.dashboardTile}>
+              <div className={styles.tileHeading}><span>SALES MIX</span><h3>제품 · 거래 구분별 매출</h3></div>
+              <div className={styles.chartAndLegend}><DoubleDonutChart inner={overallSalesByProduct} outer={overallSalesByKind} label="전체 매출" /><div className={styles.legendGroups}><div><strong>안쪽 · 제품</strong><PieLegend breakdown={overallSalesByProduct} emptyLabel="제품 매출이 없습니다." /></div><div><strong>바깥쪽 · 거래 구분</strong><PieLegend breakdown={overallSalesByKind} emptyLabel="구분별 매출이 없습니다." /></div></div></div>
+            </article>
+            <article className={styles.dashboardTile}>
+              <div className={styles.tileHeading}><span>INCENTIVE BY PERSON</span><h3>인원별 전체 인센티브 비중</h3></div>
+              <div className={styles.chartAndLegend}><DonutChart breakdown={overallIncentiveByPerson} label="전체 인센티브" /><PieLegend breakdown={overallIncentiveByPerson} emptyLabel="발생한 인센티브가 없습니다." /></div>
+            </article>
+          </div>
+        </section>
 
-          <article className={`${styles.panel} ${styles.analysisPanel}`}>
-            <div className={styles.panelHead}><div><p>COMPANY ANALYSIS</p><h2>전체 인센티브 대시보드</h2></div><span>제품별 발생 비중</span></div>
-            <div className={styles.pieContent}><div className={styles.pieChart} style={{ background: overallBreakdown.gradient }}><div className={styles.pieCenter}><small>전체 발생액</small><strong>{won(overallBreakdown.total)}</strong></div></div><div className={styles.pieLegend}>{overallBreakdown.segments.map((segment) => <div key={segment.label}><i style={{ backgroundColor: segment.color }} /><span>{segment.label}</span><strong>{won(segment.value)}</strong><small>{overallBreakdown.total ? `${(segment.value / overallBreakdown.total * 100).toFixed(1)}%` : "0%"}</small></div>)}{!overallBreakdown.segments.length && <p>인센티브가 발생한 거래가 없습니다.</p>}</div></div>
-          </article>
+        <section className={`${styles.panel} ${styles.personalDashboard}`}>
+          <div className={styles.panelHead}><div><p>PERSONAL ANALYSIS</p><h2>개인 인센티브 대시보드</h2></div><label className={styles.dashboardSelect}>인원<select value={dashboardPerson} onChange={(event) => setDashboardPerson(event.target.value)}><option value="">선택</option>{people.map((person) => <option key={person}>{person}</option>)}</select></label></div>
+          <div className={styles.personalDashboardGrid}>
+            <article className={styles.dashboardTile}>
+              <div className={styles.tileHeading}><span>PERSONAL SALES MIX</span><h3>{dashboardPerson || "선택 인원"} 매출 구성</h3></div>
+              <div className={styles.chartAndLegend}><DoubleDonutChart inner={personalSalesByProduct} outer={personalSalesByKind} label="개인 매출" /><div className={styles.legendGroups}><div><strong>안쪽 · 제품</strong><PieLegend breakdown={personalSalesByProduct} emptyLabel="제품 매출이 없습니다." /></div><div><strong>바깥쪽 · 거래 구분</strong><PieLegend breakdown={personalSalesByKind} emptyLabel="구분별 매출이 없습니다." /></div></div></div>
+            </article>
+            <article className={styles.dashboardTile}>
+              <div className={styles.tileHeading}><span>PERSONAL INCENTIVE MIX</span><h3>{dashboardPerson || "선택 인원"} 제품별 인센티브 비중</h3></div>
+              <div className={styles.chartAndLegend}><DonutChart breakdown={personalIncentiveByProduct} label="개인 인센티브" /><PieLegend breakdown={personalIncentiveByProduct} emptyLabel="발생한 인센티브가 없습니다." /></div>
+            </article>
+          </div>
         </section>
 
         <section className={`${styles.panel} ${styles.dealReviewPanel}`}>

@@ -70,10 +70,24 @@ test("renders the incentive calculator analysis workspace", async () => {
   assert.match(html, /월 인바운드 매출/);
   assert.match(html, /개인 인센티브 대시보드/);
   assert.match(html, /전체 인센티브 대시보드/);
+  assert.match(html, /인원별 전체 매출 비중/);
+  assert.match(html, /제품 · 거래 구분별 매출/);
+  assert.match(html, /인원별 전체 인센티브 비중/);
+  assert.match(html, /완전 제외 인원 설정과 무관하게 모든 원본 거래/);
+  assert.match(html, /안쪽 · 제품/);
+  assert.match(html, /바깥쪽 · 거래 구분/);
   assert.match(html, /거래별 계산 내역/);
   assert.match(html, /케이블 미반영 일괄 적용/);
   assert.match(html, /마진 계산식/);
   assert.match(html, /매출계산서일/);
+});
+
+test("company sales dashboard includes every original deal before person exclusions", async () => {
+  const source = await readFile(new URL("../app/incentive/incentive-calculator.tsx", import.meta.url), "utf8");
+  assert.match(source, /overallSalesByPerson = useMemo\(\(\) => salesBreakdown\(deals,/);
+  assert.match(source, /overallSalesByProduct = useMemo\(\(\) => salesBreakdown\(deals,/);
+  assert.match(source, /overallSalesByKind = useMemo\(\(\) => kindSalesBreakdown\(deals\)/);
+  assert.match(source, /DoubleDonutChart inner=\{overallSalesByProduct\} outer=\{overallSalesByKind\}/);
 });
 
 test("does not blanket-exclude cable transactions from incentives", async () => {

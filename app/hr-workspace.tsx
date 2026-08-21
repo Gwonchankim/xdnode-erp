@@ -2559,15 +2559,9 @@ function LifecycleManagementView() {
   const [people, setPeople] = useState<Record<string, { name: string; department: string; joinDate: string; status: string }>>({});
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [expandedCards, setExpandedCards] = useState<Set<string>>(() => new Set());
-  function toggleCard(cardId: string) {
-    setExpandedCards((current) => {
-      const next = new Set(current);
-      if (next.has(cardId)) next.delete(cardId);
-      else next.add(cardId);
-      return next;
-    });
-  }
+  // 퇴직 절차는 체크리스트 10개에 정산까지 붙어 목록 안에서 펼치면 다른 사람 카드가 멀리 밀려났다.
+  // 한 번에 한 명만 모달로 띄운다.
+  const [openRetirementId, setOpenRetirementId] = useState("");
   async function load() {
     setLoading(true);
     try {
@@ -2631,6 +2625,7 @@ function LifecycleManagementView() {
     return true;
   }
   const pendingOnboardingCount = onboardingCandidates.filter((candidate) => candidate.status === "ACCEPTED").length;
+  const openRetirement = retirements.find((item) => item.id === openRetirementId) ?? null;
   return (
     <div className="page-wrap module-page lifecycle-page">
       <section className="module-hero">
@@ -2686,11 +2681,9 @@ function LifecycleManagementView() {
               const items = retirementTasks.filter((task) => task.id.startsWith(`${request.id}:`));
               const completed = safeJsonArray(request.checklist_json);
               const effective = ["EFFECTIVE", "COMPLETED"].includes(request.status);
-              const cardId = `offboarding-${request.id}`;
-              const expanded = expandedCards.has(cardId);
               return (
-                <article className={`panel lifecycle-person retirement-lifecycle-person${effective ? " effective" : ""}${expanded ? " expanded" : " collapsed"}`} key={request.id}>
-                  <button className="lifecycle-card-toggle" type="button" aria-expanded={expanded} aria-controls={`${cardId}-content`} onClick={() => toggleCard(cardId)}>
+                <article className={`panel lifecycle-person retirement-lifecycle-person${effective ? " effective" : ""}`} key={request.id}>
+                  <button className="lifecycle-card-toggle" type="button" onClick={() => setOpenRetirementId(request.id)}>
                     <div className="lifecycle-person-summary">
                       <p>{request.status === "COMPLETED" ? "OFFBOARDING COMPLETE" : effective ? "RETIRED · FOLLOW-UP OPEN" : "RETIREMENT SCHEDULED"}</p>
                       <h2>{person?.name ?? request.employee_id}</h2>
@@ -2699,17 +2692,9 @@ function LifecycleManagementView() {
                     <div className="lifecycle-card-state">
                       <StatusPill value={request.status === "COMPLETED" ? "퇴직 절차 완료" : effective ? "퇴직 · 후속절차 진행" : "퇴직 예정"} />
                       <small>{completed.length}/{items.length} 완료</small>
-                      <span aria-hidden="true">{expanded ? "−" : "+"}</span>
+                      <span aria-hidden="true">›</span>
                     </div>
                   </button>
-                  {expanded && <div className="lifecycle-card-body" id={`${cardId}-content`}>
-                    {items.map((task) => {
-                      const logicalId = task.id.slice(request.id.length + 1);
-                      const checked = completed.includes(logicalId);
-                      return <label className={checked ? "checked" : ""} key={task.id}><input disabled={request.status === "COMPLETED"} type="checkbox" checked={checked} onChange={() => void toggleRetirement(request, logicalId)} /><span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기준일 {task.due_date}</small></p></label>;
-                    })}
-                    {request.status !== "COMPLETED" && <RetirementSettlementPanel requestId={request.id} />}
-                  </div>}
                 </article>
               );
             })}
@@ -2718,8 +2703,61 @@ function LifecycleManagementView() {
         </section>
       </div>
       {editingOnboarding && <OnboardingEditModal candidate={editingOnboarding} onClose={() => setEditingOnboarding(null)} onSave={(draft) => updateOnboarding("onboardingUpdate", editingOnboarding.id, draft)} onCancel={(cancellationReason) => updateOnboarding("onboardingCancel", editingOnboarding.id, { cancellationReason })} />}
+      {openRetirement && <RetirementProcessModal
+        request={openRetirement}
+        person={people[openRetirement.employee_id]}
+        tasks={retirementTasks.filter((task) => task.id.startsWith(`${openRetirement.id}:`))}
+        onToggle={(logicalId) => void toggleRetirement(openRetirement, logicalId)}
+        onClose={() => setOpenRetirementId("")}
+      />}
     </div>
   );
+}
+
+function RetirementProcessModal({ request, person, tasks, onToggle, onClose }: {
+  request: LifecycleRetirementRequest;
+  person?: { name: string; department: string; joinDate: string; status: string };
+  tasks: OnboardingTask[];
+  onToggle: (logicalId: string) => void;
+  onClose: () => void;
+}) {
+  const completed = safeJsonArray(request.checklist_json);
+  const effective = ["EFFECTIVE", "COMPLETED"].includes(request.status);
+  const locked = request.status === "COMPLETED";
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="employee-modal retirement-process-modal" role="dialog" aria-modal="true" aria-label={`${person?.name ?? request.employee_id} 퇴직 절차`}>
+      <div className="modal-header">
+        <div><p>OFFBOARDING</p><h2>{person?.name ?? request.employee_id} 퇴직 절차</h2></div>
+        <button type="button" aria-label="닫기" onClick={onClose}>×</button>
+      </div>
+      <div className="retirement-modal-summary">
+        <div><span>소속</span><strong>{person?.department ?? "소속 미지정"}</strong></div>
+        <div><span>퇴직일</span><strong>{request.retirement_date}</strong></div>
+        <div><span>사유</span><strong>{request.reason || "미입력"}</strong></div>
+        <div><span>진행</span><strong>{completed.length}/{tasks.length} 완료</strong></div>
+      </div>
+      <div className="retirement-modal-body">
+        <div className="retirement-modal-checklist">
+          {tasks.map((task) => {
+            const logicalId = task.id.slice(request.id.length + 1);
+            const checked = completed.includes(logicalId);
+            return <label className={checked ? "checked" : ""} key={task.id}>
+              <input disabled={locked} type="checkbox" checked={checked} onChange={() => onToggle(logicalId)} />
+              <span>✓</span><p><strong>{task.title}</strong><small>{task.task_group} · 기준일 {task.due_date}</small></p>
+            </label>;
+          })}
+          {!tasks.length && <p className="retirement-modal-empty">등록된 퇴직 절차 항목이 없습니다.</p>}
+        </div>
+        {locked
+          ? <p className="retirement-modal-empty">퇴직 절차가 완료되어 정산 내용을 수정할 수 없습니다.</p>
+          : <RetirementSettlementPanel requestId={request.id} />}
+      </div>
+      <div className="modal-actions">
+        <StatusPill value={request.status === "COMPLETED" ? "퇴직 절차 완료" : effective ? "퇴직 · 후속절차 진행" : "퇴직 예정"} />
+        <button type="button" onClick={onClose}>닫기</button>
+      </div>
+    </section>
+  </div>;
 }
 
 function OnboardingEditModal({ candidate, onClose, onSave, onCancel }: {

@@ -541,7 +541,7 @@ test("employee persistence retains lifecycle state across refreshes", async () =
   assert.match(workspace, /RETIREMENT_CHECKLIST|resource: "retirement"/);
 });
 
-test("employee lifecycle uses side-by-side collapsible onboarding and retirement cards", async () => {
+test("employee lifecycle opens each retirement in its own modal beside the onboarding table", async () => {
   const [workspace, styles] = await Promise.all([
     read("app/hr-workspace.tsx"),
     read("public/hr-workspace.css"),
@@ -549,9 +549,16 @@ test("employee lifecycle uses side-by-side collapsible onboarding and retirement
   assert.match(workspace, /className="lifecycle-board"/);
   assert.match(workspace, /id="onboarding-heading">입사 관리/);
   assert.match(workspace, /id="offboarding-heading">퇴직자 관리/);
-  assert.match(workspace, /const \[expandedCards, setExpandedCards\] = useState<Set<string>>/);
-  assert.match(workspace, /aria-expanded=\{expanded\}/);
-  assert.match(workspace, /toggleCard\(cardId\)/);
+  // 퇴직 절차는 목록 안에서 펼치지 않고 한 명씩 모달로 연다.
+  assert.match(workspace, /const \[openRetirementId, setOpenRetirementId\] = useState\(""\)/);
+  assert.match(workspace, /onClick=\{\(\) => setOpenRetirementId\(request\.id\)\}/);
+  assert.match(workspace, /function RetirementProcessModal\(/);
+  assert.match(workspace, /className="employee-modal retirement-process-modal" role="dialog" aria-modal="true"/);
+  // 체크와 정산 입력이 모두 모달 안에서 이루어져야 한다.
+  assert.match(workspace, /className="retirement-modal-checklist"/);
+  assert.match(workspace, /<RetirementSettlementPanel requestId=\{request\.id\} \/>/);
+  assert.doesNotMatch(workspace, /expandedCards|toggleCard\(/);
+  assert.match(styles, /\.retirement-process-modal \{[^}]*max-height: 92vh/);
   assert.match(styles, /\.lifecycle-board \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
   assert.match(styles, /@media \(max-width: 900px\) \{ \.lifecycle-board \{ grid-template-columns: 1fr;/);
 });

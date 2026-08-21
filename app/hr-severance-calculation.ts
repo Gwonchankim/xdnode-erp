@@ -45,9 +45,15 @@ export type SeveranceResult = {
 
 const DAY = 86_400_000;
 
+// 저장된 날짜의 구분자가 한 가지가 아니다. hr_retirement_requests.retirement_date 는 "2026-08-13",
+// hr_employee_records.join_date 는 "2024.11.14" 처럼 점을 쓴다. 앱의 다른 곳도 읽는 쪽에서 맞춰준다
+// (app/api/hr/compensation/route.ts 의 replaceAll(".", "-")). 여기서도 양쪽을 모두 받는다.
+export const normalizeDate = (value: string) => (value ?? "").trim().replaceAll(".", "-").replaceAll("/", "-");
+
 const parseDate = (value: string) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value ?? "")) return null;
-  const date = new Date(`${value}T00:00:00Z`);
+  const normalized = normalizeDate(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return null;
+  const date = new Date(`${normalized}T00:00:00Z`);
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
@@ -82,19 +88,20 @@ export type WorkingTimeRule = {
  * 규정을 골라 써야 한다. 새 규정이 생기면 여기에 한 줄 추가하고 effectiveFrom 만 채우면 된다.
  *
  * 주 35시간제(2026-08-01 시행): 월~목 09:00-17:30 휴게 1.5h, 금 09:00-17:00 휴게 1h → 매일 7시간.
- * 월 기준시간 = (주 소정 35h + 주휴 7h) × 365 ÷ 7 ÷ 12 = 182.5 → 183 (209를 208.57에서 올린 것과 같은 방식).
+ * 월 기준시간 = (주 소정 35h + 주휴 7h) × 365 ÷ 7 ÷ 12 = 182.5. 올림하지 않은 값을 그대로 쓴다.
  * 근로시간만 줄고 월 급여는 그대로라, 시급은 오르지만 1일 통상임금은 거의 변하지 않는다.
  */
 export const WORKING_TIME_RULES: WorkingTimeRule[] = [
   { effectiveFrom: "0000-01-01", monthlyHours: 209, dailyHours: 8, label: "주 40시간" },
-  { effectiveFrom: "2026-08-01", monthlyHours: 183, dailyHours: 7, label: "주 35시간" },
+  { effectiveFrom: "2026-08-01", monthlyHours: 182.5, dailyHours: 7, label: "주 35시간" },
 ];
 
 /** 주어진 날짜에 적용되는 소정근로시간 규정. 날짜가 없거나 잘못됐으면 가장 최근 규정을 쓴다. */
 export function workingTimeRuleFor(date: string): WorkingTimeRule {
   const sorted = [...WORKING_TIME_RULES].sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date ?? "")) return sorted[sorted.length - 1];
-  const applicable = sorted.filter((rule) => rule.effectiveFrom <= date);
+  const normalized = normalizeDate(date);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return sorted[sorted.length - 1];
+  const applicable = sorted.filter((rule) => rule.effectiveFrom <= normalized);
   return applicable.length ? applicable[applicable.length - 1] : sorted[0];
 }
 

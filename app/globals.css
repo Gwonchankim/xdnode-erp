@@ -185,11 +185,8 @@ button { color: inherit; }
   .mobile-brand { display: none; }
 }
 
-/* Editorial brutalist design system */
-:root {
-  --shadow: none;
-  --font-mono: "JetBrains Mono", "IBM Plex Mono", Consolas, monospace;
-}
+/* Editorial brutalist design system — its tokens were merged into the single
+   :root block below; search for "DESIGN TOKENS". */
 
 html, body { color: var(--color-carbon-black); background: var(--color-warm-canvas); }
 body { letter-spacing: -.011em; }
@@ -260,31 +257,52 @@ body { letter-spacing: -.011em; }
 }
 
 /* Awesomic zinc theme — final cascade */
+/* ============================================================================
+   DESIGN TOKENS — the one place every custom property is declared
+   ----------------------------------------------------------------------------
+   Three design eras each opened their own :root block, so a token could be set
+   in one and quietly reset two blocks later. Those are merged here; this is now
+   the only :root in the file apart from the responsive override noted below.
+
+   Nine tokens were dropped because nothing referenced them anywhere in app/,
+   public/, worker/ or db/: --shadow, --color-paper-white, --color-ash,
+   --color-graphite, --ink-soft, --paper, --card, --mint-light, --amber.
+
+   Careful with the ones the HR module leans on. It renders in a shadow root
+   with its own stylesheet (public/hr-workspace.css) and declares no tokens of
+   its own — it inherits every one of these through the document. --line (31
+   uses there), --blue (13), --font-body (6), --erp-nav-height (5), --ink (3)
+   and --font-display (2) look unused from this file alone, so check
+   hr-workspace.css before removing anything.
+
+   One token is overridden responsively: --erp-nav-height drops to 66px inside
+   @media (max-width: 760px) later in this file. That block has to stay separate.
+   ============================================================================ */
 :root {
   --erp-nav-height: 88px;
+
+  /* Palette */
   --color-carbon-black: #09090b;
-  --color-paper-white: #ffffff;
   --color-warm-canvas: #f4f4f5;
   --color-mist-gray: #f4f4f5;
-  --color-ash: #d4d4d8;
   --color-smoke: #71717a;
   --color-slate: #52525b;
-  --color-graphite: #18181b;
   --color-mint-chip: #ececee;
   --color-voltage-yellow: #ff5a00;
+
+  /* Semantic aliases. --lime and --coral are both the same orange as
+     --color-voltage-yellow; the names are leftovers from earlier palettes. */
   --ink: #09090b;
-  --ink-soft: #52525b;
-  --paper: #f4f4f5;
-  --card: #ffffff;
   --line: #ececee;
   --mint: #18181b;
-  --mint-light: #ececee;
   --lime: #ff5a00;
-  --amber: #ff5a00;
   --coral: #ff5a00;
   --blue: #3f3f46;
+
+  /* Type */
   --font-display: "DM Sans", Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
   --font-body: "DM Sans", Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", Consolas, monospace;
 }
 body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body); }
 .sr-only { position: absolute !important; width: 1px !important; height: 1px !important; padding: 0 !important; margin: -1px !important; overflow: hidden !important; clip: rect(0,0,0,0) !important; white-space: nowrap !important; border: 0 !important; }
@@ -332,6 +350,7 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .donut { background: conic-gradient(#18181b 0 75%,#52525b 75% 83%,#ff5a00 83% 87%,#ececee 87%); }.legend-list i.mint { background: #18181b; }.legend-list i.blue { background: #52525b; }.legend-list i.amber { background: #ff5a00; }.legend-list i.gray { background: #d4d4d8; }
 .quick-modal { border: 1px solid #ececee; box-shadow: none; }.modal-backdrop { background: rgba(9,9,11,.58); }.toast { border: 1px solid #27272a; background: #18181b; box-shadow: none; }.toast span { color: #ff5a00; }
 @media (max-width: 760px) {
+  /* The only token override outside the DESIGN TOKENS block above. */
   :root { --erp-nav-height: 66px; }
   .erp-top-nav { min-height: 66px; padding: 0 10px; }.erp-module-tabs { height: auto; }.erp-module-tab { height: 46px; }
   .module-hero { min-height: 230px; margin: 20px 14px 16px; padding: 28px 24px; }.module-hero h1 { font-size: clamp(38px,12vw,52px); }.attention-strip { width: calc(100% - 28px); margin-bottom: 16px; }.dashboard-stack { width: calc(100% - 28px); padding-bottom: 56px; }

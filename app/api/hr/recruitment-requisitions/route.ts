@@ -134,8 +134,10 @@ async function state() {
     const actual = countsForOrganization(organization?.name ?? "", employees);
     const projected = Math.max(0, actual.current + actual.incoming - line.planned_exits);
     const hiringGap = Math.max(0, line.approved_headcount - projected);
+    // Match on the organization rather than the plan line: requisitions are now raised directly
+    // and carry no plan line, but they still consume the same approved headcount.
     const reserved = requisitions
-      .filter((item) => item.workforcePlanLineId === line.id && ["DRAFT", "SUBMITTED", "OPEN"].includes(item.status))
+      .filter((item) => item.organizationId === line.organizationId && ["DRAFT", "SUBMITTED", "OPEN"].includes(item.status))
       .reduce((sum, item) => sum + item.remainingHeadcount, 0);
     return {
       id: line.id, planId: line.plan_id, organizationId: line.organization_id,
@@ -154,6 +156,9 @@ async function state() {
   return {
     plan: plan ? { id: plan.id, period: plan.period, version: plan.version, title: plan.title } : null,
     lines, requisitions, summary,
+    // The whole roster of teams, so a requisition can be raised for any of them rather than only
+    // for the organizations a workforce plan happens to cover.
+    organizations: organizations.map((organization) => ({ id: organization.id, name: organization.name })),
     recruiters: employees.filter((employee) => recruiterIds.has(employee.id) && employee.status !== "퇴직")
       .map((employee) => ({ id: employee.id, name: employee.name, department: employee.department })),
   };
@@ -175,30 +180,39 @@ export async function POST(request: Request) {
   const now = Date.now();
 
   if (action === "CREATE_DRAFT") {
+    // Requisitions are raised directly against a team. They used to require an approved workforce
+    // plan with spare headcount, which meant nothing could be requested at all until a plan existed
+    // — the plan figures are still reported alongside, but they no longer gate the request.
     const snapshot = await state();
-    const lineId = String(body.workforcePlanLineId ?? "").trim();
-    const line = snapshot.lines.find((item) => item.id === lineId);
+    const organizationId = String(body.organizationId ?? "").trim();
+    const organization = snapshot.organizations.find((item) => item.id === organizationId);
     const requestedHeadcount = Math.round(Number(body.requestedHeadcount));
-    const title = String(body.title ?? "").trim().slice(0, 120);
     const role = String(body.role ?? "").trim().slice(0, 120);
     const ownerEmployeeId = String(body.ownerEmployeeId ?? "").trim();
     const targetStartDate = String(body.targetStartDate ?? "").trim();
     const reason = String(body.reason ?? "").trim().slice(0, 1500);
-    if (!snapshot.plan || !line || line.planId !== snapshot.plan.id) return Response.json({ error: "최신 승인 인력계획의 조직을 선택해 주세요." }, { status: 409 });
-    if (!title || !role || !snapshot.recruiters.some((item) => item.id === ownerEmployeeId)
-      || !/^\d{4}-\d{2}-\d{2}$/.test(targetStartDate) || reason.length < 10
-      || !Number.isInteger(requestedHeadcount) || requestedHeadcount < 1 || requestedHeadcount > line.availableHeadcount) {
-      return Response.json({ error: "제목·직무·담당자·목표 입사일·10자 이상 사유와 기안 가능 인원을 확인해 주세요." }, { status: 400 });
+    const title = (String(body.title ?? "").trim() || `${organization?.name ?? ""} ${role} 채용`.trim()).slice(0, 120);
+    if (!organization) return Response.json({ error: "채용요청 팀을 선택해 주세요." }, { status: 400 });
+    if (!role) return Response.json({ error: "요청 포지션을 입력해 주세요." }, { status: 400 });
+    if (!Number.isInteger(requestedHeadcount) || requestedHeadcount < 1 || requestedHeadcount > 99) {
+      return Response.json({ error: "요청 인원수는 1~99명 사이로 입력해 주세요." }, { status: 400 });
     }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(targetStartDate)) return Response.json({ error: "목표일을 선택해 주세요." }, { status: 400 });
+    if (ownerEmployeeId && !snapshot.recruiters.some((item) => item.id === ownerEmployeeId)) {
+      return Response.json({ error: "채용담당자 목록에서 다시 선택해 주세요." }, { status: 400 });
+    }
+    // Record the plan only when one already covers this team, so the TO figures stay meaningful
+    // without the request depending on a plan existing.
+    const line = snapshot.lines.find((item) => item.organizationId === organizationId);
     const id = crypto.randomUUID();
     await db.prepare(`INSERT INTO hr_recruitment_requisitions
       (id, workforce_plan_id, workforce_plan_line_id, organization_id, title, role, requested_headcount,
         owner_employee_id, target_start_date, reason, status, requested_by, approved_by, approved_at,
         closed_by, closed_at, close_reason, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, '', NULL, '', NULL, '', ?, ?)`)
-      .bind(id, snapshot.plan.id, line.id, line.organizationId, title, role, requestedHeadcount,
+      .bind(id, line ? line.planId : "", line ? line.id : "", organizationId, title, role, requestedHeadcount,
         ownerEmployeeId, targetStartDate, reason, authorization.principal.employeeId, now, now).run();
-    await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "REQUISITION_CREATED", entityType: "hrRecruitmentRequisition", entityId: id, after: { planId: snapshot.plan.id, organizationId: line.organizationId, title, role, requestedHeadcount, ownerEmployeeId, targetStartDate, reason } });
+    await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "REQUISITION_CREATED", entityType: "hrRecruitmentRequisition", entityId: id, after: { planId: line?.planId ?? "", organizationId, title, role, requestedHeadcount, ownerEmployeeId, targetStartDate, reason } });
     return Response.json({ created: true, id }, { status: 201 });
   }
 
@@ -211,13 +225,17 @@ export async function POST(request: Request) {
     const snapshot = await state();
     const line = snapshot.lines.find((item) => item.id === row.workforce_plan_line_id);
     const selfReserved = Math.max(0, row.requested_headcount);
-    if (!line || line.availableHeadcount + selfReserved < row.requested_headcount) return Response.json({ error: "인력계획 또는 다른 TO가 변경되어 요청 인원을 승인 정원 안에 둘 수 없습니다." }, { status: 409 });
+    // Only requisitions that were tied to a plan line are held to that plan's headcount. One raised
+    // directly against a team that has no plan has no ceiling to check it against.
+    if (row.workforce_plan_line_id && (!line || line.availableHeadcount + selfReserved < row.requested_headcount)) {
+      return Response.json({ error: "인력계획 또는 다른 TO가 변경되어 요청 인원을 승인 정원 안에 둘 수 없습니다." }, { status: 409 });
+    }
     const updated = await db.prepare("UPDATE hr_recruitment_requisitions SET status = 'SUBMITTED', updated_at = ? WHERE id = ? AND status = 'DRAFT'").bind(now, id).run();
     if (updated.meta.changes !== 1) return Response.json({ error: "다른 사용자가 채용요청 상태를 먼저 변경했습니다." }, { status: 409 });
     try {
       const approval = await createApprovalRequest(db, authorization.principal, {
         module: "recruitment", requestType: "REQUISITION", title: `${row.title} · ${row.requested_headcount}명 채용 승인`,
-        description: `${snapshot.plan?.period ?? "인력계획"} · ${line.organizationName} · ${row.role} · 목표 입사일 ${row.target_start_date}`,
+        description: `${line ? snapshot.plan?.period ?? "인력계획" : "직접 등록"} · ${line?.organizationName ?? snapshot.organizations.find((item) => item.id === row.organization_id)?.name ?? "삭제된 조직"} · ${row.role} · 목표일 ${row.target_start_date}`,
         targetEntityType: "HR_RECRUITMENT_REQUISITION", targetEntityId: id, priority: "HIGH", dueDate: row.target_start_date,
         metadata: { workforcePlanId: row.workforce_plan_id, workforcePlanLineId: row.workforce_plan_line_id, organizationId: row.organization_id, requestedHeadcount: row.requested_headcount, role: row.role },
       });

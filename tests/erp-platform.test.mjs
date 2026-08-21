@@ -1269,6 +1269,14 @@ test("recruitment requisitions reserve approved gaps and link applicants through
   assert.match(migration, /ALTER TABLE `hr_applicants` ADD `requisition_id`/);
   assert.match(approval, /REQUISITION: "채용요청 승인"/);
   assert.match(approval, /targetEntityType === "HR_RECRUITMENT_REQUISITION"/);
+  // A sole approver registering their own requisition finishes the whole flow in one step.
+  assert.match(approval, /AUTO_APPROVE_WHEN_SELF = new Set<string>\(\["hr:PAYROLL_RUN", "recruitment:REQUISITION"\]\)/);
+  assert.match(approval, /export async function willAutoApproveForSelf/);
+  assert.match(api, /willAutoApproveForSelf\(db, authorization\.principal, requisitionApprovalInput\(created, fresh\)\)/);
+  assert.match(api, /submitRequisition\(authorization\.principal, created, fresh, now\)/);
+  assert.match(view, /채용요청을 등록하고 승인까지 마쳤습니다/);
+  // 진행 중 요청 counts every live requisition, including teams with no workforce plan.
+  assert.match(api, /reserved: requisitions\.filter/);
   assert.match(plan, /추가 기안 가능 = 계획 부족 - 예약 TO/);
 });
 

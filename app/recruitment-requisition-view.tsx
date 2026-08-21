@@ -70,9 +70,11 @@ export default function RecruitmentRequisitionView({ onNotify }: { onNotify: (me
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "CREATE_DRAFT", ...draft }),
       });
-      const payload = await response.json() as { error?: string };
+      const payload = await response.json() as { error?: string; autoApproved?: boolean; submitError?: string };
       if (!response.ok) throw new Error(payload.error || "채용요청을 저장하지 못했습니다.");
-      onNotify("채용요청을 등록했습니다. 내용을 확인한 뒤 결재를 제출해 주세요.");
+      onNotify(payload.autoApproved ? "채용요청을 등록하고 승인까지 마쳤습니다. 바로 모집 중입니다."
+        : payload.submitError ? `채용요청을 등록했지만 자동 승인에 실패했습니다: ${payload.submitError}`
+        : "채용요청을 등록했습니다. 내용을 확인한 뒤 결재를 제출해 주세요.");
       setFormOpen(false);
       setDraft(emptyDraft);
       await load();
@@ -89,9 +91,10 @@ export default function RecruitmentRequisitionView({ onNotify }: { onNotify: (me
     const response = await fetch("/api/hr/recruitment-requisitions", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: name, id, reason }),
     });
-    const payload = await response.json() as { error?: string };
+    const payload = await response.json() as { error?: string; autoApproved?: boolean };
     if (!response.ok) { onNotify(payload.error || "채용요청 상태를 변경하지 못했습니다."); return; }
-    onNotify(name === "SUBMIT" ? "채용요청 결재를 제출했습니다." : name === "CLOSE" ? "채용요청을 사유와 함께 마감했습니다." : "채용요청을 취소했습니다.");
+    onNotify(name === "SUBMIT" ? (payload.autoApproved ? "요청자와 승인자가 같아 자동 승인되었습니다. 바로 모집 중입니다." : "채용요청 결재를 제출했습니다.")
+      : name === "CLOSE" ? "채용요청을 사유와 함께 마감했습니다." : "채용요청을 취소했습니다.");
     try { await load(); } catch (error) { onNotify(error instanceof Error ? error.message : "목록을 새로고침하지 못했습니다."); }
   }
 

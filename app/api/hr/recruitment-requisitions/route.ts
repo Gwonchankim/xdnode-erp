@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { companyEmployees, companyOrganizations } from "../../../hr-company-data";
-import { createApprovalRequest } from "../../../approval-engine";
-import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { createApprovalRequest, willAutoApproveForSelf } from "../../../approval-engine";
+import { authorizeErpRequest, writeErpAudit, type ErpPrincipal } from "../../../erp-platform";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -148,7 +148,10 @@ async function state() {
   });
   const summary = {
     planGap: lines.reduce((sum, line) => sum + line.hiringGap, 0),
-    reserved: lines.reduce((sum, line) => sum + line.reservedHeadcount, 0),
+    // Counted from the requisitions themselves rather than from plan lines: a request raised against
+    // a team that has no workforce plan is still in flight and has to appear in this figure.
+    reserved: requisitions.filter((item) => ["DRAFT", "SUBMITTED", "OPEN"].includes(item.status))
+      .reduce((sum, item) => sum + item.remainingHeadcount, 0),
     available: lines.reduce((sum, line) => sum + line.availableHeadcount, 0),
     filled: requisitions.reduce((sum, item) => sum + item.filledHeadcount, 0),
   };
@@ -169,6 +172,46 @@ export async function GET() {
   if (authorization.response) return authorization.response;
   await ensureSchema();
   return Response.json({ principal: authorization.principal, ...await state() });
+}
+
+type SubmitResult = { approvalId: string; autoApproved: boolean } | { error: string; status: number };
+
+// Shared by direct registration and the explicit 결재 제출 button so both run the same plan check,
+// the same approval route and the same audit entry. Returns the failure instead of a Response so the
+// registration path can report it in its own wording.
+async function submitRequisition(principal: ErpPrincipal, row: RequisitionRow,
+  snapshot: Awaited<ReturnType<typeof state>>, now: number): Promise<SubmitResult> {
+  const line = snapshot.lines.find((item) => item.id === row.workforce_plan_line_id);
+  const selfReserved = Math.max(0, row.requested_headcount);
+  // Only requisitions that were tied to a plan line are held to that plan's headcount. One raised
+  // directly against a team that has no plan has no ceiling to check it against.
+  if (row.workforce_plan_line_id && (!line || line.availableHeadcount + selfReserved < row.requested_headcount)) {
+    return { error: "인력계획 또는 다른 TO가 변경되어 요청 인원을 승인 정원 안에 둘 수 없습니다.", status: 409 };
+  }
+  const updated = await db.prepare("UPDATE hr_recruitment_requisitions SET status = 'SUBMITTED', updated_at = ? WHERE id = ? AND status = 'DRAFT'").bind(now, row.id).run();
+  if (updated.meta.changes !== 1) return { error: "다른 사용자가 채용요청 상태를 먼저 변경했습니다.", status: 409 };
+  try {
+    const approval = await createApprovalRequest(db, principal, requisitionApprovalInput(row, snapshot)) as { id: string; status: string; autoApproved?: boolean };
+    const autoApproved = approval.autoApproved === true;
+    await writeErpAudit(db, { principal, module: "recruitment", action: "REQUISITION_SUBMITTED", entityType: "hrRecruitmentRequisition", entityId: row.id, before: row, after: { status: autoApproved ? "OPEN" : "SUBMITTED", approvalId: approval.id, autoApproved } });
+    return { approvalId: approval.id, autoApproved };
+  } catch (error) {
+    await db.prepare("UPDATE hr_recruitment_requisitions SET status = 'DRAFT', updated_at = ? WHERE id = ? AND status = 'SUBMITTED'").bind(Date.now(), row.id).run();
+    return { error: error instanceof Error ? error.message : "채용요청 결재선을 만들지 못했습니다.", status: 409 };
+  }
+}
+
+// Built in one place so the pre-flight self-approval probe and the real submit resolve the identical
+// route; a probe against a different policy would answer for the wrong request.
+function requisitionApprovalInput(row: RequisitionRow, snapshot: Awaited<ReturnType<typeof state>>) {
+  const line = snapshot.lines.find((item) => item.id === row.workforce_plan_line_id);
+  const organizationName = line?.organizationName ?? snapshot.organizations.find((item) => item.id === row.organization_id)?.name ?? "삭제된 조직";
+  return {
+    module: "recruitment" as const, requestType: "REQUISITION", title: `${row.title} · ${row.requested_headcount}명 채용 승인`,
+    description: `${line ? snapshot.plan?.period ?? "인력계획" : "직접 등록"} · ${organizationName} · ${row.role} · 목표일 ${row.target_start_date}`,
+    targetEntityType: "HR_RECRUITMENT_REQUISITION", targetEntityId: row.id, priority: "HIGH" as const, dueDate: row.target_start_date,
+    metadata: { workforcePlanId: row.workforce_plan_id, workforcePlanLineId: row.workforce_plan_line_id, organizationId: row.organization_id, requestedHeadcount: row.requested_headcount, role: row.role },
+  };
 }
 
 export async function POST(request: Request) {
@@ -213,7 +256,24 @@ export async function POST(request: Request) {
       .bind(id, line ? line.planId : "", line ? line.id : "", organizationId, title, role, requestedHeadcount,
         ownerEmployeeId, targetStartDate, reason, authorization.principal.employeeId, now, now).run();
     await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "REQUISITION_CREATED", entityType: "hrRecruitmentRequisition", entityId: id, after: { planId: line?.planId ?? "", organizationId, title, role, requestedHeadcount, ownerEmployeeId, targetStartDate, reason } });
-    return Response.json({ created: true, id }, { status: 201 });
+
+    // When the requester turns out to be the only approver on the route, 작성 중 → 결재 제출 → 승인 is
+    // three clicks with one possible outcome. Carry it through here so registering the request is the
+    // whole job. A route that includes anyone else still stops at 작성 중 for a real decision.
+    const created = await db.prepare("SELECT * FROM hr_recruitment_requisitions WHERE id = ?").bind(id).first<RequisitionRow>();
+    // Re-read the plan figures: the snapshot above predates this row, so its reserved headcount would
+    // not yet count the request we are about to submit against the very same plan line.
+    const fresh = created ? await state() : snapshot;
+    if (created && await willAutoApproveForSelf(db, authorization.principal, requisitionApprovalInput(created, fresh))) {
+      const outcome = await submitRequisition(authorization.principal, created, fresh, now);
+      if (!("error" in outcome)) {
+        return Response.json({ created: true, id, autoApproved: outcome.autoApproved, approvalId: outcome.approvalId }, { status: 201 });
+      }
+      // The record is registered either way; only the shortcut failed, so it stays in 작성 중 and the
+      // caller is told why the 결재 제출 button is still waiting for them.
+      return Response.json({ created: true, id, autoApproved: false, submitError: outcome.error }, { status: 201 });
+    }
+    return Response.json({ created: true, id, autoApproved: false }, { status: 201 });
   }
 
   const id = String(body.id ?? "").trim();
@@ -223,28 +283,9 @@ export async function POST(request: Request) {
   if (action === "SUBMIT") {
     if (row.status !== "DRAFT") return Response.json({ error: "작성 중인 채용요청만 결재할 수 있습니다." }, { status: 409 });
     const snapshot = await state();
-    const line = snapshot.lines.find((item) => item.id === row.workforce_plan_line_id);
-    const selfReserved = Math.max(0, row.requested_headcount);
-    // Only requisitions that were tied to a plan line are held to that plan's headcount. One raised
-    // directly against a team that has no plan has no ceiling to check it against.
-    if (row.workforce_plan_line_id && (!line || line.availableHeadcount + selfReserved < row.requested_headcount)) {
-      return Response.json({ error: "인력계획 또는 다른 TO가 변경되어 요청 인원을 승인 정원 안에 둘 수 없습니다." }, { status: 409 });
-    }
-    const updated = await db.prepare("UPDATE hr_recruitment_requisitions SET status = 'SUBMITTED', updated_at = ? WHERE id = ? AND status = 'DRAFT'").bind(now, id).run();
-    if (updated.meta.changes !== 1) return Response.json({ error: "다른 사용자가 채용요청 상태를 먼저 변경했습니다." }, { status: 409 });
-    try {
-      const approval = await createApprovalRequest(db, authorization.principal, {
-        module: "recruitment", requestType: "REQUISITION", title: `${row.title} · ${row.requested_headcount}명 채용 승인`,
-        description: `${line ? snapshot.plan?.period ?? "인력계획" : "직접 등록"} · ${line?.organizationName ?? snapshot.organizations.find((item) => item.id === row.organization_id)?.name ?? "삭제된 조직"} · ${row.role} · 목표일 ${row.target_start_date}`,
-        targetEntityType: "HR_RECRUITMENT_REQUISITION", targetEntityId: id, priority: "HIGH", dueDate: row.target_start_date,
-        metadata: { workforcePlanId: row.workforce_plan_id, workforcePlanLineId: row.workforce_plan_line_id, organizationId: row.organization_id, requestedHeadcount: row.requested_headcount, role: row.role },
-      });
-      await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "REQUISITION_SUBMITTED", entityType: "hrRecruitmentRequisition", entityId: id, before: row, after: { status: "SUBMITTED", approvalId: approval.id } });
-      return Response.json({ submitted: true, approvalId: approval.id }, { status: 202 });
-    } catch (error) {
-      await db.prepare("UPDATE hr_recruitment_requisitions SET status = 'DRAFT', updated_at = ? WHERE id = ? AND status = 'SUBMITTED'").bind(Date.now(), id).run();
-      return Response.json({ error: error instanceof Error ? error.message : "채용요청 결재선을 만들지 못했습니다." }, { status: 409 });
-    }
+    const outcome = await submitRequisition(authorization.principal, row, snapshot, now);
+    if ("error" in outcome) return Response.json({ error: outcome.error }, { status: outcome.status });
+    return Response.json({ submitted: true, approvalId: outcome.approvalId, autoApproved: outcome.autoApproved }, { status: 202 });
   }
 
   if (action === "CLOSE") {

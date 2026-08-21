@@ -115,7 +115,24 @@ async function resolveApprovers(db: D1Database, steps: ApprovalRouteStep[], requ
 // Scoped to an explicit allowlist (currently PAYROLL_RUN only) rather than every request type, since
 // each target entity's outcome side effects (buildApprovalOutcomeStatements) need to be safe to fire
 // immediately, unattended, at submit time.
-const AUTO_APPROVE_WHEN_SELF = new Set<string>(["hr:PAYROLL_RUN"]);
+const AUTO_APPROVE_WHEN_SELF = new Set<string>(["hr:PAYROLL_RUN", "recruitment:REQUISITION"]);
+
+// Lets a feature route find out, before it commits to a draft-then-submit flow, whether the request
+// would be auto-approved anyway because the requester is the only person on the resolved route. A
+// route that knows this can finish the job at registration instead of parking the record in a draft
+// state whose only exit is a decision the same person would rubber-stamp.
+export async function willAutoApproveForSelf(db: D1Database, principal: ErpPrincipal, input: ApprovalCreateInput) {
+  if (!AUTO_APPROVE_WHEN_SELF.has(`${input.module}:${input.requestType}`)) return false;
+  if (!isApprovalType(input.module, input.requestType)) return false;
+  try {
+    const configured = await configuredRouteFor(db, input);
+    const route = await resolveApprovers(db, configured.steps, principal.employeeId, input.module);
+    return route.length > 0 && route.every((step) => step.employeeId === principal.employeeId);
+  } catch {
+    // An unresolvable route is not an auto-approval; let the normal submit path raise the real error.
+    return false;
+  }
+}
 
 export async function createApprovalRequest(db: D1Database, principal: ErpPrincipal, input: ApprovalCreateInput) {
   if (!isApprovalType(input.module, input.requestType)) throw new Error("지원하지 않는 결재 유형입니다.");

@@ -2743,3 +2743,22 @@ body article small, body article label,
 body header small, body footer small,
 body .table-panel small, body .table-toolbar small { font-size: 11px !important; }
 body .panel form button, body .panel > form button { font-size: 12px !important; }
+
+/* Below ~1180px the wordmark cannot fit beside four tabs and four controls, and
+   because the brand box is allowed to shrink it was collapsing to half-width and
+   clipping "XD NODE" mid-word. Drop the wordmark and keep the XD square, which
+   already identifies the app, instead of showing a broken label. */
+@media (max-width: 1180px) {
+  body .erp-top-brand > div { display: none; }
+  body .erp-top-brand { min-width: 0; flex-shrink: 0; }
+}
+
+/* Below 900px the finance rail is meant to become a horizontal strip above the
+   content, and it does switch to position:static — but the 210px width from the
+   1180px breakpoint still applies, so all 24 destinations end up crammed into a
+   210px scroller. Let the strip use the full row it now occupies. */
+@media (max-width: 900px) {
+  body .finance-side-navigation { width: auto; }
+  body .finance-side-navigation nav { padding: 8px 10px; }
+  body .finance-side-footer { display: flex; }
+}

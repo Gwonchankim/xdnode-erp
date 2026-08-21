@@ -2557,3 +2557,189 @@ body, .main { color: #18181b; background: #f4f4f5; font-family: var(--font-body)
 .payroll-deduction-edit button{flex:0 0 auto;min-height:40px;padding:0 16px;border:1px solid #18181b;border-radius:11px;color:#fff;background:#18181b;font-size:11px;font-weight:900;cursor:pointer}
 .payroll-deduction-edit button:disabled{cursor:wait;opacity:.55}
 .payroll-deduction-edit>small{color:#71717a;font-size:10px;line-height:1.5}
+/* ============================================================================
+   TYPOGRAPHY FLOOR — authoritative trailing layer
+   ----------------------------------------------------------------------------
+   globals.css accumulated three design eras on top of each other: `.module-hero`
+   is defined 21 times, `.active` 28, `:root` 4, across 31 different breakpoints.
+   Measured on the rendered app, 68% of text elements sat under 12px — the
+   top-level module tabs at 11px, secondary labels at 7-9px. Korean glyphs carry
+   more strokes than Latin, so those sizes read worse here than the same numbers
+   would in an English UI.
+
+   Why !important: the surviving rules are deep compounds such as
+   `.finance-main .module-hero.finance p:not(.eyebrow)`, so a plain trailing
+   layer loses on specificity no matter how it is written. Out-specifying every
+   one of them would mean five-class selectors throughout. Until the legacy
+   cascade is actually consolidated, this block is the single declared source of
+   truth for text size, and it is deliberately the last thing in the file.
+   Change sizes HERE rather than adding another layer below.
+
+   Scale: nav/body 14 · secondary 13 · label 12 · micro-badge 11 (hard floor).
+   Only sizes that were too small are raised; nothing here shrinks text.
+   ============================================================================ */
+
+/* Unclassed text inside content areas — the generic floor. */
+body .main small, body .page-wrap small, body .module-page small { font-size: 11px !important; }
+body .main p, body .page-wrap p, body .module-page p { font-size: 12px !important; }
+body .main label, body .page-wrap label, body .module-page label,
+body .main legend, body .page-wrap legend { font-size: 12px !important; }
+
+/* Top navigation — the most-read chrome in the app */
+body .erp-module-tab strong { font-size: 14px !important; }
+body .erp-module-tab small { font-size: 11px !important; }
+body .erp-top-brand strong { font-size: 17px !important; }
+body .erp-top-brand small { font-size: 10px !important; }
+body .erp-sync-state strong, body .erp-user-card strong { font-size: 12px !important; }
+body .erp-sync-state small, body .erp-user-card small { font-size: 11px !important; }
+body .erp-workbench-button strong, body .erp-data-governance-button strong { font-size: 13px !important; }
+body .erp-workbench-button span, body .erp-data-governance-button span { font-size: 12px !important; }
+body .erp-approval-button span, body .erp-alarm-button span { font-size: 13px !important; }
+body .erp-approval-button em, body .erp-alarm-button em { font-size: 12px !important; }
+body .icon-button { font-size: 12px !important; }
+body .search-box input { font-size: 13px !important; }
+body .search-box kbd { font-size: 11px !important; }
+body .period-button, body .period-button span { font-size: 13px !important; }
+
+/* Left navigation rails */
+body .finance-side-group p, body .nav-group p,
+body .compensation-sidebar-nav p { font-size: 11px !important; }
+body .finance-side-group button, body .nav-item,
+body .compensation-sidebar-item strong { font-size: 13px !important; }
+body .finance-side-group > button > span, body .nav-item .nav-icon,
+body .compensation-sidebar-icon { font-size: 12px !important; }
+body .finance-side-brand strong { font-size: 14px !important; }
+body .finance-side-brand small, body .compensation-sidebar-item small { font-size: 11px !important; }
+body .finance-side-alert strong { font-size: 13px !important; }
+
+/* Hero band */
+body .module-hero p:not(.eyebrow) { font-size: 14px !important; }
+body .eyebrow { font-size: 11px !important; }
+
+/* Metric and summary cards */
+body .metric-card span, body .compact-metric p { font-size: 13px !important; }
+body .metric-card small, body .metric-card p,
+body .compact-metric small { font-size: 11px !important; }
+body .emphasis span { font-size: 12px !important; }
+body .emphasis small { font-size: 11px !important; }
+
+/* Panels and section headings */
+body .panel-header p { font-size: 11px !important; }
+body .segment-control button, body .finance-year-switch button { font-size: 12px !important; }
+
+/* Tabular data — the densest reading surface */
+body .data-table td, body .data-table th { font-size: 13px !important; }
+
+/* Status pills and inline badges */
+body .status-pass, body .status-watch, body .positive, body .review,
+body .missing, body .check, body .status-pill { font-size: 11px !important; }
+
+/* Finance workspace */
+body .finance-bar-item small, body .chart-coverage-note,
+body .chart-coverage-note span, body .finance-scope-note span,
+body .source-year, body .assistant-mark { font-size: 11px !important; }
+body .finance-scope-note p, body .finance-alert-card p,
+body .finance-empty { font-size: 12px !important; }
+body .finance-alert-card span, body .finance-alert-heading-actions button,
+body .finance-alert-heading-actions span { font-size: 11px !important; }
+body .ai-brief-hero p, body .assistant-answer { font-size: 13px !important; }
+body .ai-brief-hero small, body .ai-brief-head span,
+body .ai-brief-head em { font-size: 11px !important; }
+body .ai-priority button, body .assistant-suggestions button,
+body .assistant-form button { font-size: 12px !important; }
+body .assistant-trust-line span, body .assistant-trust-line em,
+body .assistant-limitations p, body .assistant-history-heading p,
+body .assistant-history-heading span,
+body .assistant-history-error { font-size: 11px !important; }
+
+/* Sales workspace */
+body .sales-account-list p, body .sales-catalog-list p,
+body .sales-pricing-message, body .sales-contract-message,
+body .sales-live-message, body .sales-service-policy-hint,
+body .sales-pricing-rule-note { font-size: 12px !important; }
+body .sales-pipeline-row span, body .sales-document-row span,
+body .sales-pricing-review-row span,
+body .incentive-result-row span { font-size: 12px !important; }
+body .sales-plan-toolbar label, body .sales-price-item-form label,
+body .sales-contract-create label, body .sales-service-create label,
+body .sales-document-fields label { font-size: 12px !important; }
+body .sales-price-item-form button, body .sales-contract-create button,
+body .sales-service-create button, body .add-line, body .sales-document-submit,
+body .sales-service-policy summary { font-size: 12px !important; }
+
+/* Compensation workspace */
+body .wage-actions button, body .incentive-pull,
+body .payroll-footer-action { font-size: 12px !important; }
+body .wage-message, body .wage-empty, body .wage-period-controls label,
+body .allowance-standards label, body .column-toggles label,
+body .column-visibility summary, body .column-sort { font-size: 12px !important; }
+body .incentive-control-head strong { font-size: 12px !important; }
+body .wage-table-panel td, body .wage-table-panel th,
+body .wage-table-panel input, body .wage-table-panel select { font-size: 12px !important; }
+
+/* Stragglers found by re-measuring after the pass above */
+body .finance-side-footer span { font-size: 11px !important; }
+body .finance-chart-summary span { font-size: 11px !important; }
+body .ai-brief-list li span { font-size: 11px !important; }
+body .ai-priority span { font-size: 11px !important; }
+body .ai-priority strong { font-size: 13px !important; }
+body .assistant-heading span { font-size: 11px !important; }
+body .assistant-limitations span { font-size: 11px !important; }
+body .assistant-source-list strong, body .assistant-sources strong { font-size: 12px !important; }
+
+/* ----------------------------------------------------------------------------
+   LAYOUT REPAIRS FOR THE LARGER TYPE
+   These rows were packed for 8-10px text, so at readable sizes the flex items
+   compressed instead of staying on one line: the sync badge collapsed to 86px
+   with its label broken across three lines, and the KPI caption wrapped every
+   two characters. Stop the chrome from shrinking, let the card caption reflow
+   onto its own line, and retire the decorative sync badge before the nav gets
+   tight rather than letting it crush the controls beside it.
+   ---------------------------------------------------------------------------- */
+body .erp-module-tab strong, body .erp-module-tab small,
+body .erp-sync-state strong, body .erp-sync-state small,
+body .erp-workbench-button strong, body .erp-data-governance-button strong,
+body .erp-approval-button span, body .erp-alarm-button span,
+body .period-button { white-space: nowrap; }
+
+body .erp-sync-state, body .erp-workbench-button, body .erp-data-governance-button,
+body .erp-approval-button, body .erp-alarm-button, body .erp-user-card { flex-shrink: 0; }
+
+body .metric-card > div { flex-wrap: wrap; }
+body .metric-card > div > span { white-space: nowrap; }
+
+@media (max-width: 1400px) { body .erp-sync-state { display: none; } }
+
+/* At readable type the top bar needs 1462px of content but only gets ~1265px on
+   a 1280 screen, so the last control was being clipped. Tighten the spacing
+   rather than the text: gaps and padding give back the ~200px needed. */
+@media (max-width: 1500px) {
+  body .erp-top-nav { gap: 10px; padding-left: 14px; padding-right: 14px; }
+  body .erp-top-brand { min-width: 0; }
+  body .erp-module-tabs { gap: 2px; padding: 5px; }
+  body .erp-module-tab { min-width: 0; padding: 0 11px; gap: 7px; }
+  body .erp-workbench-button, body .erp-data-governance-button,
+  body .erp-approval-button, body .erp-alarm-button { padding-left: 11px; padding-right: 11px; }
+}
+@media (max-width: 1180px) {
+  body .erp-module-tab small { display: none; }
+  body .erp-top-brand small { display: none; }
+}
+
+/* HR module mount placeholder — lives outside the shadow root, so it is styled here. */
+.peopleflow-loading { min-height: 60vh; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center; }
+.peopleflow-loading-mark { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 16px; color: #fff; background: #18181b; font-size: 15px; font-weight: 900; letter-spacing: -.02em; animation: peopleflow-pulse 1.4s ease-in-out infinite; }
+.peopleflow-loading strong { font-size: 15px; }
+.peopleflow-loading small { color: #71717a; font-size: 12px; }
+@keyframes peopleflow-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .peopleflow-loading-mark { animation: none; } }
+
+/* Remaining unclassed secondary text inside cards and panels. Only `small` and
+   `label` are safe to floor blindly — `strong` and `span` also carry the large
+   KPI figures, so setting those by tag would shrink the numbers instead. */
+body .panel small, body .panel label,
+body section small, body section label,
+body article small, body article label,
+body header small, body footer small,
+body .table-panel small, body .table-toolbar small { font-size: 11px !important; }
+body .panel form button, body .panel > form button { font-size: 12px !important; }

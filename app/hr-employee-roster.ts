@@ -11,6 +11,19 @@ import { companyEmployees } from "./hr-company-data";
 // assumes it is. INSERT OR IGNORE means every edit already made in the app wins and is never
 // overwritten — retirements, department moves, and name corrections all stay exactly as they are.
 export async function ensureEmployeeRosterSeeded(db: D1Database) {
+  // This runs from ensureSchema() on every employee-records and compensation request, so the ~80 write
+  // statements below would otherwise be re-issued on every page load. One cheap probe tells us whether
+  // any of them could still change something: every employee present, no blank hire date, and no zeroed
+  // salary on someone the roster says is paid. When nothing is outstanding there is no work to do.
+  const salariedIds = companyEmployees.filter((employee) => employee.annualSalary > 0).map((employee) => employee.id);
+  const pending = await db.prepare(`SELECT
+      (SELECT COUNT(*) FROM hr_employee_records) AS row_count,
+      (SELECT COUNT(*) FROM hr_employee_records WHERE NULLIF(TRIM(join_date), '') IS NULL) AS blank_join,
+      (SELECT COUNT(*) FROM hr_employee_records WHERE annual_salary = 0
+        AND employee_id IN (${salariedIds.map(() => "?").join(",")})) AS zero_salary`)
+    .bind(...salariedIds).first<{ row_count: number; blank_join: number; zero_salary: number }>();
+  if (pending && pending.row_count >= companyEmployees.length && !pending.blank_join && !pending.zero_salary) return;
+
   const now = Date.now();
   await db.batch(companyEmployees.map((employee) => db.prepare(`INSERT OR IGNORE INTO hr_employee_records
     (employee_id, name, birth, email, phone, address, department, manager, employment_type, join_date,

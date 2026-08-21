@@ -23,12 +23,21 @@ export default function HRWorkspace({ requestedView = "dashboard", navigationReq
 
   return (
     <div className="peopleflow-host" ref={hostRef}>
-      {root && createPortal(
+      {root ? createPortal(
         <>
           <link rel="stylesheet" href="/hr-workspace.css" />
           <XdnodeHrApp requestedView={requestedView} navigationRequestKey={navigationRequestKey} />
         </>,
         root,
+      ) : (
+        // The shadow root only exists once the first effect has run, and the stylesheet it pulls in
+        // loads after that again. Without this the module renders nothing for that whole stretch,
+        // which reads as a hang rather than as loading.
+        <div className="peopleflow-loading" role="status">
+          <span className="peopleflow-loading-mark" aria-hidden="true">HR</span>
+          <strong>HR 워크스페이스를 불러오는 중입니다</strong>
+          <small>인사기록·조직·급여 데이터를 준비하고 있습니다.</small>
+        </div>
       )}
     </div>
   );
@@ -107,7 +116,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { id: "organization", label: "조직관리", icon: "조" },
       { id: "payroll", label: "급여관리", icon: "급" },
       { id: "documents", label: "인사문서", icon: "문" },
-      { id: "onboarding", label: "입·퇴사 관리", icon: "온" },
+      { id: "onboarding", label: "입·퇴사 관리", icon: "입" },
       { id: "workforce", label: "인력계획·정원", icon: "계" },
     ],
   },
@@ -125,7 +134,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     items: [
       { id: "performance", label: "성과·목표", icon: "목" },
       { id: "training", label: "교육·법정교육", icon: "교" },
-      { id: "reports", label: "통계·리포트", icon: "분" },
+      { id: "reports", label: "통계·리포트", icon: "통" },
     ],
   },
 ];

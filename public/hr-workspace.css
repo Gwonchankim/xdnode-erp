@@ -1287,3 +1287,49 @@ button { color: inherit; }
 .master-impact-dialog>footer>div{min-width:0;margin-right:auto}.master-impact-dialog>footer>div span,.master-impact-dialog>footer>div small{display:block}.master-impact-dialog>footer>div span{font-size:11px;font-weight:800}.master-impact-dialog>footer>div small{margin-top:4px;color:#797a82;font-size:11px}
 .master-impact-dialog>footer button{min-height:44px;padding:0 18px;border:1px solid #d5d5d9;border-radius:14px;background:#fff;font-weight:800;cursor:pointer}.master-impact-dialog>footer button.primary{border-color:#18181b;background:#18181b;color:#fff}.master-impact-dialog>footer button:disabled{cursor:not-allowed;opacity:.45}
 @media(max-width:700px){.master-impact-backdrop{padding:10px}.master-impact-dialog{border-radius:20px}.master-impact-dialog>header,.master-impact-dialog>footer{padding:20px}.master-impact-summary{grid-template-columns:1fr 1fr;margin:18px 20px 14px}.master-impact-list{padding:0 20px 20px}.master-impact-list article{grid-template-columns:50px minmax(0,1fr)}.master-impact-list article>strong{grid-column:2;text-align:left}.master-impact-dialog>footer{align-items:stretch;flex-wrap:wrap}.master-impact-dialog>footer>div{width:100%;margin-bottom:6px}.master-impact-dialog>footer button{flex:1}}
+
+/* ============================================================================
+   TYPOGRAPHY FLOOR — HR shadow-DOM counterpart
+   ----------------------------------------------------------------------------
+   The HR module renders inside a shadow root (see HRWorkspace in
+   app/hr-workspace.tsx), so the matching layer at the end of app/globals.css
+   cannot cross into it — shadow boundaries block outer styles. This file needs
+   its own copy or HR stays at the old sizes while every other module grows.
+
+   Measured inside the shadow root, 64% of text sat under 12px with 10px the
+   most common size. Same scale as globals.css: nav/body 14 · secondary 13 ·
+   label 12 · micro-badge 11 (hard floor). !important for the same reason as
+   there — the legacy rules below are deep compounds that would otherwise win.
+   ============================================================================ */
+
+.app-shell small, .page-wrap small, .module-page small { font-size: 11px !important; }
+.app-shell p, .page-wrap p, .module-page p { font-size: 12px !important; }
+.app-shell label, .page-wrap label, .module-page label { font-size: 12px !important; }
+.app-shell span, .page-wrap span { font-size: 12px !important; }
+.app-shell strong, .page-wrap strong { font-size: 13px !important; }
+.app-shell b { font-size: 12px !important; }
+
+/* Left navigation */
+.nav-group p { font-size: 11px !important; }
+.nav-item { font-size: 13px !important; }
+.nav-item .nav-icon, .nav-icon { font-size: 12px !important; }
+.brand strong { font-size: 14px !important; }
+.brand span { font-size: 11px !important; }
+.settings-button { font-size: 13px !important; }
+
+/* Hero and section headings */
+.eyebrow { font-size: 11px !important; }
+.module-hero p:not(.eyebrow), .welcome-row p { font-size: 14px !important; }
+
+/* Metric cards */
+.metric-card p { font-size: 13px !important; }
+.metric-card small, .metric-top em { font-size: 11px !important; }
+.metric-icon { font-size: 12px !important; }
+
+/* Dense rows and tables */
+.data-table td, .data-table th { font-size: 13px !important; }
+.headcount-row span, .headcount-row strong { font-size: 12px !important; }
+.queue-footer span, .queue-footer strong { font-size: 12px !important; }
+.date-strip button { font-size: 12px !important; }
+.status-pill { font-size: 11px !important; }
+.table-message, .empty-cell { font-size: 12px !important; }

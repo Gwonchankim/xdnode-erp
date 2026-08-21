@@ -4,6 +4,7 @@ import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { companyEmployees } from "../../../hr-company-data";
 import { applyDueOnboarding } from "../../../hr-onboarding";
 import { applyDueRetirements } from "../../../hr-retirements";
+import { calculateLeaveAllowance, calculateSeverance, precedingMonths } from "../../../hr-severance-calculation";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -70,6 +71,48 @@ async function ensureSchema() {
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_retirement_employee_date ON hr_retirement_requests(employee_id, retirement_date)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_hr_retirement_status_date ON hr_retirement_requests(status, retirement_date)"),
   ]);
+  // 연차수당의 근거가 되는 일수를 값으로 남기려고 뒤늦게 붙인 컬럼. 마이너스 연차를 담아야 해서 REAL.
+  const settlementColumns = await db.prepare("PRAGMA table_info(hr_retirement_settlements)").all<{ name: string }>();
+  if (!settlementColumns.results.some((column) => column.name === "leave_days")) {
+    await db.prepare("ALTER TABLE hr_retirement_settlements ADD COLUMN leave_days REAL NOT NULL DEFAULT 0").run();
+  }
+}
+
+type SeveranceContext = {
+  employeeId: string; retirementDate: string; period: string; joinDate: string;
+  monthlyOrdinaryWage: number; usedLeaveUnits: number;
+};
+
+/** 퇴직금 산정에 필요한 사람·급여 정보를 모은다. 정산 저장과 화면 미리보기가 같은 값을 쓰도록 한 곳에 둔다. */
+async function severanceContextFor(employeeId: string, retirementDate: string): Promise<SeveranceContext> {
+  const employee = await db.prepare(`SELECT join_date, annual_salary, base_pay, meal_allowance,
+    childcare_allowance, vehicle_allowance FROM hr_employee_records WHERE employee_id = ?`)
+    .bind(employeeId).first<{ join_date: string; annual_salary: number; base_pay: number;
+      meal_allowance: number; childcare_allowance: number; vehicle_allowance: number }>();
+  // 통상임금은 연봉 기준이 있으면 연봉/12, 없으면 고정 지급분 합계로 본다.
+  const monthlyOrdinaryWage = !employee ? 0
+    : employee.annual_salary > 0 ? Math.round(employee.annual_salary / 12)
+    : employee.base_pay + employee.meal_allowance + employee.childcare_allowance + employee.vehicle_allowance;
+  const used = await db.prepare(`SELECT COALESCE(SUM(units), 0) AS units FROM hr_leave_requests
+    WHERE employee_id = ? AND status = 'APPROVED' AND leave_type IN ('ANNUAL', 'HALF_AM', 'HALF_PM')`)
+    .bind(employeeId).first<{ units: number }>();
+  return {
+    employeeId, retirementDate, period: retirementDate.slice(0, 7),
+    joinDate: employee?.join_date ?? "", monthlyOrdinaryWage, usedLeaveUnits: Number(used?.units ?? 0),
+  };
+}
+
+async function severanceEstimateFor(context: SeveranceContext) {
+  const months = precedingMonths(context.retirementDate);
+  const recentWages = months.length
+    ? (await db.prepare(`SELECT year_month AS yearMonth, gross_pay AS grossPay FROM hr_payroll_records
+        WHERE employee_id = ? AND year_month IN (${months.map(() => "?").join(",")})`)
+        .bind(context.employeeId, ...months).all<{ yearMonth: string; grossPay: number }>()).results
+    : [];
+  return calculateSeverance({
+    joinDate: context.joinDate, retirementDate: context.retirementDate,
+    recentWages, monthlyOrdinaryWage: context.monthlyOrdinaryWage,
+  });
 }
 
 export async function GET(request: Request) {
@@ -93,7 +136,26 @@ export async function GET(request: Request) {
         .bind(employeeId).all<Record<string, unknown>>()
       : db.prepare("SELECT * FROM hr_retirement_settlements").all<Record<string, unknown>>(),
   ]);
-  return Response.json({ personnelActions: actions.results, lifecycleTasks: lifecycle.results, leaveRequests: leaves.results, attendanceRecords: attendance.results, payrollRuns: payrollRuns.results, retirementRequests: retirements.results, retirementSettlements: settlements.results });
+  // 정산 화면이 퇴직금을 손으로 계산하지 않도록 법정 산식 결과를 함께 내려준다. 퇴직 건마다 조회가
+  // 네 번씩 붙어서, 이 값이 필요한 정산 화면이 명시적으로 요청할 때만 계산한다 — HR 첫 화면 로딩도
+  // 같은 엔드포인트를 쓰기 때문에 무조건 계산하면 진입 속도가 그만큼 느려진다.
+  const wantsSeverance = new URL(request.url).searchParams.get("severance") === "1";
+  const severanceEstimates = !wantsSeverance ? [] : await Promise.all(retirements.results
+    .filter((row) => ["IN_PROGRESS", "READY", "EFFECTIVE"].includes(String(row.status ?? "")))
+    .map(async (row) => {
+      const context = await severanceContextFor(String(row.employee_id ?? ""), String(row.retirement_date ?? ""));
+      const estimate = await severanceEstimateFor(context);
+      const payrollMonth = await db.prepare("SELECT period, status FROM hr_compensation_runs WHERE period = ?")
+        .bind(context.period).first<{ period: string; status: string }>();
+      return {
+        requestId: String(row.id ?? ""), period: context.period, joinDate: context.joinDate,
+        monthlyOrdinaryWage: context.monthlyOrdinaryWage, usedLeaveUnits: context.usedLeaveUnits,
+        leaveDailyWage: calculateLeaveAllowance(1, context.monthlyOrdinaryWage, String(row.retirement_date ?? "")).dailyWage,
+        payrollMonthReady: Boolean(payrollMonth), payrollMonthStatus: payrollMonth?.status ?? "",
+        ...estimate,
+      };
+    }));
+  return Response.json({ personnelActions: actions.results, lifecycleTasks: lifecycle.results, leaveRequests: leaves.results, attendanceRecords: attendance.results, payrollRuns: payrollRuns.results, retirementRequests: retirements.results, retirementSettlements: settlements.results, severanceEstimates });
 }
 
 export async function POST(request: Request) {
@@ -311,9 +373,17 @@ export async function PUT(request: Request) {
     if (!request) return Response.json({ error: "퇴직 요청을 찾을 수 없습니다." }, { status: 404 });
     if (!["IN_PROGRESS", "READY", "EFFECTIVE"].includes(String(request.status ?? ""))) return Response.json({ error: "승인 완료된 퇴직 요청만 정산할 수 있습니다." }, { status: 409 });
     const before = await db.prepare("SELECT * FROM hr_retirement_settlements WHERE request_id = ?").bind(id).first<Record<string, unknown>>();
-    const amounts = ["finalSalary", "retirementPay", "unusedLeavePay", "deductions"].map((key) => Number(body[key] ?? 0));
+    const employeeId = String(request.employee_id ?? "");
+    const retirementDate = String(request.retirement_date ?? "");
+    const context = await severanceContextFor(employeeId, retirementDate);
+    const amounts = ["finalSalary", "retirementPay", "deductions"].map((key) => Number(body[key] ?? 0));
     if (amounts.some((value) => !Number.isFinite(value) || value < 0)) return Response.json({ error: "정산 금액은 0원 이상으로 입력해 주세요." }, { status: 400 });
-    const [finalSalary, retirementPay, unusedLeavePay, deductions] = amounts.map(Math.round);
+    const [finalSalary, retirementPay, deductions] = amounts.map(Math.round);
+    // 연차는 일수로 받는다. 선사용해 마이너스가 된 연차는 음수 금액이 되어 정산에서 차감된다.
+    const leaveDays = Number(body.leaveDays ?? 0);
+    if (!Number.isFinite(leaveDays) || Math.abs(leaveDays) > 366) return Response.json({ error: "잔여 연차 일수를 -366~366 사이로 입력해 주세요." }, { status: 400 });
+    // 퇴사일 시점의 소정근로시간 규정으로 1일 통상임금을 잡는다 (2026-08-01 주 35시간제 시행).
+    const unusedLeavePay = calculateLeaveAllowance(leaveDays, context.monthlyOrdinaryWage, retirementDate).amount;
     const netSettlement = finalSalary + retirementPay + unusedLeavePay - deductions;
     const controls = {
       payrollConfirmed: Boolean(body.payrollConfirmed), insuranceConfirmed: Boolean(body.insuranceConfirmed),
@@ -322,22 +392,28 @@ export async function PUT(request: Request) {
     };
     const ready = Object.values(controls).every(Boolean);
     await db.prepare(`INSERT INTO hr_retirement_settlements
-      (request_id, final_salary, retirement_pay, unused_leave_pay, deductions, net_settlement,
+      (request_id, final_salary, retirement_pay, unused_leave_pay, leave_days, deductions, net_settlement,
         payroll_confirmed, insurance_confirmed, access_revoked, assets_returned, handover_confirmed,
         status, prepared_by, completed_by, completed_at, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)
       ON CONFLICT(request_id) DO UPDATE SET final_salary=excluded.final_salary, retirement_pay=excluded.retirement_pay,
-        unused_leave_pay=excluded.unused_leave_pay, deductions=excluded.deductions, net_settlement=excluded.net_settlement,
+        unused_leave_pay=excluded.unused_leave_pay, leave_days=excluded.leave_days,
+        deductions=excluded.deductions, net_settlement=excluded.net_settlement,
         payroll_confirmed=excluded.payroll_confirmed, insurance_confirmed=excluded.insurance_confirmed,
         access_revoked=excluded.access_revoked, assets_returned=excluded.assets_returned,
         handover_confirmed=excluded.handover_confirmed, status=excluded.status,
         prepared_by=excluded.prepared_by, updated_at=excluded.updated_at`)
-      .bind(id, finalSalary, retirementPay, unusedLeavePay, deductions, netSettlement,
+      .bind(id, finalSalary, retirementPay, unusedLeavePay, leaveDays, deductions, netSettlement,
         controls.payrollConfirmed ? 1 : 0, controls.insuranceConfirmed ? 1 : 0,
         controls.accessRevoked ? 1 : 0, controls.assetsReturned ? 1 : 0,
         controls.handoverConfirmed ? 1 : 0, ready ? "READY" : "DRAFT",
         authorization.principal.employeeId, now, now).run();
     await applyDueRetirements(db, now);
+
+    // 퇴직금은 정산 기록에만 남기고 퇴사월 임금안에는 자동으로 쓰지 않는다. 평균임금은 퇴직일 이전
+    // 3개월과 그 기간의 총일수를 기준으로 하고 근로기준법 시행령 제2조의 제외기간을 빼야 하는데,
+    // 이 앱에는 그 기간을 구분할 자료(출산전후휴가·육아휴직·업무상 요양·휴업 등)가 없다.
+    // 검증되지 않은 금액이 급여 파일까지 흘러가지 않도록, 반영은 사람이 임금계산에서 직접 넣는다.
     const after = await db.prepare("SELECT * FROM hr_retirement_settlements WHERE request_id = ?").bind(id).first<Record<string, unknown>>();
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "RETIREMENT_SETTLEMENT_UPDATED", entityType: "retirementSettlement", entityId: id, before, after });
     return Response.json({ item: after });

@@ -1277,6 +1277,15 @@ test("recruitment requisitions reserve approved gaps and link applicants through
   assert.match(view, /채용요청을 등록하고 승인까지 마쳤습니다/);
   // 진행 중 요청 counts every live requisition, including teams with no workforce plan.
   assert.match(api, /reserved: requisitions\.filter/);
+  // Removing a requisition must not orphan applicants, strand an approval, or lose the record itself.
+  assert.match(api, /action === "DELETE"/);
+  assert.match(api, /COUNT\(\*\) AS count FROM hr_applicants WHERE requisition_id = \?/);
+  assert.match(api, /연결된 지원자가/);
+  assert.match(api, /status NOT IN \('APPROVED', 'REJECTED', 'CANCELLED'\)/);
+  assert.match(api, /db\.prepare\("DELETE FROM hr_recruitment_requisitions WHERE id = \?"\)/);
+  assert.match(api, /action: "REQUISITION_DELETED"[\s\S]*?before: row/);
+  assert.match(view, /className="delete-action"/);
+  assert.match(plan, /지원자가 연결된 요청은 삭제하지 않고/);
   assert.match(plan, /추가 기안 가능 = 계획 부족 - 예약 TO/);
 });
 

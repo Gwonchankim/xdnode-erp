@@ -85,16 +85,28 @@ export default function RecruitmentRequisitionView({ onNotify }: { onNotify: (me
     }
   }
 
-  async function action(id: string, name: "SUBMIT" | "CLOSE" | "CANCEL") {
-    const reason = name === "SUBMIT" ? "" : window.prompt(name === "CLOSE" ? "조기 마감 사유를 5자 이상 입력해 주세요." : "등록 취소 사유를 5자 이상 입력해 주세요.")?.trim() ?? "";
+  const reasonPrompts: Record<string, string> = {
+    CLOSE: "조기 마감 사유를 5자 이상 입력해 주세요.",
+    CANCEL: "등록 취소 사유를 5자 이상 입력해 주세요.",
+    DELETE: "삭제 사유를 5자 이상 입력해 주세요.",
+  };
+
+  async function action(id: string, name: "SUBMIT" | "CLOSE" | "CANCEL" | "DELETE", title = "") {
+    // Deletion removes the row outright rather than moving it to a closed state, so it gets its own
+    // confirmation before the reason prompt that the other actions share.
+    if (name === "DELETE" && !window.confirm(`'${title}' 채용요청을 원장에서 삭제합니다.
+되돌릴 수 없으며, 진행 중인 결재가 있으면 함께 취소됩니다.`)) return;
+    const reason = name === "SUBMIT" ? "" : window.prompt(reasonPrompts[name])?.trim() ?? "";
     if (name !== "SUBMIT" && reason.length < 5) return;
     const response = await fetch("/api/hr/recruitment-requisitions", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: name, id, reason }),
     });
-    const payload = await response.json() as { error?: string; autoApproved?: boolean };
+    const payload = await response.json() as { error?: string; autoApproved?: boolean; cancelledApproval?: boolean };
     if (!response.ok) { onNotify(payload.error || "채용요청 상태를 변경하지 못했습니다."); return; }
     onNotify(name === "SUBMIT" ? (payload.autoApproved ? "요청자와 승인자가 같아 자동 승인되었습니다. 바로 모집 중입니다." : "채용요청 결재를 제출했습니다.")
-      : name === "CLOSE" ? "채용요청을 사유와 함께 마감했습니다." : "채용요청을 취소했습니다.");
+      : name === "CLOSE" ? "채용요청을 사유와 함께 마감했습니다."
+      : name === "DELETE" ? (payload.cancelledApproval ? "채용요청을 삭제하고 진행 중이던 결재도 취소했습니다." : "채용요청을 삭제했습니다.")
+      : "채용요청을 취소했습니다.");
     try { await load(); } catch (error) { onNotify(error instanceof Error ? error.message : "목록을 새로고침하지 못했습니다."); }
   }
 
@@ -115,7 +127,7 @@ export default function RecruitmentRequisitionView({ onNotify }: { onNotify: (me
       <div className="data-table-wrap"><table className="data-table"><thead><tr><th>팀·포지션</th><th>요청/확정/잔여</th><th>지원자</th><th>담당자</th><th>목표일</th><th>상태</th><th>처리</th></tr></thead><tbody>
         {loading ? <tr><td colSpan={7} className="empty-cell">채용요청을 불러오는 중입니다.</td></tr> : data?.requisitions.length ? data.requisitions.map((item) => <tr key={item.id}>
           <td><strong>{item.title}</strong><small>{item.organizationName} · {item.role}</small></td><td>{item.requestedHeadcount} / {item.filledHeadcount} / <b>{item.remainingHeadcount}</b></td><td>{item.applicantCount}명</td><td>{item.ownerName || "미지정"}</td><td>{item.targetStartDate}</td><td><span className={`requisition-status ${item.status.toLowerCase()}`}>{labels[item.status] ?? item.status}</span></td>
-          <td><div className="row-actions">{item.status === "DRAFT" && <><button type="button" className="interview-action" onClick={() => void action(item.id, "SUBMIT")}>결재 제출</button><button type="button" className="reject-action" onClick={() => void action(item.id, "CANCEL")}>취소</button></>}{item.status === "OPEN" && <button type="button" className="reject-action" onClick={() => void action(item.id, "CLOSE")}>조기 마감</button>}{!["DRAFT", "OPEN"].includes(item.status) && <span>{item.closeReason || "자동 처리"}</span>}</div></td>
+          <td><div className="row-actions">{item.status === "DRAFT" && <><button type="button" className="interview-action" onClick={() => void action(item.id, "SUBMIT")}>결재 제출</button><button type="button" className="reject-action" onClick={() => void action(item.id, "CANCEL")}>취소</button></>}{item.status === "OPEN" && <button type="button" className="reject-action" onClick={() => void action(item.id, "CLOSE")}>조기 마감</button>}{!["DRAFT", "OPEN"].includes(item.status) && <span>{item.closeReason || "자동 처리"}</span>}<button type="button" className="delete-action" onClick={() => void action(item.id, "DELETE", item.title)}>삭제</button></div></td>
         </tr>) : <tr><td colSpan={7} className="empty-cell">등록된 채용요청이 없습니다. 상단의 채용요청 등록 버튼으로 추가하세요.</td></tr>}
       </tbody></table></div>
     </section>

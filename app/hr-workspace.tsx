@@ -2258,7 +2258,9 @@ function ScreeningWorkflow({ applicant, applicants, recruiters, onBack, onSave }
       interview: hasSchedule ? schedule : applicant.interview,
       stage: allComplete ? (hasSchedule ? "면접 일정 회신 완료" : "서류 합격 안내 완료") : "서류 합격 진행 중",
     });
-    setMemo("");
+    // onSave updates the list optimistically and persists in the background, so returning to 지원 현황
+    // right away does not interrupt the write — and the saved stage is already visible in the list.
+    onBack();
   }
 
   return <div className="page-wrap detail-page screening-page">
@@ -2748,31 +2750,77 @@ function OnboardingEditModal({ candidate, onClose, onSave, onCancel }: {
   return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><form className="employee-modal onboarding-edit-modal" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-header"><div><p>ONBOARDING DETAILS</p><h2>{candidate.name} 입사 정보 수정</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{candidate.name.slice(0, 1)}</span><div><strong>{candidate.name}</strong><small>{candidate.email || "이메일 미등록"} · {candidate.phone || "연락처 미등록"}</small></div><em>{candidate.employeeId}</em></div><div className="onboarding-edit-grid"><label><span>신규 사번 *</span><input required value={draft.employeeId} onChange={(event) => setDraft({ ...draft, employeeId: event.target.value })} /></label><label><span>입사예정일 *</span><input required type="date" value={draft.startDate} onChange={(event) => setDraft({ ...draft, startDate: event.target.value })} /></label><label><span>소속 파트 *</span><select required value={draft.department} onChange={(event) => setDraft({ ...draft, department: event.target.value })}>{Array.from(new Set([draft.department, ...companyOrganizations.map((item) => item.name)])).map((name) => <option key={name}>{name}</option>)}</select></label><label><span>제안 직무 *</span><input required value={draft.proposedTitle} onChange={(event) => setDraft({ ...draft, proposedTitle: event.target.value })} /></label><label><span>직급 *</span><input required value={draft.position} onChange={(event) => setDraft({ ...draft, position: event.target.value })} /></label><label><span>직책 *</span><input required value={draft.jobTitle} onChange={(event) => setDraft({ ...draft, jobTitle: event.target.value })} /></label><label><span>고용형태 *</span><select value={draft.employmentType} onChange={(event) => setDraft({ ...draft, employmentType: event.target.value })}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>연봉 *</span><input required type="number" min="1" value={draft.annualSalary} onChange={(event) => setDraft({ ...draft, annualSalary: event.target.value })} /></label><label><span>수습기간(개월) *</span><input required type="number" min="0" max="12" value={draft.probationMonths} onChange={(event) => setDraft({ ...draft, probationMonths: event.target.value })} /></label><label className="wide"><span>처우·회신 메모</span><textarea value={draft.responseNote} onChange={(event) => setDraft({ ...draft, responseNote: event.target.value })} placeholder="처우 협의 내용과 입사 준비 참고사항을 기록하세요." /></label></div><section className="onboarding-cancel-section"><div><strong>입사가 이루어지지 않는 경우</strong><span>취소 사유는 지원자 관리의 특이사항 기록에 영구 보관됩니다.</span></div><textarea value={cancellationReason} onChange={(event) => setCancellationReason(event.target.value)} placeholder="입사 취소 사유를 입력하세요." /><button type="button" disabled={saving || !cancellationReason.trim()} onClick={() => void cancelOnboarding()}>입사 취소</button></section><div className="modal-actions"><button type="button" onClick={onClose}>닫기</button><button type="submit" className="primary-button" disabled={saving}>{saving ? "저장 중…" : "입사 정보 저장"}</button></div></form></div>;
 }
 
+type SeveranceEstimate = {
+  requestId: string; period: string; severance: number; tenureDays: number; appliedDailyWage: number;
+  averageDailyWage: number; ordinaryDailyWage: number; basis: string; months: string[];
+  usedLeaveUnits: number; payrollMonthReady: boolean; reason: string; eligible: boolean;
+  limitations: string[];
+  leaveDailyWage: number;
+  workingTimeRule: { label: string; monthlyHours: number; dailyHours: number };
+};
+
 function RetirementSettlementPanel({ requestId }: { requestId: string }) {
-  const [draft, setDraft] = useState({ finalSalary: "0", retirementPay: "0", unusedLeavePay: "0", deductions: "0", payrollConfirmed: false, insuranceConfirmed: false, accessRevoked: false, assetsReturned: false, handoverConfirmed: false });
+  const [draft, setDraft] = useState({ finalSalary: "0", retirementPay: "0", leaveDays: "0", deductions: "0", payrollConfirmed: false, insuranceConfirmed: false, accessRevoked: false, assetsReturned: false, handoverConfirmed: false });
+  const [estimate, setEstimate] = useState<SeveranceEstimate | null>(null);
   const [status, setStatus] = useState("DRAFT");
   const [message, setMessage] = useState("");
   useEffect(() => {
-    fetch("/api/hr/operations").then(async (response) => {
-      const payload = await response.json() as { retirementSettlements?: Array<Record<string, unknown>>; error?: string };
+    fetch("/api/hr/operations?severance=1").then(async (response) => {
+      const payload = await response.json() as { retirementSettlements?: Array<Record<string, unknown>>; severanceEstimates?: SeveranceEstimate[]; error?: string };
       if (!response.ok) throw new Error(payload.error || "퇴직 정산을 불러오지 못했습니다.");
+      const computed = (payload.severanceEstimates ?? []).find((row) => row.requestId === requestId) ?? null;
+      setEstimate(computed);
       const item = (payload.retirementSettlements ?? []).find((row) => row.request_id === requestId);
       if (!item) return;
-      setDraft({ finalSalary: String(item.final_salary ?? 0), retirementPay: String(item.retirement_pay ?? 0), unusedLeavePay: String(item.unused_leave_pay ?? 0), deductions: String(item.deductions ?? 0), payrollConfirmed: Boolean(item.payroll_confirmed), insuranceConfirmed: Boolean(item.insurance_confirmed), accessRevoked: Boolean(item.access_revoked), assetsReturned: Boolean(item.assets_returned), handoverConfirmed: Boolean(item.handover_confirmed) });
+      setDraft({
+        finalSalary: String(item.final_salary ?? 0),
+        // 추정액을 자동으로 넣지 않는다. 산식이 제외기간을 반영하지 못하므로 사람이 보고 넣어야 한다.
+        retirementPay: String(item.retirement_pay ?? 0),
+        leaveDays: String(item.leave_days ?? 0), deductions: String(item.deductions ?? 0),
+        payrollConfirmed: Boolean(item.payroll_confirmed), insuranceConfirmed: Boolean(item.insurance_confirmed),
+        accessRevoked: Boolean(item.access_revoked), assetsReturned: Boolean(item.assets_returned),
+        handoverConfirmed: Boolean(item.handover_confirmed),
+      });
       setStatus(String(item.status ?? "DRAFT"));
     }).catch((error: Error) => setMessage(error.message));
   }, [requestId]);
   async function save() {
-    const response = await fetch("/api/hr/operations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "retirementSettlement", id: requestId, ...draft, finalSalary: Number(draft.finalSalary), retirementPay: Number(draft.retirementPay), unusedLeavePay: Number(draft.unusedLeavePay), deductions: Number(draft.deductions) }) });
+    const response = await fetch("/api/hr/operations", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ resource: "retirementSettlement", id: requestId, ...draft, finalSalary: Number(draft.finalSalary), retirementPay: Number(draft.retirementPay), leaveDays: Number(draft.leaveDays), deductions: Number(draft.deductions) }) });
     const payload = await response.json() as { item?: Record<string, unknown>; error?: string };
     if (!response.ok) return setMessage(payload.error || "퇴직 정산을 저장하지 못했습니다.");
     const nextStatus = String(payload.item?.status ?? "DRAFT");
     setStatus(nextStatus);
     setMessage(nextStatus === "READY" ? "정산과 필수 통제가 완료되어 퇴직 완료 처리가 가능합니다." : "정산 초안을 저장했습니다. 필수 확인 항목을 모두 완료해 주세요.");
   }
-  const amount = Number(draft.finalSalary) + Number(draft.retirementPay) + Number(draft.unusedLeavePay) - Number(draft.deductions);
+  const leaveDays = Number(draft.leaveDays) || 0;
+  const leavePay = Math.round((estimate?.leaveDailyWage ?? 0) * leaveDays);
+  const amount = Number(draft.finalSalary) + Number(draft.retirementPay) + leavePay - Number(draft.deductions);
   const checks: Array<[keyof typeof draft, string]> = [["payrollConfirmed", "최종 급여 확인"], ["insuranceConfirmed", "4대보험 상실 신고 확인"], ["accessRevoked", "업무 계정·접근권한 회수"], ["assetsReturned", "회사 자산 반납"], ["handoverConfirmed", "업무 인수인계 완료"]];
-  return <section className="retirement-settlement"><div className="detail-card-heading"><div><p className="eyebrow">FINAL SETTLEMENT</p><h3>퇴직 정산·회수 통제</h3></div><StatusPill value={status === "READY" ? "완료 가능" : status === "COMPLETED" ? "퇴직 완료" : "정산 중"} /></div><div className="retirement-settlement-amounts"><label>최종 급여<input type="number" min="0" value={draft.finalSalary} onChange={(event) => setDraft({ ...draft, finalSalary: event.target.value })} /></label><label>퇴직금<input type="number" min="0" value={draft.retirementPay} onChange={(event) => setDraft({ ...draft, retirementPay: event.target.value })} /></label><label>미사용 연차수당<input type="number" min="0" value={draft.unusedLeavePay} onChange={(event) => setDraft({ ...draft, unusedLeavePay: event.target.value })} /></label><label>공제액<input type="number" min="0" value={draft.deductions} onChange={(event) => setDraft({ ...draft, deductions: event.target.value })} /></label></div><strong className="settlement-net">예상 최종 정산액 {Math.round(amount).toLocaleString("ko-KR")}원</strong><div className="retirement-control-list">{checks.map(([key, label]) => <label key={key} className={draft[key] ? "checked" : ""}><input type="checkbox" checked={Boolean(draft[key])} onChange={(event) => setDraft({ ...draft, [key]: event.target.checked })} /><span>✓</span><strong>{label}</strong></label>)}</div>{message && <p className="retirement-settlement-message">{message}</p>}<button type="button" className="outline-button" disabled={status === "COMPLETED"} onClick={() => void save()}>정산·통제 저장</button></section>;
+  return <section className="retirement-settlement"><div className="detail-card-heading"><div><p className="eyebrow">FINAL SETTLEMENT</p><h3>퇴직 정산·회수 통제</h3></div><StatusPill value={status === "READY" ? "완료 가능" : status === "COMPLETED" ? "퇴직 완료" : "정산 중"} /></div>
+    <div className="retirement-settlement-amounts">
+      <label>최종 급여<input type="number" min="0" value={draft.finalSalary} onChange={(event) => setDraft({ ...draft, finalSalary: event.target.value })} /></label>
+      <label>퇴직금<input type="number" min="0" value={draft.retirementPay} onChange={(event) => setDraft({ ...draft, retirementPay: event.target.value })} /></label>
+      <label>잔여 연차(일)<input type="number" step="0.5" min="-366" max="366" value={draft.leaveDays} onChange={(event) => setDraft({ ...draft, leaveDays: event.target.value })} /></label>
+      <label>공제액<input type="number" min="0" value={draft.deductions} onChange={(event) => setDraft({ ...draft, deductions: event.target.value })} /></label>
+    </div>
+    {estimate && <div className="settlement-estimate">
+      <p><strong>퇴직금 추정액 {estimate.eligible ? `${estimate.severance.toLocaleString("ko-KR")}원` : "산정 불가"} · 검토 필요</strong></p>
+      <p className="settlement-basis">{estimate.eligible
+        ? `재직 ${estimate.tenureDays}일 · 1일 ${estimate.basis === "ORDINARY" ? "통상임금" : "평균임금"} ${Math.round(estimate.appliedDailyWage).toLocaleString("ko-KR")}원${estimate.months.length ? ` (${estimate.months.join(", ")} 급여 기준)` : ""}`
+        : estimate.reason}</p>
+      <p className="settlement-basis settlement-caution">이 금액은 참고용 추정치입니다. 임금안·급여에 자동 반영되지 않으며, 확정 금액은 세무법인 검토를 거쳐 임금계산에서 직접 입력해 주세요.
+        {estimate.limitations.map((item) => ` ${item}`).join("")}</p>
+      {estimate.eligible && <button type="button" className="outline-button" onClick={() => setDraft((current) => ({ ...current, retirementPay: String(estimate.severance) }))}>추정액을 퇴직금 칸에 넣기</button>}
+      <p className="settlement-basis">{estimate.payrollMonthReady
+        ? `${estimate.period} 임금안이 준비되어 있습니다. 임금계산에서 퇴직금 칸에 확정 금액을 입력하세요.`
+        : "급여 월이 비어 있습니다. 해당 급여월은 만들어 주세요"}</p>
+    </div>}
+    <p className="settlement-basis">연차수당 {leavePay.toLocaleString("ko-KR")}원{leaveDays < 0 ? " (선사용 연차 공제)" : ""}{estimate?.leaveDailyWage ? ` · 1일 통상임금 ${Math.round(estimate.leaveDailyWage).toLocaleString("ko-KR")}원 (${estimate.workingTimeRule.label} · 월 통상임금 ÷ ${estimate.workingTimeRule.monthlyHours}시간 × ${estimate.workingTimeRule.dailyHours}시간)` : ""}{estimate?.usedLeaveUnits ? ` · 승인된 연차 사용 ${estimate.usedLeaveUnits}일` : ""}</p>
+    <strong className="settlement-net">예상 최종 정산액 {Math.round(amount).toLocaleString("ko-KR")}원</strong>
+    <div className="retirement-control-list">{checks.map(([key, label]) => <label key={key} className={draft[key] ? "checked" : ""}><input type="checkbox" checked={Boolean(draft[key])} onChange={(event) => setDraft({ ...draft, [key]: event.target.checked })} /><span>✓</span><strong>{label}</strong></label>)}</div>
+    {message && <p className="retirement-settlement-message">{message}</p>}
+    <button type="button" className="outline-button" disabled={status === "COMPLETED"} onClick={() => void save()}>정산·통제 저장</button>
+  </section>;
 }
 
 function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; onClose: () => void; onSubmit: (record: RetirementRecord) => void }) {

@@ -309,5 +309,45 @@ export async function POST(request: Request) {
     return Response.json({ cancelled: true });
   }
 
+  if (action === "DELETE") {
+    const reason = String(body.reason ?? "").trim().slice(0, 1000);
+    if (reason.length < 5) return Response.json({ error: "삭제 사유를 5자 이상 입력해 주세요." }, { status: 400 });
+
+    // Applicants are records of real people. Dropping the requisition out from under them would leave
+    // those rows pointing at an id that no longer resolves, so the link has to be cleared first.
+    const linked = await db.prepare("SELECT COUNT(*) AS count FROM hr_applicants WHERE requisition_id = ?")
+      .bind(id).first<{ count: number }>();
+    if ((linked?.count ?? 0) > 0) {
+      return Response.json({ error: `이 채용요청에 연결된 지원자가 ${linked?.count}명 있습니다. 지원자 관리에서 연결을 해제한 뒤 삭제해 주세요.` }, { status: 409 });
+    }
+
+    // A still-open approval would otherwise sit in 전자결재 pointing at a requisition that is gone.
+    // Close it out the same way an explicit 결재 취소 would, so the inbox and task list stay truthful.
+    const approval = await db.prepare(`SELECT id, current_step FROM erp_approval_requests
+      WHERE target_entity_type = 'HR_RECRUITMENT_REQUISITION' AND target_entity_id = ?
+        AND status NOT IN ('APPROVED', 'REJECTED', 'CANCELLED')`)
+      .bind(id).first<{ id: string; current_step: number }>();
+    const statements: D1PreparedStatement[] = [];
+    if (approval) {
+      statements.push(
+        db.prepare("UPDATE erp_approval_requests SET status = 'CANCELLED', decided_at = ?, version = version + 1, updated_at = ? WHERE id = ?")
+          .bind(now, now, approval.id),
+        db.prepare("UPDATE erp_approval_steps SET status = 'SKIPPED', updated_at = ? WHERE request_id = ? AND status IN ('PENDING', 'WAITING')")
+          .bind(now, approval.id),
+        db.prepare("UPDATE erp_tasks SET status = 'DONE', completed_at = ?, updated_at = ? WHERE source_type = 'APPROVAL' AND source_id = ?")
+          .bind(now, now, approval.id),
+        db.prepare(`INSERT INTO erp_approval_events (id, request_id, step_order, action, actor_employee_id, comment, snapshot_json, created_at)
+          VALUES (?, ?, ?, 'CANCELLED', ?, ?, '{}', ?)`)
+          .bind(crypto.randomUUID(), approval.id, approval.current_step, authorization.principal.employeeId, `채용요청 삭제: ${reason}`, now),
+      );
+    }
+    statements.push(db.prepare("DELETE FROM hr_recruitment_requisitions WHERE id = ?").bind(id));
+    await db.batch(statements);
+    // The row is gone from the ledger, but the audit entry carries the whole record it held, so what
+    // was requested and by whom is still answerable after the fact.
+    await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "REQUISITION_DELETED", entityType: "hrRecruitmentRequisition", entityId: id, before: row, after: { deleted: true, reason, cancelledApprovalId: approval?.id ?? "" } });
+    return Response.json({ deleted: true, cancelledApproval: Boolean(approval) });
+  }
+
   return Response.json({ error: "지원하지 않는 채용요청 작업입니다." }, { status: 400 });
 }

@@ -2402,3 +2402,20 @@ body .panel form button, body .panel > form button { font-size: 12px !important;
   body .finance-side-navigation nav { padding: 8px 10px; }
   body .finance-side-footer { display: flex; }
 }
+
+/* Sales module — measured against production. The first typography pass sampled the
+   local dev server, where these screens sit empty because the HR/sales APIs 401
+   without a session, so none of these elements ever rendered to be collected.
+   With real data the sales workspace is the densest surface in the app and was
+   still running at 8-9px throughout. */
+body .sales-plan-table span, body .sales-plan-table b, body .sales-plan-table strong,
+body .sales-plan-table em, body .sales-plan-table button,
+body .sales-plan-table td, body .sales-plan-table th { font-size: 12px !important; }
+body .sales-live-metrics span, body .sales-plan-metrics span,
+body .sales-contract-metrics span, body .sales-service-metrics span,
+body .incentive-control-metrics span { font-size: 12px !important; }
+body .sales-live-metrics small, body .sales-plan-metrics small,
+body .sales-contract-metrics small, body .sales-service-metrics small,
+body .incentive-control-metrics small { font-size: 11px !important; }
+body .panel span, body .head span { font-size: 12px !important; }
+body .sales-pricing-setup label, body .sales-service-policy label { font-size: 12px !important; }

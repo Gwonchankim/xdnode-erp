@@ -541,6 +541,39 @@ test("employee persistence retains lifecycle state across refreshes", async () =
   assert.match(workspace, /RETIREMENT_CHECKLIST|resource: "retirement"/);
 });
 
+test("applicant popup owns screening and interview, and the list only reports stages", async () => {
+  const [workspace, styles] = await Promise.all([
+    read("app/hr-workspace.tsx"),
+    read("public/hr-workspace.css"),
+  ]);
+  // 서류 합불은 목록 행이 아니라 지원자 팝업에서만 누른다.
+  assert.match(workspace, /<h3>서류 심사<\/h3>/);
+  assert.match(workspace, /onDecideScreening\(applicant\.id, "PASS"\)/);
+  assert.match(workspace, /onDecideScreening\(applicant\.id, "REJECT"\)/);
+  // 잘못 눌렀을 때 되돌릴 수 있어야 한다.
+  assert.match(workspace, /onDecideScreening\(applicant\.id, "RESET"\)\}>평가중으로 되돌리기/);
+  // RESET 은 별도 분기 없이 "평가중" 단계로 되돌아간다.
+  assert.match(workspace, /decision === "REJECT" \? SCREENING_REJECTED_STAGE : SCREENING_PENDING_STAGE/);
+
+  // 목록은 채용단계(서류 결과)와 현재 단계(면접 일정)만 보여준다.
+  assert.match(workspace, /<th>현재 단계<\/th><th>채용단계<\/th>/);
+  assert.doesNotMatch(workspace, /<th>채용 처리<\/th>/);
+  assert.match(workspace, /PENDING: "서류 평가중", PASSED: "서류 합격", REJECTED: "서류 탈락"/);
+  assert.match(workspace, /function currentStageOf\(applicant: Applicant\)/);
+
+  // 면접관리 탭과 서류 합격 처리 페이지는 팝업으로 흡수되어 사라졌다.
+  assert.doesNotMatch(workspace, /function ScreeningWorkflow\(|function InterviewManagement\(|function InterviewCandidateView\(/);
+  assert.doesNotMatch(workspace, /label: "면접관리"/);
+  // 흡수된 기능(면접 녹음, 제안 수락 전환)은 팝업 안에 남아 있어야 한다.
+  assert.match(workspace, /<ApplicantInterviewRecorder applicantId=\{applicant\.id\} \/>/);
+  assert.match(workspace, /제안 수락 입사 전환/);
+  // 합격은 처우 입력 모달로 이어지고 판단 근거가 메모로 남는다.
+  assert.match(workspace, /className="employee-modal interview-pass-modal"/);
+  assert.match(workspace, /면접 결과\(합격\): \$\{interviewResult\.trim\(\)\}/);
+  assert.match(workspace, /면접 결과\(탈락\): \$\{interviewResult\.trim\(\)\}/);
+  assert.match(styles, /\.screening-stage\.rejected \{/);
+});
+
 test("employee lifecycle opens each retirement in its own modal beside the onboarding table", async () => {
   const [workspace, styles] = await Promise.all([
     read("app/hr-workspace.tsx"),
@@ -559,6 +592,15 @@ test("employee lifecycle opens each retirement in its own modal beside the onboa
   assert.match(workspace, /estimate\.recordedSeverance > 0 && <tr className="recorded">/);
   assert.match(workspace, /기 입력된 값이 있습니다\. 덮어 쓰겠습니까\?/);
   assert.match(workspace, /function applyEstimate\(estimate: SeveranceEstimate\)/);
+  // 임금안 반영은 사람이 눌렀을 때만, 초안 상태에서만, 감사기록과 함께 이루어져야 한다.
+  assert.match(workspace, /resource: "severanceToPayroll"/);
+  const operations = await read("app/api/hr/operations/route.ts");
+  assert.match(operations, /resource === "severanceToPayroll"/);
+  assert.match(operations, /run\.status !== "DRAFT"/);
+  assert.match(operations, /급여 월이 비어 있습니다\. 해당 급여월은 만들어 주세요/);
+  assert.match(operations, /action: "SEVERANCE_APPLIED_TO_PAYROLL"/);
+  // 급여기록은 임금계산 확정 때만 다시 만들어지므로 여기서 직접 쓰면 안 된다.
+  assert.doesNotMatch(operations, /UPDATE hr_payroll_records|INSERT INTO hr_payroll_records/);
   // 체크와 정산 입력이 모두 모달 안에서 이루어져야 한다.
   assert.match(workspace, /className="retirement-modal-checklist"/);
   assert.match(workspace, /<RetirementSettlementPanel requestId=\{request\.id\} \/>/);
@@ -668,7 +710,9 @@ test("leave and attendance workflows persist real manual records and approval ta
   assert.match(api, /resource === "leaveRequest"/);
   assert.match(api, /createApprovalRequest/);
   assert.match(engine, /source_type, source_id/);
-  assert.match(api, /\["retirementChecklist", "retirementSettlement", "lifecycleTask"\]\.includes\(resource\) \? "write" : "approve"/);
+  // 임금안 초안에만 쓰는 severanceToPayroll 은 정산 저장과 같은 write 권한이다. 승인 권한이 필요한
+  // 결재성 resource 와 섞이지 않도록 목록을 그대로 고정한다.
+  assert.match(api, /\["retirementChecklist", "retirementSettlement", "lifecycleTask", "severanceToPayroll"\]\.includes\(resource\) \? "write" : "approve"/);
   assert.match(api, /'RECORDED', 'MANUAL'/);
   assert.match(view, /자동연동 전까지 자료 출처는 수기 입력/);
   assert.match(view, /Math\.round\(Number\(leaveDraft\.units\) \* 100\)/);

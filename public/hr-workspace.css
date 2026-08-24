@@ -581,7 +581,40 @@ button { color: inherit; }
 .retirement-modal-empty { margin: 12px 0 0; padding: 14px; border-radius: 12px; background: #f4f4f5; color: #52525b; font-size: 11px; text-align: center; }
 .retirement-process-modal .modal-actions { justify-content: space-between; }
 @media (max-width: 720px) { .retirement-modal-summary { grid-template-columns: 1fr 1fr; } }
-.settlement-basis { margin: 8px 0 0; color: #52525b; font-size: 11px; line-height: 1.55; }.settlement-compare { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 11px; }.settlement-compare th, .settlement-compare td { padding: 8px 9px; border-top: 1px solid #e4e4e7; text-align: left; vertical-align: middle; }.settlement-compare th { width: 92px; color: #52525b; font-weight: 800; white-space: nowrap; }.settlement-compare td:nth-child(3) { text-align: right; white-space: nowrap; }.settlement-compare td:last-child { width: 34px; color: #18181b; font-weight: 800; text-align: right; }.settlement-compare tr.applied { background: #f4f4f5; }.settlement-compare tr.recorded th { color: #92400e; }.settlement-compare tr.recorded { background: #fffbeb; }.settlement-compare tr.applied strong { color: #18181b; }.settlement-estimate { margin-top: 12px; padding: 12px; border: 1px solid #e4e4e7; border-radius: 14px; background: #fff; }.settlement-estimate > p:first-child { margin: 0; font-size: 12px; }.settlement-estimate > button { margin-top: 10px; }.settlement-caution { color: #92400e; }.retirement-control-list { display: grid; gap: 6px; }.retirement-control-list label { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid #e4e4e7; border-radius: 11px; background: #fff; }.retirement-control-list label.checked { color: #fff; border-color: #18181b; background: #18181b; }.retirement-control-list input { display: none; }.retirement-control-list span { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #d4d4d8; border-radius: 7px; }.retirement-settlement-message { color: #52525b; font-size: 10px; line-height: 1.5; }.retirement-settlement > button { margin-top: 10px; }
+/* 면접 결과 정리: 결과를 적고 합격/탈락을 고른다. 합격이면 처우 입력 모달로 이어진다. */
+/* 지원자 팝업이 서류 심사와 면접을 모두 안고 있다. 두 블록은 팝업 안에서 이어지는 절차라 같은 틀을 쓴다. */
+.applicant-screening-block, .applicant-interview-block { margin: 0 24px 18px; padding: 16px 18px; border: 1px solid #e4e4e7; border-radius: 18px; background: #fafafa; }
+.applicant-screening-block .detail-card-heading, .applicant-interview-block .detail-card-heading { min-height: 0; padding: 0 0 12px; }
+.applicant-screening-hint { margin: 0; color: #52525b; font-size: 11px; line-height: 1.55; }
+.applicant-screening-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.applicant-screening-actions button { min-width: 88px; height: 40px; padding: 0 14px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; color: #3f3f46; font-size: 12px; font-weight: 700; cursor: pointer; }
+.applicant-interview-block .form-grid { padding: 0; }
+.applicant-interview-block .form-note { padding: 14px 0 0; }
+.applicant-offer-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 14px; padding: 14px; border: 1px solid #e4e4e7; border-radius: 14px; background: #fff; }
+.applicant-offer-summary > div { min-width: 0; display: grid; gap: 4px; }
+.applicant-offer-summary span { color: #71717a; font-size: 10px; font-weight: 800; }
+.applicant-offer-summary strong { font-size: 12px; }
+.applicant-offer-summary p { grid-column: 1 / -1; margin: 0; color: #71717a; font-size: 11px; }
+.applicant-offer-response { margin-top: 16px; padding-top: 14px; border-top: 1px solid #e4e4e7; }
+.applicant-offer-response .form-grid { padding: 12px 0 0; }
+/* 지원 현황 표: 채용단계는 서류 결과만, 현재 단계는 면접 일정까지 보여준다. */
+.screening-stage { display: inline-flex; padding: 7px 10px; border-radius: 10px; background: #f4f4f5; color: #3f3f46; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.screening-stage.passed { color: #fff; background: #18181b; }
+.screening-stage.rejected { color: #991b1b; background: #fee2e2; }
+.applicant-current-stage { display: inline-block; color: #3f3f46; font-size: 11px; white-space: nowrap; }
+@media (max-width: 900px) { .applicant-offer-summary { grid-template-columns: 1fr 1fr; } }
+.interview-result-form { display: grid; gap: 10px; margin-top: 18px; }
+.interview-result-form label { display: grid; gap: 7px; }
+.interview-result-form label > span { color: #52525b; font-size: 12px; font-weight: 800; }
+.interview-result-form textarea { width: 100%; min-height: 120px; padding: 12px 13px; border: 1px solid #d4d4d8; border-radius: 14px; color: #18181b; background: #fff; font: inherit; resize: vertical; }
+.interview-result-hint { margin: 0; color: #71717a; font-size: 11px; line-height: 1.55; }
+.interview-result-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.interview-result-actions button { min-width: 96px; height: 44px; padding: 0 18px; border-radius: 14px; font-size: 13px; font-weight: 700; cursor: pointer; }
+.interview-pass-modal { width: min(680px, 100%); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; background: #fff; animation: modalUp .2s ease; }
+.interview-pass-modal .form-grid { flex: 1; overflow-y: auto; }
+.interview-pass-modal .form-grid textarea { width: 100%; min-height: 82px; padding: 10px 11px; border: 1px solid #dce1e9; outline: 0; font: inherit; font-size: 11px; resize: vertical; }
+.interview-pass-modal .interview-result-hint { margin: 0 24px 16px; }
+.settlement-basis { margin: 8px 0 0; color: #52525b; font-size: 11px; line-height: 1.55; }.settlement-compare { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 11px; }.settlement-compare th, .settlement-compare td { padding: 8px 9px; border-top: 1px solid #e4e4e7; text-align: left; vertical-align: middle; }.settlement-compare th { width: 92px; color: #52525b; font-weight: 800; white-space: nowrap; }.settlement-compare td:nth-child(3) { text-align: right; white-space: nowrap; }.settlement-compare td:last-child { width: 34px; color: #18181b; font-weight: 800; text-align: right; }.settlement-compare tr.applied { background: #f4f4f5; }.settlement-compare tr.recorded th { color: #92400e; }.settlement-compare tr.recorded { background: #fffbeb; }.settlement-compare tr.applied strong { color: #18181b; }.settlement-estimate { margin-top: 12px; padding: 12px; border: 1px solid #e4e4e7; border-radius: 14px; background: #fff; }.settlement-estimate > p:first-child { margin: 0; font-size: 12px; }.settlement-estimate > button { margin-top: 10px; }.settlement-estimate-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }.settlement-caution { color: #92400e; }.retirement-control-list { display: grid; gap: 6px; }.retirement-control-list label { display: flex; align-items: center; gap: 8px; padding: 9px; border: 1px solid #e4e4e7; border-radius: 11px; background: #fff; }.retirement-control-list label.checked { color: #fff; border-color: #18181b; background: #18181b; }.retirement-control-list input { display: none; }.retirement-control-list span { width: 20px; height: 20px; display: grid; place-items: center; border: 1px solid #d4d4d8; border-radius: 7px; }.retirement-settlement-message { color: #52525b; font-size: 10px; line-height: 1.5; }.retirement-settlement > button { margin-top: 10px; }
 @media (max-width: 900px) { .lifecycle-board { grid-template-columns: 1fr; }.offer-summary .offer-response-form { grid-template-columns: 1fr; }.offer-response-form label.wide, .offer-response-actions { grid-column: 1; }.onboarding-edit-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 620px) { .onboarding-edit-grid { grid-template-columns: 1fr; }.onboarding-edit-grid label.wide { grid-column: 1; }.onboarding-cancel-section { grid-template-columns: 1fr; }.onboarding-cancel-section button { grid-column: 1; } }
 @media (max-width: 560px) { .lifecycle-card-toggle { align-items: flex-start; }.lifecycle-person-summary span { white-space: normal; }.lifecycle-card-state { grid-template-columns: 32px; }.lifecycle-card-state > strong, .lifecycle-card-state > small, .lifecycle-card-state > .status-pill { display: none; }.lifecycle-card-state > span:last-child { grid-column: 1; grid-row: 1; } }

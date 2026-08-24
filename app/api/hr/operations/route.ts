@@ -272,6 +272,52 @@ export async function POST(request: Request) {
     return Response.json({ item: { id, employeeId, eventDate, taskCount: tasks.length, completedTaskIds, status: created?.status ?? "IN_PROGRESS" } }, { status: 201 });
   }
 
+  // 산정한 퇴직금을 퇴사월 임금안에 넣는다. 자동이 아니라 사람이 화면에서 눌렀을 때만 실행되고,
+  // 임금안 초안까지만 쓴다. 급여기록(hr_payroll_records)은 임금계산에서 확정할 때 다시 만들어지므로
+  // 여기서는 건드리지 않는다 — 확정 전에 사람이 값을 한 번 더 보게 하려는 것이다.
+  if (resource === "severanceToPayroll") {
+    const request = await db.prepare("SELECT * FROM hr_retirement_requests WHERE id = ?").bind(id).first<Record<string, unknown>>();
+    if (!request) return Response.json({ error: "퇴직 요청을 찾을 수 없습니다." }, { status: 404 });
+    const amount = Math.round(Number(body.amount ?? 0));
+    if (!Number.isFinite(amount) || amount < 0) return Response.json({ error: "반영할 퇴직금은 0원 이상이어야 합니다." }, { status: 400 });
+
+    const employeeId = String(request.employee_id ?? "");
+    const retirementDate = String(request.retirement_date ?? "");
+    const context = await severanceContextFor(employeeId, retirementDate);
+    const period = context.period;
+    if (!/^\d{4}-\d{2}$/.test(period)) return Response.json({ error: "퇴사일이 없어 반영할 급여월을 알 수 없습니다." }, { status: 409 });
+
+    const run = await db.prepare("SELECT status FROM hr_compensation_runs WHERE period = ?")
+      .bind(period).first<{ status: string }>();
+    if (!run) return Response.json({ error: "급여 월이 비어 있습니다. 해당 급여월은 만들어 주세요", payrollMonthMissing: true }, { status: 409 });
+    if (run.status !== "DRAFT") {
+      return Response.json({ error: `${period} 임금안이 확정 상태입니다. 임금계산에서 수정하기를 누른 뒤 다시 시도해 주세요.` }, { status: 409 });
+    }
+
+    // 임금안 라인의 employee_id 는 HR 사번이 아니라 임금안 자체의 식별자다. 사번으로 못 찾으면
+    // 스냅샷에 담긴 이름으로 찾는다 (급여기록에서 겪은 것과 같은 식별자 불일치).
+    const lines = await db.prepare("SELECT employee_id, snapshot_json, gross_pay FROM hr_compensation_lines WHERE period = ?")
+      .bind(period).all<{ employee_id: string; snapshot_json: string; gross_pay: number }>();
+    const target = lines.results.find((line) => line.employee_id === employeeId)
+      ?? lines.results.find((line) => {
+        try { return String((JSON.parse(line.snapshot_json) as { name?: string }).name ?? "") === context.employeeName; }
+        catch { return false; }
+      });
+    if (!target) return Response.json({ error: `${period} 임금안에 이 직원의 행이 없습니다. 임금계산에서 대상자를 불러온 뒤 다시 시도해 주세요.` }, { status: 409 });
+
+    let snapshot: Record<string, unknown>;
+    try { snapshot = JSON.parse(target.snapshot_json) as Record<string, unknown>; }
+    catch { return Response.json({ error: "임금안 자료를 읽지 못해 반영하지 못했습니다." }, { status: 409 }); }
+    const monthly = (snapshot.monthly ?? {}) as Record<string, Record<string, unknown>>;
+    const previous = Number(monthly[period]?.severance ?? 0);
+    monthly[period] = { ...(monthly[period] ?? {}), severance: amount };
+    snapshot.monthly = monthly;
+    await db.prepare("UPDATE hr_compensation_lines SET snapshot_json = ?, updated_at = ? WHERE period = ? AND employee_id = ?")
+      .bind(JSON.stringify(snapshot), now, period, target.employee_id).run();
+    await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "SEVERANCE_APPLIED_TO_PAYROLL", entityType: "compensationLine", entityId: `${period}:${target.employee_id}`, before: { severance: previous }, after: { severance: amount, retirementRequestId: id, employeeName: context.employeeName } });
+    return Response.json({ applied: true, period, previous, amount });
+  }
+
   if (resource === "leaveRequest") {
     const employeeId = String(body.employeeId ?? "").trim();
     const leaveType = String(body.leaveType ?? "").trim();
@@ -340,7 +386,7 @@ export async function PUT(request: Request) {
   const resource = String(body.resource ?? "");
   const id = String(body.id ?? "").trim();
   if (!id) return Response.json({ error: "수정할 항목 ID가 필요합니다." }, { status: 400 });
-  const authorization = await authorizeErpRequest(db, "hr", ["retirementChecklist", "retirementSettlement", "lifecycleTask"].includes(resource) ? "write" : "approve");
+  const authorization = await authorizeErpRequest(db, "hr", ["retirementChecklist", "retirementSettlement", "lifecycleTask", "severanceToPayroll"].includes(resource) ? "write" : "approve");
   if (authorization.response) return authorization.response;
   const now = Date.now();
 

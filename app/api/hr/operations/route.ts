@@ -147,9 +147,16 @@ export async function GET(request: Request) {
       const estimate = await severanceEstimateFor(context);
       const payrollMonth = await db.prepare("SELECT period, status FROM hr_compensation_runs WHERE period = ?")
         .bind(context.period).first<{ period: string; status: string }>();
+      // 급여자료에 사람이 직접 적어 둔 퇴직금·연차수당. 계산 추정치와 성격이 달라 덮어쓰기 전에
+      // 확인을 받아야 하므로, 있는 그대로 함께 내려보내 화면이 나란히 보여줄 수 있게 한다.
+      const recorded = await db.prepare(`SELECT retirement_pay, annual_leave_pay FROM hr_payroll_records
+        WHERE employee_id = ? AND year_month = ?`)
+        .bind(context.employeeId, context.period).first<{ retirement_pay: number; annual_leave_pay: number }>();
       return {
         requestId: String(row.id ?? ""), period: context.period, joinDate: context.joinDate,
         monthlyOrdinaryWage: context.monthlyOrdinaryWage, usedLeaveUnits: context.usedLeaveUnits,
+        recordedSeverance: Number(recorded?.retirement_pay ?? 0),
+        recordedLeavePay: Number(recorded?.annual_leave_pay ?? 0),
         leaveDailyWage: calculateLeaveAllowance(1, context.monthlyOrdinaryWage, String(row.retirement_date ?? "")).dailyWage,
         payrollMonthReady: Boolean(payrollMonth), payrollMonthStatus: payrollMonth?.status ?? "",
         ...estimate,

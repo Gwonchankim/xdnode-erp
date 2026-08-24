@@ -2795,6 +2795,8 @@ type SeveranceEstimate = {
   limitations: string[];
   averageSeverance: number;
   ordinarySeverance: number;
+  recordedSeverance: number;
+  recordedLeavePay: number;
   averageDailyWage: number;
   leaveDailyWage: number;
   workingTimeRule: { label: string; monthlyHours: number; dailyHours: number };
@@ -2833,6 +2835,13 @@ function RetirementSettlementPanel({ requestId }: { requestId: string }) {
     setStatus(nextStatus);
     setMessage(nextStatus === "READY" ? "정산과 필수 통제가 완료되어 퇴직 완료 처리가 가능합니다." : "정산 초안을 저장했습니다. 필수 확인 항목을 모두 완료해 주세요.");
   }
+  // 급여자료에 손으로 적어 둔 금액이나 이미 채워 둔 값을 계산 추정치로 지우기 전에 확인을 받는다.
+  function applyEstimate(estimate: SeveranceEstimate) {
+    const existing = Number(draft.retirementPay) || 0;
+    if ((estimate.recordedSeverance > 0 || existing > 0) && !window.confirm("기 입력된 값이 있습니다. 덮어 쓰겠습니까?")) return;
+    setDraft((current) => ({ ...current, retirementPay: String(estimate.severance) }));
+  }
+
   const leaveDays = Number(draft.leaveDays) || 0;
   const leavePay = Math.round((estimate?.leaveDailyWage ?? 0) * leaveDays);
   const amount = Number(draft.finalSalary) + Number(draft.retirementPay) + leavePay - Number(draft.deductions);
@@ -2860,11 +2869,17 @@ function RetirementSettlementPanel({ requestId }: { requestId: string }) {
           <td><strong>{estimate.ordinarySeverance.toLocaleString("ko-KR")}원</strong></td>
           <td>{estimate.basis === "ORDINARY" ? "적용" : ""}</td>
         </tr>
+        {estimate.recordedSeverance > 0 && <tr className="recorded">
+          <th>기입력된 퇴직금 금액</th>
+          <td>{estimate.period} 급여자료에 직접 입력한 값</td>
+          <td><strong>{estimate.recordedSeverance.toLocaleString("ko-KR")}원</strong></td>
+          <td></td>
+        </tr>}
       </tbody></table>}
       {estimate.eligible && <p className="settlement-basis">두 기준 중 큰 쪽을 적용합니다. 통상임금 기준은 근로자퇴직급여보장법상 하한입니다.</p>}
       <p className="settlement-basis settlement-caution">이 금액은 참고용 추정치입니다. 임금안·급여에 자동 반영되지 않으며, 확정 금액은 세무법인 검토를 거쳐 임금계산에서 직접 입력해 주세요.
         {estimate.limitations.map((item) => ` ${item}`).join("")}</p>
-      {estimate.eligible && <button type="button" className="outline-button" onClick={() => setDraft((current) => ({ ...current, retirementPay: String(estimate.severance) }))}>추정액을 퇴직금 칸에 넣기</button>}
+      {estimate.eligible && <button type="button" className="outline-button" onClick={() => applyEstimate(estimate)}>추정액을 퇴직금 칸에 넣기</button>}
       <p className="settlement-basis">{estimate.payrollMonthReady
         ? `${estimate.period} 임금안이 준비되어 있습니다. 임금계산에서 퇴직금 칸에 확정 금액을 입력하세요.`
         : "급여 월이 비어 있습니다. 해당 급여월은 만들어 주세요"}</p>

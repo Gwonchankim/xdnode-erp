@@ -554,6 +554,11 @@ test("employee lifecycle opens each retirement in its own modal beside the onboa
   assert.match(workspace, /onClick=\{\(\) => setOpenRetirementId\(request\.id\)\}/);
   assert.match(workspace, /function RetirementProcessModal\(/);
   assert.match(workspace, /className="employee-modal retirement-process-modal" role="dialog" aria-modal="true"/);
+  // 급여자료에 손으로 적어 둔 퇴직금은 추정치와 나란히 보이고, 덮어쓰기 전에 확인을 받아야 한다.
+  assert.match(workspace, /기입력된 퇴직금 금액/);
+  assert.match(workspace, /estimate\.recordedSeverance > 0 && <tr className="recorded">/);
+  assert.match(workspace, /기 입력된 값이 있습니다\. 덮어 쓰겠습니까\?/);
+  assert.match(workspace, /function applyEstimate\(estimate: SeveranceEstimate\)/);
   // 체크와 정산 입력이 모두 모달 안에서 이루어져야 한다.
   assert.match(workspace, /className="retirement-modal-checklist"/);
   assert.match(workspace, /<RetirementSettlementPanel requestId=\{request\.id\} \/>/);

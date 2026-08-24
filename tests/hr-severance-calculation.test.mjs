@@ -109,6 +109,32 @@ test("잘못된 날짜와 뒤집힌 기간은 계산하지 않는다", () => {
   assert.match(calculateSeverance({ joinDate: "2026-09-30", retirementDate: "2024-01-01", recentWages: [], monthlyOrdinaryWage: 0 }).reason, /퇴사일이 입사일보다 빠릅니다/);
 });
 
+test("두 기준을 각각 계산해 큰 쪽을 적용한다", () => {
+  // 평균임금이 큰 경우
+  const avgWins = calculateSeverance({
+    joinDate: "2025-03-17", retirementDate: "2026-08-31",
+    recentWages: wages([["2026-07", 3_333_333], ["2026-06", 4_833_333], ["2026-05", 3_833_333]]),
+    monthlyOrdinaryWage: 3_333_333,
+  });
+  assert.equal(avgWins.basis, "AVERAGE");
+  assert.ok(avgWins.averageSeverance > avgWins.ordinarySeverance);
+  assert.equal(avgWins.severance, avgWins.averageSeverance);
+
+  // 통상임금(법정 하한)이 큰 경우
+  const ordWins = calculateSeverance({
+    joinDate: "2025-05-22", retirementDate: "2026-08-31",
+    recentWages: wages([["2026-07", 2_916_667], ["2026-06", 3_354_167], ["2026-05", 3_354_167]]),
+    monthlyOrdinaryWage: 2_916_667,
+  });
+  assert.equal(ordWins.basis, "ORDINARY");
+  assert.ok(ordWins.ordinarySeverance > ordWins.averageSeverance);
+  assert.equal(ordWins.severance, ordWins.ordinarySeverance);
+  // 적용액은 항상 두 값 중 큰 쪽이어야 한다.
+  for (const r of [avgWins, ordWins]) {
+    assert.equal(r.severance, Math.max(r.averageSeverance, r.ordinarySeverance));
+  }
+});
+
 test("추정치는 법정 산식과 어긋나는 지점을 스스로 밝힌다", () => {
   const result = calculateSeverance({
     joinDate: "2023-10-01", retirementDate: "2026-09-30",

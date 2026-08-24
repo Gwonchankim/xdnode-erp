@@ -38,6 +38,10 @@ export type SeveranceResult = {
   basis: "AVERAGE" | "ORDINARY" | "NONE";
   months: string[];
   severance: number;
+  /** 평균임금만으로 계산한 값. 통상임금 쪽과 나란히 보여 어느 쪽이 적용됐는지 드러내려고 함께 돌려준다. */
+  averageSeverance: number;
+  /** 통상임금(법정 하한)만으로 계산한 값. */
+  ordinarySeverance: number;
   workingTimeRule: WorkingTimeRule;
   /** 이 추정치가 법정 산식과 어긋나는 지점. 화면이 그대로 사람에게 보여 준다. */
   limitations: string[];
@@ -131,7 +135,7 @@ export function calculateSeverance(input: SeveranceInput): SeveranceResult {
   const empty: SeveranceResult = {
     eligible: false, reason: "", tenureDays: 0, averageWageTotal: 0, averageWageDays: 0,
     averageDailyWage: 0, ordinaryDailyWage, appliedDailyWage: 0, basis: "NONE", months: [], severance: 0,
-    limitations: [], workingTimeRule,
+    averageSeverance: 0, ordinarySeverance: 0, limitations: [], workingTimeRule,
   };
   if (!join || !leave) return { ...empty, reason: "입사일과 퇴사일을 모두 확인해 주세요." };
   if (leave < join) return { ...empty, reason: "퇴사일이 입사일보다 빠릅니다." };
@@ -153,7 +157,11 @@ export function calculateSeverance(input: SeveranceInput): SeveranceResult {
   const appliedDailyWage = Math.max(averageDailyWage, ordinaryDailyWage);
   const basis: SeveranceResult["basis"] = appliedDailyWage <= 0 ? "NONE"
     : averageDailyWage >= ordinaryDailyWage ? "AVERAGE" : "ORDINARY";
-  const severance = Math.round(appliedDailyWage * 30 * (tenureDays / 365));
+  // 퇴직금 = 1일 임금 × 30 × 계속근로일수/365. 두 기준을 각각 내고 큰 쪽을 적용한다.
+  const severanceFrom = (dailyWage: number) => Math.round(dailyWage * 30 * (tenureDays / 365));
+  const averageSeverance = severanceFrom(averageDailyWage);
+  const ordinarySeverance = severanceFrom(ordinaryDailyWage);
+  const severance = severanceFrom(appliedDailyWage);
 
   const missing = months.length - found.length;
   const limitations = [
@@ -164,7 +172,7 @@ export function calculateSeverance(input: SeveranceInput): SeveranceResult {
   return {
     eligible: severance > 0, tenureDays, averageWageTotal, averageWageDays, averageDailyWage,
     ordinaryDailyWage, appliedDailyWage, basis, months: found.map((wage) => wage.yearMonth), severance, limitations,
-    workingTimeRule,
+    averageSeverance, ordinarySeverance, workingTimeRule,
     reason: appliedDailyWage <= 0 ? "직전 3개월 급여 자료와 통상임금이 모두 없어 평균임금을 산정할 수 없습니다."
       : missing > 0 ? `직전 3개월 중 ${missing}개월치 급여 자료가 없어 남은 ${found.length}개월로 산정했습니다. 금액을 확인해 주세요.`
       : "",

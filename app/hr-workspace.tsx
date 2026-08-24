@@ -2793,6 +2793,9 @@ type SeveranceEstimate = {
   averageDailyWage: number; ordinaryDailyWage: number; basis: string; months: string[];
   usedLeaveUnits: number; payrollMonthReady: boolean; reason: string; eligible: boolean;
   limitations: string[];
+  averageSeverance: number;
+  ordinarySeverance: number;
+  averageDailyWage: number;
   leaveDailyWage: number;
   workingTimeRule: { label: string; monthlyHours: number; dailyHours: number };
 };
@@ -2843,9 +2846,22 @@ function RetirementSettlementPanel({ requestId }: { requestId: string }) {
     </div>
     {estimate && <div className="settlement-estimate">
       <p><strong>퇴직금 추정액 {estimate.eligible ? `${estimate.severance.toLocaleString("ko-KR")}원` : "산정 불가"} · 검토 필요</strong></p>
-      <p className="settlement-basis">{estimate.eligible
-        ? `재직 ${estimate.tenureDays}일 · 1일 ${estimate.basis === "ORDINARY" ? "통상임금" : "평균임금"} ${Math.round(estimate.appliedDailyWage).toLocaleString("ko-KR")}원${estimate.months.length ? ` (${estimate.months.join(", ")} 급여 기준)` : ""}`
-        : estimate.reason}</p>
+      <p className="settlement-basis">{estimate.eligible ? `재직 ${estimate.tenureDays}일` : estimate.reason}</p>
+      {estimate.eligible && <table className="settlement-compare"><tbody>
+        <tr className={estimate.basis === "AVERAGE" ? "applied" : ""}>
+          <th>평균임금 기준</th>
+          <td>1일 {Math.round(estimate.averageDailyWage).toLocaleString("ko-KR")}원{estimate.months.length ? ` (${estimate.months.join(", ")})` : ""}</td>
+          <td><strong>{estimate.averageSeverance.toLocaleString("ko-KR")}원</strong></td>
+          <td>{estimate.basis === "AVERAGE" ? "적용" : ""}</td>
+        </tr>
+        <tr className={estimate.basis === "ORDINARY" ? "applied" : ""}>
+          <th>통상임금 기준</th>
+          <td>1일 {Math.round(estimate.ordinaryDailyWage).toLocaleString("ko-KR")}원 ({estimate.workingTimeRule.label})</td>
+          <td><strong>{estimate.ordinarySeverance.toLocaleString("ko-KR")}원</strong></td>
+          <td>{estimate.basis === "ORDINARY" ? "적용" : ""}</td>
+        </tr>
+      </tbody></table>}
+      {estimate.eligible && <p className="settlement-basis">두 기준 중 큰 쪽을 적용합니다. 통상임금 기준은 근로자퇴직급여보장법상 하한입니다.</p>}
       <p className="settlement-basis settlement-caution">이 금액은 참고용 추정치입니다. 임금안·급여에 자동 반영되지 않으며, 확정 금액은 세무법인 검토를 거쳐 임금계산에서 직접 입력해 주세요.
         {estimate.limitations.map((item) => ` ${item}`).join("")}</p>
       {estimate.eligible && <button type="button" className="outline-button" onClick={() => setDraft((current) => ({ ...current, retirementPay: String(estimate.severance) }))}>추정액을 퇴직금 칸에 넣기</button>}

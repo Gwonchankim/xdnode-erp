@@ -79,15 +79,20 @@ async function ensureSchema() {
 }
 
 type SeveranceContext = {
-  employeeId: string; retirementDate: string; period: string; joinDate: string;
+  employeeId: string; employeeName: string; retirementDate: string; period: string; joinDate: string;
   monthlyOrdinaryWage: number; usedLeaveUnits: number;
 };
 
+// hr_payroll_records 의 employee_id 는 출처에 따라 값이 다르다. 가져온 인건비 자료는 HR 사번(lhy0220)을
+// 쓰지만, ERP 임금계산이 확정하며 만든 행은 임금안 라인의 UUID 를 넣는다. 사번만으로 찾으면 임금계산에서
+// 만들어진 행을 통째로 놓치므로 이름도 함께 본다. 같은 달에 두 출처가 겹치면 사번이 맞는 쪽을 쓴다.
+const PAYROLL_MATCH = "(employee_id = ? OR employee_name = ?)";
+
 /** 퇴직금 산정에 필요한 사람·급여 정보를 모은다. 정산 저장과 화면 미리보기가 같은 값을 쓰도록 한 곳에 둔다. */
 async function severanceContextFor(employeeId: string, retirementDate: string): Promise<SeveranceContext> {
-  const employee = await db.prepare(`SELECT join_date, annual_salary, base_pay, meal_allowance,
+  const employee = await db.prepare(`SELECT name, join_date, annual_salary, base_pay, meal_allowance,
     childcare_allowance, vehicle_allowance FROM hr_employee_records WHERE employee_id = ?`)
-    .bind(employeeId).first<{ join_date: string; annual_salary: number; base_pay: number;
+    .bind(employeeId).first<{ name: string; join_date: string; annual_salary: number; base_pay: number;
       meal_allowance: number; childcare_allowance: number; vehicle_allowance: number }>();
   // 통상임금은 연봉 기준이 있으면 연봉/12, 없으면 고정 지급분 합계로 본다.
   const monthlyOrdinaryWage = !employee ? 0
@@ -97,18 +102,28 @@ async function severanceContextFor(employeeId: string, retirementDate: string): 
     WHERE employee_id = ? AND status = 'APPROVED' AND leave_type IN ('ANNUAL', 'HALF_AM', 'HALF_PM')`)
     .bind(employeeId).first<{ units: number }>();
   return {
-    employeeId, retirementDate, period: retirementDate.slice(0, 7),
+    employeeId, employeeName: employee?.name ?? "", retirementDate, period: retirementDate.slice(0, 7),
     joinDate: employee?.join_date ?? "", monthlyOrdinaryWage, usedLeaveUnits: Number(used?.units ?? 0),
   };
 }
 
 async function severanceEstimateFor(context: SeveranceContext) {
   const months = precedingMonths(context.retirementDate);
-  const recentWages = months.length
-    ? (await db.prepare(`SELECT year_month AS yearMonth, gross_pay AS grossPay FROM hr_payroll_records
-        WHERE employee_id = ? AND year_month IN (${months.map(() => "?").join(",")})`)
-        .bind(context.employeeId, ...months).all<{ yearMonth: string; grossPay: number }>()).results
+  const matched = months.length
+    ? (await db.prepare(`SELECT year_month AS yearMonth, gross_pay AS grossPay, employee_id AS employeeId
+        FROM hr_payroll_records
+        WHERE ${PAYROLL_MATCH} AND year_month IN (${months.map(() => "?").join(",")})`)
+        .bind(context.employeeId, context.employeeName, ...months)
+        .all<{ yearMonth: string; grossPay: number; employeeId: string }>()).results
     : [];
+  // 한 달에 한 행만 남긴다. 두 출처가 겹칠 때 둘 다 더하면 평균임금이 배로 부풀어 오른다.
+  const byMonth = new Map<string, { yearMonth: string; grossPay: number }>();
+  for (const row of matched) {
+    const kept = byMonth.get(row.yearMonth);
+    const isExactId = row.employeeId === context.employeeId;
+    if (!kept || isExactId) byMonth.set(row.yearMonth, { yearMonth: row.yearMonth, grossPay: row.grossPay });
+  }
+  const recentWages = [...byMonth.values()];
   return calculateSeverance({
     joinDate: context.joinDate, retirementDate: context.retirementDate,
     recentWages, monthlyOrdinaryWage: context.monthlyOrdinaryWage,
@@ -149,9 +164,11 @@ export async function GET(request: Request) {
         .bind(context.period).first<{ period: string; status: string }>();
       // 급여자료에 사람이 직접 적어 둔 퇴직금·연차수당. 계산 추정치와 성격이 달라 덮어쓰기 전에
       // 확인을 받아야 하므로, 있는 그대로 함께 내려보내 화면이 나란히 보여줄 수 있게 한다.
-      const recorded = await db.prepare(`SELECT retirement_pay, annual_leave_pay FROM hr_payroll_records
-        WHERE employee_id = ? AND year_month = ?`)
-        .bind(context.employeeId, context.period).first<{ retirement_pay: number; annual_leave_pay: number }>();
+      const recorded = await db.prepare(`SELECT COALESCE(MAX(retirement_pay), 0) AS retirement_pay,
+          COALESCE(MAX(annual_leave_pay), 0) AS annual_leave_pay FROM hr_payroll_records
+        WHERE year_month = ? AND ${PAYROLL_MATCH}`)
+        .bind(context.period, context.employeeId, context.employeeName)
+        .first<{ retirement_pay: number; annual_leave_pay: number }>();
       return {
         requestId: String(row.id ?? ""), period: context.period, joinDate: context.joinDate,
         monthlyOrdinaryWage: context.monthlyOrdinaryWage, usedLeaveUnits: context.usedLeaveUnits,

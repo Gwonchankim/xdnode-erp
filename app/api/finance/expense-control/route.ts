@@ -14,7 +14,7 @@ type ExpenseControlRow = { expense_request_id: string; business_purpose: string;
   created_at: number; updated_at: number };
 
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
-const validPeriod = (period: string) => /^2026-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
+const validPeriod = (period: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
 const validDate = (date: string) => /^2026-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(date) && date <= financeCurrentData.asOf;
 
 async function ensureSchema() {

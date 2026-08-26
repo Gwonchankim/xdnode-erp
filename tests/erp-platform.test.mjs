@@ -24,9 +24,27 @@ test("sensitive ERP APIs enforce role-based authorization and audit writes", asy
     read("app/api/hr/employee-records/route.ts"),
     read("app/api/hr/recruitment/route.ts"),
     read("app/api/sales/route.ts"),
+    read("app/api/sales/sheet-sync/route.ts"),
+    read("app/api/sales/sheet-sync/insights/route.ts"),
   ]);
   for (const source of files) assert.match(source, /authorizeErpRequest/);
   for (const source of files) assert.match(source, /writeErpAudit/);
+});
+
+test("every mutating finance API route enforces authorization and writes an audit trail", async () => {
+  // general-ledger is intentionally excluded: it is GET-only (a read-only verification view over
+  // the imported ledger) and has no mutation to audit.
+  const routes = [
+    "alert-actions", "assistant", "budget", "close", "daily-treasury", "debt", "expense-control",
+    "fixed-assets", "forecast", "import-mappings", "inventory", "management-report", "master-data",
+    "opening-balance", "operations", "posting-control", "project-costing", "purchasing",
+    "receivables", "reconciliation", "risk-policy", "tax", "tie-out",
+  ];
+  const files = await Promise.all(routes.map((route) => read(`app/api/finance/${route}/route.ts`)));
+  files.forEach((source, index) => {
+    assert.match(source, /authorizeErpRequest/, `${routes[index]}: missing authorizeErpRequest`);
+    assert.match(source, /writeErpAudit/, `${routes[index]}: missing writeErpAudit`);
+  });
 });
 
 test("retirement effectiveness and compensation confirmation are server-controlled", async () => {
@@ -628,7 +646,10 @@ test("13-week cash forecast de-duplicates ledgers, exposes data quality and pers
     read("drizzle/0020_careless_goliath.sql"), read("app/page.tsx"),
   ]);
   assert.match(api, /expense\.source_type = 'PURCHASE_INVOICE' AND expense\.source_id = invoice\.id/);
-  assert.match(api, /payment\.status <> 'CANCELLED'/);
+  // 미수잔액은 receivables/route.ts와 같은 정의(확정 수금만 차감)를 써야 한다 — DRAFT/SUBMITTED
+  // 수금까지 차감하면 미수잔액이 과소계상되어 자금예측이 낙관적으로 왜곡된다.
+  assert.match(api, /payment\.status IN \('ACCEPTED','COMPLETED'\)\), 0\) AS outstanding_amount/);
+  assert.doesNotMatch(api, /payment\.status <> 'CANCELLED'/);
   assert.match(api, /FALLBACK_REQUEST_DATE/);
   assert.match(api, /fallbackDateCount: fallbackDateItems\.length/);
   assert.match(api, /scenario === "CONSERVATIVE"/);
@@ -1808,21 +1829,31 @@ test("finance posting control preserves multi-line lineage and requires tax, per
   assert.match(migration, /WHERE `source_canonical_row_id` <> ''/); assert.match(migration, /WHERE `reversal_of_batch_id` <> ''/); assert.match(plan, /전기된 전표는 수정·삭제하지 않는다/); assert.match(plan, /현재 월이 아닌데 마감 원장 자체가 없는 기간도 미개방/);
 });
 
-test("general ledger joins both posted ledgers to the immutable 2025 closing baseline", async () => {
-  const [api, server, workspace, page, plan] = await Promise.all([
+test("general ledger is import-only and excludes ERP-generated payment journal entries", async () => {
+  const [api, server, snapshot, workspace, page, plan] = await Promise.all([
     read("app/api/finance/general-ledger/route.ts"), read("app/finance-general-ledger.ts"),
+    read("app/finance-ledger-snapshot.ts"),
     read("app/general-ledger-workspace.tsx"), read("app/page.tsx"), read("docs/finance-general-ledger-plan.md"),
   ]);
   assert.match(api, /authorizeErpRequest\(db, "finance", "read"\)/);
   assert.match(api, /financeHistoricalData\.trialBalance2025/);
   assert.match(api, /finance_posting_batches batch ON batch\.id=voucher\.batch_id AND batch\.status='POSTED'/);
-  assert.match(api, /finance_journal_entries WHERE status='POSTED'/);
+  assert.doesNotMatch(api, /FROM finance_journal_entries/);
+  assert.doesNotMatch(snapshot, /FROM finance_journal_entries/);
   assert.match(api, /openingDifference/); assert.match(api, /periodDifference/); assert.match(api, /endingDifference/);
   assert.match(server, /row\.voucherDate < from/); assert.match(api, /ledgerRows\("2026-01-01", to\)/);
   assert.match(api, /stagedOrClobeRowsIncluded: false/); assert.match(api, /Content-Disposition/); assert.match(api, /\^\[=\+\\-@\]/);
-  assert.match(workspace, /총계정원장·2026 시산표/); assert.match(workspace, /CSV 내려받기/); assert.match(workspace, /검증 스테이징과 Clobe 원문은 포함하지 않습니다/);
+  assert.match(workspace, /총계정원장·2026 시산표/); assert.match(workspace, /CSV 내려받기/); assert.match(workspace, /이카운트 분개장 import분만/);
   assert.match(page, /GeneralLedgerWorkspace/); assert.match(page, /총계정원장·시산표/);
-  assert.match(plan, /지급 전표.*외부 다행 분개/); assert.match(plan, /초안·결재 중·승인 후 미전기/);
+  assert.match(plan, /검증·분석 레이어/); assert.match(plan, /제외/);
+});
+
+test("equation check uses YTD ending balances regardless of the query start date", async () => {
+  const server = await read("app/finance-general-ledger.ts");
+  assert.match(server, /ytdRevenue = amount\("REVENUE", "CREDIT"\)/);
+  assert.match(server, /ytdExpenses = amount\("EXPENSE", "DEBIT"\)/);
+  assert.match(server, /equationDifference = assets - liabilities - equity - ytdNetIncome/);
+  assert.match(server, /normalBalanceMismatch/);
 });
 
 test("opening balances require a balanced immutable draft and final electronic approval", async()=>{
@@ -1838,11 +1869,30 @@ test("operational statements and month close freeze only approved posted ledger 
   assert.match(api,/buildOperationalFinancialStatements/);assert.match(api,/statements/);assert.match(api,/statementOfficial/);
   assert.match(server,/periodDebit.*periodCredit/);assert.match(server,/equationDifference/);assert.match(server,/unclassifiedAccounts/);
   assert.match(snapshot,/finance_posting_batches batch ON batch\.id=voucher\.batch_id AND batch\.status='POSTED'/);
-  assert.match(snapshot,/finance_journal_entries[\s\S]*status='POSTED'/);assert.match(snapshot,/crypto\.subtle\.digest\("SHA-256"/);
+  assert.doesNotMatch(snapshot,/FROM finance_journal_entries/);assert.match(snapshot,/crypto\.subtle\.digest\("SHA-256"/);
   assert.match(workspace,/2026 손익계산서·재무상태표/);assert.match(workspace,/검토용 초안/);assert.match(workspace,/공식화 전 확인/);
   assert.match(close,/buildFinanceLedgerSnapshot/);assert.match(close,/APPROVED_OPENING_BALANCE/);assert.match(close,/GENERAL_LEDGER_BALANCE/);
   assert.match(close,/openingChecksum/);assert.match(close,/ledgerHash/);assert.match(close,/ledgerSnapshot/);
   assert.match(plan,/세금계산서 통계.*직접 합산하지 않는다/);assert.match(plan,/월마감 제출 직전에 원장을 다시 계산/);
+});
+
+test("income statement subdivides into gross/operating/pre-tax lines and balance sheet splits current/non-current",async()=>{
+  const[opening,server,masterData,engine,api,snapshot,workspace]=await Promise.all([
+    read("app/finance-opening-balance.ts"),read("app/finance-general-ledger.ts"),read("app/api/finance/master-data/route.ts"),
+    read("app/approval-engine.ts"),read("app/api/finance/general-ledger/route.ts"),read("app/finance-ledger-snapshot.ts"),
+    read("app/general-ledger-workspace.tsx"),
+  ]);
+  assert.match(opening,/export function statementLineFor/);assert.match(opening,/export function liquidityFor/);
+  assert.match(server,/grossProfit = salesRevenue - cogs/);assert.match(server,/operatingIncome = grossProfit - sga/);
+  assert.match(server,/preTaxIncome = operatingIncome \+ nonOperatingIncome - nonOperatingExpense/);
+  assert.match(server,/currentAssets = liquidityAmount\("ASSET", "CURRENT", "DEBIT"\)/);
+  assert.match(server,/unclassifiedStatementLineAccounts/);assert.match(server,/unclassifiedLiquidityAccounts/);
+  assert.match(masterData,/statement_line/);assert.match(masterData,/statementLineFor\(/);assert.match(masterData,/liquidityFor\(/);
+  assert.match(engine,/statement_line = COALESCE/);assert.match(engine,/liquidity = COALESCE/);
+  assert.match(api,/masterStatementLines/);assert.match(api,/statementLineMap\(accounts, categories\)/);
+  assert.match(snapshot,/statementLines\[item\.key\]/);assert.match(snapshot,/liquidity\[item\.key\]/);
+  assert.match(workspace,/매출총이익/);assert.match(workspace,/영업이익/);assert.match(workspace,/법인세차감전순이익/);
+  assert.match(workspace,/유동자산/);assert.match(workspace,/비유동부채/);assert.match(workspace,/전기 이월, 2026년 미변동/);
 });
 
 test("statement comparisons disclose source scope and submitted closes detect ledger drift",async()=>{
@@ -1875,4 +1925,53 @@ test("finance assistant audit history freezes evidence and restores prior answer
   assert.doesNotMatch(api,/DELETE FROM finance_assistant_answers|UPDATE finance_assistant_answers/);
   assert.match(page,/답변 감사이력/);assert.match(page,/restoreFinanceAssistantAnswer/);assert.match(page,/evidenceHash\.slice/);
   assert.match(style,/assistant-history-list/);assert.match(plan,/수정·삭제 API는 만들지 않는다/);assert.match(plan,/저장에 실패한 답변은 화면에 성공한 답변으로 반환하지 않는다/);
+});
+
+test("receivables tie-out compares subsidiary and ledger balances, blocks close only on unconfirmed differences",async()=>{
+  const[lib,api,snapshot,close,workspace,plan]=await Promise.all([
+    read("app/finance-tie-out.ts"),read("app/api/finance/tie-out/route.ts"),read("app/finance-ledger-snapshot.ts"),
+    read("app/api/finance/close/route.ts"),read("app/receivables-workspace.tsx"),read("docs/finance-remediation-plan.md"),
+  ]);
+  assert.match(lib,/finance_tie_out_checks/);assert.match(lib,/idx_finance_tie_out_type_period/);
+  assert.match(lib,/difference_amount === 0 \|\| row\.difference_reason === "STRUCTURAL"/);
+  assert.match(lib,/existing\?\.difference_amount === differenceAmount/);
+  assert.match(snapshot,/export async function glAccountBalance/);
+  assert.match(api,/authorizeErpRequest\(db, "finance", "read"\)/);assert.match(api,/authorizeErpRequest\(db, "finance", "write"\)/);
+  assert.match(api,/authorizeErpRequest\(db, "finance", "approve"\)/);assert.match(api,/writeErpAudit/);
+  assert.match(api,/RECEIVABLES_GL_ACCOUNT_CODE = "1089"/);assert.match(api,/note\.length < 5/);
+  assert.match(close,/tieOutPasses/);assert.match(close,/RECEIVABLES_TIE_OUT/);
+  assert.match(workspace,/매출채권 보조부 ↔ 원장 대사/);assert.match(workspace,/구조적 차이\(설명 가능, 월마감 차단 안 함\)/);
+  assert.match(plan,/finance_reconciliation_statements 신설|finance-tie-out/);
+});
+
+test("payables tie-out compares unpaid invoices against the ledger and closes the AP subsidiary loop",async()=>{
+  const[api,close,workspace]=await Promise.all([
+    read("app/api/finance/tie-out/route.ts"),read("app/api/finance/close/route.ts"),read("app/purchasing-workspace.tsx"),
+  ]);
+  assert.match(api,/PAYABLES_GL_ACCOUNT_CODE = "2519"/);
+  assert.match(api,/payment\.status = 'PAID' AND payment\.id IS NULL|payment\.id IS NULL/);
+  assert.match(api,/invoice\.status <> 'CANCELLED'/);
+  assert.match(api,/glAmount: -gl\.netDebit/);
+  assert.match(api,/"RECEIVABLES", "PAYABLES", "INVENTORY"\]\.includes\(checkType\)/);
+  assert.match(close,/PAYABLES_TIE_OUT/);assert.match(close,/payablesTieOut/);
+  assert.match(workspace,/매입채무 보조부 ↔ 원장 대사/);assert.match(workspace,/보조부\(미지급 인보이스\)/);
+});
+
+test("inventory tie-out aggregates the moving-average ledger against the stock GL account",async()=>{
+  const[api,close,workspace]=await Promise.all([
+    read("app/api/finance/tie-out/route.ts"),read("app/api/finance/close/route.ts"),read("app/inventory-workspace.tsx"),
+  ]);
+  assert.match(api,/INVENTORY_GL_ACCOUNT_CODE = "1469"/);
+  assert.match(api,/async function inventorySubsidiaryAmount/);
+  assert.match(api,/FROM inventory_movements`\)\.first/);
+  assert.match(close,/INVENTORY_TIE_OUT/);assert.match(close,/inventoryTieOut/);
+  assert.match(workspace,/재고자산 보조부 ↔ 원장 대사/);assert.match(workspace,/보조부\(이동원장 누적\)/);
+});
+
+test("inventory moving average respects transaction date and fully liquidated stock leaves no rounding residue", async () => {
+  const api = await read("app/api/finance/inventory/route.ts");
+  assert.match(api, /async function currentStock\(productId: string, warehouseId: string, asOfDate\?: string\)/);
+  assert.match(api, /AND movement_date <= \?/);
+  assert.match(api, /currentStock\(productId, warehouseId, movementDate\)/);
+  assert.match(api, /quantityMilli === onHandMilli \? stockAmount : Math\.round\(quantityMilli \* unitCost \/ 1000\)/);
 });

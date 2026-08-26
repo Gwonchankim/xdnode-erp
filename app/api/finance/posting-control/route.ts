@@ -20,7 +20,12 @@ async function addEvent(batchId: string, action: string, fromStatus: string, toS
 }
 async function blockedPeriods(periods: string[]) {
   if (!periods.length) return [] as string[]; const unique = [...new Set(periods)]; const placeholders = unique.map(() => "?").join(",");
-  const rows = await db.prepare(`SELECT period,status FROM finance_close_runs WHERE period IN (${placeholders})`).bind(...unique).all<{ period: string; status: string }>().catch(() => ({ results: [] })); const states = new Map(rows.results.map((row) => [row.period, row.status])); const currentPeriod = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7); return unique.filter((period) => states.get(period) === "CLOSED" || (!states.has(period) && period !== currentPeriod));
+  const rows = await db.prepare(`SELECT period,status FROM finance_close_runs WHERE period IN (${placeholders})`).bind(...unique).all<{ period: string; status: string }>().catch(() => ({ results: [] })); const states = new Map(rows.results.map((row) => [row.period, row.status])); const currentPeriod = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
+  // SUBMITTED is blocked too: the close approval decision is made against a frozen ledger snapshot
+  // (see close/route.ts submit + api/approvals/route.ts's FINANCE_CLOSE_RUN drift re-check). Letting
+  // new postings land in a submitted-but-not-yet-approved period would approve a different ledger
+  // than the one the approver actually reviewed.
+  return unique.filter((period) => ["CLOSED", "SUBMITTED"].includes(states.get(period) ?? "") || (!states.has(period) && period !== currentPeriod));
 }
 async function view(selectedBatchId = "") {
   const [candidates, batches, taxCodes, closed] = await Promise.all([

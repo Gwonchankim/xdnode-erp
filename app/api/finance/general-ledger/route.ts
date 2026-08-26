@@ -6,33 +6,27 @@ import { ensureFinancePostingSchema } from "../../../finance-posting";
 import { buildLedgerAccountSummaries, buildOperationalFinancialStatements, generalLedgerAccountKey,
   historicalCloseComparison, previousEqualLengthPeriod,
   type LedgerAccountSummary, type UnifiedLedgerRow } from "../../../finance-general-ledger";
-import { approvedOpeningRows, ensureFinanceOpeningBalanceSchema, openingAccountCategory } from "../../../finance-opening-balance";
+import { approvedOpeningRows, ensureFinanceOpeningBalanceSchema, liquidityFor, openingAccountCategory, statementLineFor } from "../../../finance-opening-balance";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
 const currentAsOf = financeCurrentData.asOf;
-const validDate = (value: string) => /^2026-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value)
+const validDate = (value: string) => /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(value)
   && !Number.isNaN(new Date(`${value}T00:00:00Z`).valueOf())
   && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
 
 async function ensureSchemas() {
   await ensureFinancePostingSchema(db);
   await ensureFinanceOpeningBalanceSchema(db);
-  await db.batch([
-    db.prepare(`CREATE TABLE IF NOT EXISTS finance_journal_entries (
-      id TEXT PRIMARY KEY NOT NULL, payment_request_id TEXT NOT NULL UNIQUE, voucher_date TEXT NOT NULL,
-      description TEXT NOT NULL, debit_account_code TEXT NOT NULL DEFAULT '', debit_account_name TEXT NOT NULL,
-      credit_account_code TEXT NOT NULL DEFAULT '', credit_account_name TEXT NOT NULL, amount INTEGER NOT NULL,
-      status TEXT NOT NULL DEFAULT 'DRAFT', prepared_by TEXT NOT NULL, posted_by TEXT NOT NULL DEFAULT '',
-      posted_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
-    )`),
-    db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_journal_status_date ON finance_journal_entries(status, voucher_date)"),
-  ]);
 }
 
+// Import-only: this is the verification layer over the authoritative 이카운트 ledger, so
+// `finance_posting_lines` (posted from imported journal files) is the sole source. ERP-generated
+// payment vouchers and depreciation postings (`finance_journal_entries`) are execution records the
+// app produced itself, not transcriptions of the real ledger, and belong in Stage 2's
+// reconciliation layer instead. See docs/finance-remediation-plan.md Stage 1.
 async function ledgerRows(from: string, to: string) {
-  const [controlled, payments] = await Promise.all([
-    db.prepare(`SELECT line.id, batch.id AS source_id, voucher.voucher_date, voucher.voucher_number,
+  const controlled = await db.prepare(`SELECT line.id, batch.id AS source_id, voucher.voucher_date, voucher.voucher_number,
       line.line_number, line.account_id, line.account_code, line.account_name, line.partner_name,
       line.department_name, line.description, line.debit_amount, line.credit_amount, batch.posted_at
       FROM finance_posting_lines line
@@ -40,12 +34,7 @@ async function ledgerRows(from: string, to: string) {
       JOIN finance_posting_batches batch ON batch.id=voucher.batch_id AND batch.status='POSTED'
       WHERE voucher.voucher_date BETWEEN ? AND ?
       ORDER BY voucher.voucher_date DESC, voucher.voucher_number DESC, line.line_number`)
-      .bind(from, to).all<Record<string, unknown>>(),
-    db.prepare(`SELECT id,payment_request_id,voucher_date,description,debit_account_code,debit_account_name,
-      credit_account_code,credit_account_name,amount,posted_at
-      FROM finance_journal_entries WHERE status='POSTED' AND voucher_date BETWEEN ? AND ?
-      ORDER BY voucher_date DESC,created_at DESC`).bind(from, to).all<Record<string, unknown>>(),
-  ]);
+      .bind(from, to).all<Record<string, unknown>>();
   const rows: UnifiedLedgerRow[] = controlled.results.map((row) => ({
     id: String(row.id), sourceType: "CONTROLLED_POSTING", sourceId: String(row.source_id),
     voucherDate: String(row.voucher_date), voucherNumber: String(row.voucher_number), lineNumber: Number(row.line_number),
@@ -54,16 +43,6 @@ async function ledgerRows(from: string, to: string) {
     description: String(row.description ?? ""), debitAmount: Number(row.debit_amount), creditAmount: Number(row.credit_amount),
     postedAt: row.posted_at == null ? null : Number(row.posted_at),
   }));
-  for (const row of payments.results) {
-    const common = { sourceType: "PAYMENT_JOURNAL" as const, sourceId: String(row.payment_request_id),
-      voucherDate: String(row.voucher_date), voucherNumber: `PAY-${String(row.id).slice(0, 8).toUpperCase()}`,
-      accountId: "", partnerName: "", departmentName: "", description: String(row.description ?? ""),
-      postedAt: row.posted_at == null ? null : Number(row.posted_at) };
-    rows.push({ ...common, id: `${row.id}:D`, lineNumber: 1, accountCode: String(row.debit_account_code ?? ""),
-      accountName: String(row.debit_account_name), debitAmount: Number(row.amount), creditAmount: 0 });
-    rows.push({ ...common, id: `${row.id}:C`, lineNumber: 2, accountCode: String(row.credit_account_code ?? ""),
-      accountName: String(row.credit_account_name), debitAmount: 0, creditAmount: Number(row.amount) });
-  }
   return rows.sort((a, b) => b.voucherDate.localeCompare(a.voucherDate)
     || b.voucherNumber.localeCompare(a.voucherNumber) || a.lineNumber - b.lineNumber);
 }
@@ -87,23 +66,40 @@ export async function GET(request: Request) {
   const opening=await approvedOpeningRows(db);const openingSource=opening?.rows??financeHistoricalData.trialBalance2025;
   const ytdRows = await ledgerRows("2026-01-01", to); const periodRows = ytdRows.filter((row) => row.voucherDate >= from);
   const accounts = buildLedgerAccountSummaries(openingSource, ytdRows, from);
-  const masterAccounts = await db.prepare("SELECT code,category FROM finance_master_accounts WHERE status='ACTIVE'")
-    .all<{ code: string; category: string }>().catch(() => ({ results: [] }));
+  const masterAccounts = await db.prepare("SELECT code,category,statement_line,liquidity FROM finance_master_accounts WHERE status='ACTIVE'")
+    .all<{ code: string; category: string; statement_line: string; liquidity: string }>().catch(() => ({ results: [] }));
   const masterCategories = new Map(masterAccounts.results.map((row) => [row.code, row.category]));
   const openingCategories = new Map(opening?.rows.map((row) => [row.code, row.category]) ?? []);
+  const masterStatementLines = new Map(masterAccounts.results.filter((row) => row.statement_line).map((row) => [row.code, row.statement_line]));
+  const masterLiquidity = new Map(masterAccounts.results.filter((row) => row.liquidity).map((row) => [row.code, row.liquidity]));
   const categoryMap = (items: LedgerAccountSummary[]) => {
     const result: Record<string, string> = {};
     for (const item of items) result[item.key] = masterCategories.get(item.accountCode)
       ?? openingCategories.get(item.accountCode) ?? openingAccountCategory(item.accountCode, item.accountName);
     return result;
   };
+  const statementLineMap = (items: LedgerAccountSummary[], categoriesByKey: Record<string, string>) => {
+    const result: Record<string, string> = {};
+    for (const item of items) result[item.key] = masterStatementLines.get(item.accountCode)
+      ?? statementLineFor(categoriesByKey[item.key] ?? "", item.accountCode, item.accountName);
+    return result;
+  };
+  const liquidityMap = (items: LedgerAccountSummary[], categoriesByKey: Record<string, string>) => {
+    const result: Record<string, string> = {};
+    for (const item of items) result[item.key] = masterLiquidity.get(item.accountCode)
+      ?? liquidityFor(categoriesByKey[item.key] ?? "", item.accountName);
+    return result;
+  };
   const categories = categoryMap(accounts);
-  const statements = buildOperationalFinancialStatements(accounts, categories, Boolean(opening));
+  const statements = buildOperationalFinancialStatements(accounts, categories, Boolean(opening),
+    statementLineMap(accounts, categories), liquidityMap(accounts, categories));
   const previousRange = previousEqualLengthPeriod(from, to);
   const previousPeriod = previousRange ? (() => {
     const previousRows = ytdRows.filter((row) => row.voucherDate <= previousRange.to);
     const previousAccounts = buildLedgerAccountSummaries(openingSource, previousRows, previousRange.from);
-    const previousStatements = buildOperationalFinancialStatements(previousAccounts, categoryMap(previousAccounts), Boolean(opening));
+    const previousCategories = categoryMap(previousAccounts);
+    const previousStatements = buildOperationalFinancialStatements(previousAccounts, previousCategories, Boolean(opening),
+      statementLineMap(previousAccounts, previousCategories), liquidityMap(previousAccounts, previousCategories));
     return { label: "직전 동일 일수", from: previousRange.from, to: previousRange.to, source: "ERP_POSTED" as const,
       revenue: previousStatements.incomeStatement.revenue, expenses: previousStatements.incomeStatement.expenses,
       netIncome: previousStatements.incomeStatement.netIncome };
@@ -142,9 +138,8 @@ export async function GET(request: Request) {
       periodDifference: periodDebit - periodCredit, endingDebit, endingCredit, endingDifference: endingDebit - endingCredit },
     sources: { opening: { label: from === "2026-01-01" ? (opening?"승인된 2026 개시잔액 기준선":"승인 전 2025 결산 참고값") : `${opening?"승인된 기준선":"승인 전 참고값"} + 시작일 전 전기 누적`,
       asOf: new Date(new Date(`${from}T00:00:00Z`).valueOf() - 86_400_000).toISOString().slice(0, 10), immutableReference: true,official:Boolean(opening),setId:String(opening?.set.id??"") },
-      controlledPostingLines: periodRows.filter((row) => row.sourceType === "CONTROLLED_POSTING").length,
-      paymentJournalLines: periodRows.filter((row) => row.sourceType === "PAYMENT_JOURNAL").length,
-      postedOnly: true, stagedOrClobeRowsIncluded: false },
+      controlledPostingLines: periodRows.length,
+      postedOnly: true, stagedOrClobeRowsIncluded: false, importOnly: true },
     controls: { balanced: openingDebit === openingCredit && periodDebit === periodCredit && endingDebit === endingCredit,
       openingApprovedReference: Boolean(opening), statementOfficial: statements.status === "OFFICIAL",
       sourceMutation: false, directClobePosting: false } });

@@ -1,7 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { financeCurrentData } from "./finance-current-data";
 import { companyEmployees } from "./hr-company-data";
+
+const currentPeriod = financeCurrentData.asOf.slice(0, 7);
 
 type Vendor = { id: string; name: string; businessNumber: string; contactName: string; email: string; paymentTermsDays: number; status: string };
 type OrderLine = { id: string; orderId: string; lineNumber: number; itemName: string; description: string; quantity: number; unitPrice: number; lineAmount: number; acceptedQuantity: number };
@@ -9,6 +12,9 @@ type PurchaseOrder = { id: string; orderNumber: string; vendorId: string; vendor
 type Receipt = { id: string; orderId: string; orderNumber: string; vendorName: string; receiptNumber: string; receiptDate: string; status: string; acceptedAmount: number };
 type PurchaseInvoice = { id: string; orderId: string; vendorId: string; orderNumber: string; vendorName: string; invoiceNumber: string; invoiceDate: string; dueDate: string; supplyAmount: number; taxAmount: number; totalAmount: number; matchedReceiptAmount: number; status: string; exceptionReason: string; paymentRequestId: string; paymentRequestStatus: string; paymentDate: string; planStatus: "UNSCHEDULED" | "SCHEDULED" | "HOLD"; plannedPaymentDate: string; priority: "LOW" | "NORMAL" | "HIGH" | "CRITICAL"; ownerEmployeeId: string; holdReason: string; planMemo: string };
 type PurchasingData = { vendors: Vendor[]; orders: PurchaseOrder[]; receipts: Receipt[]; invoices: PurchaseInvoice[] };
+type TieOutCheck = { check_type: string; period: string; as_of: string; gl_account_code: string; gl_account_name: string;
+  subsidiary_amount: number; gl_amount: number; difference_amount: number; difference_reason: string; note: string;
+  reviewed_by: string; reviewed_at: number | null };
 
 const statusLabels: Record<string, string> = {
   DRAFT: "작성 중", SUBMITTED: "결재 중", APPROVED: "발주 승인", PARTIALLY_RECEIVED: "부분 입고",
@@ -31,6 +37,46 @@ export default function PurchasingWorkspace() {
   const [receiptDraft, setReceiptDraft] = useState({ orderId: "", receiptNumber: "", receiptDate: "", orderLineId: "", receivedQuantity: "", acceptedQuantity: "", notes: "" });
   const [invoiceDraft, setInvoiceDraft] = useState({ orderId: "", invoiceNumber: "", invoiceDate: "", dueDate: "", supplyAmount: "", taxAmount: "" });
   const [payableDraft, setPayableDraft] = useState<PurchaseInvoice | null>(null);
+  const [tieOut, setTieOut] = useState<TieOutCheck | null>(null);
+  const [tieOutBusy, setTieOutBusy] = useState(false);
+  const [tieOutMessage, setTieOutMessage] = useState("");
+  const [tieOutReason, setTieOutReason] = useState<"STRUCTURAL" | "UNCONFIRMED">("STRUCTURAL");
+  const [tieOutNote, setTieOutNote] = useState("");
+
+  async function loadTieOut() {
+    try {
+      const response = await fetch("/api/finance/tie-out", { cache: "no-store" });
+      const payload = await response.json() as { checks?: TieOutCheck[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "대사 결과를 불러오지 못했습니다.");
+      setTieOut(payload.checks?.find((item) => item.check_type === "PAYABLES") ?? null);
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "대사 결과를 불러오지 못했습니다."); }
+  }
+
+  async function recomputeTieOut() {
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RECOMPUTE", checkType: "PAYABLES", period: tieOut?.period ?? currentPeriod }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "대사를 재계산하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutNote(""); setTieOutMessage("매입채무 대사를 다시 계산했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "대사를 재계산하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
+
+  async function reviewTieOut(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tieOut) return;
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REVIEW", checkType: "PAYABLES", period: tieOut.period, reason: tieOutReason, note: tieOutNote }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "차이 사유를 저장하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutMessage("차이 사유를 저장했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "차이 사유를 저장하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
 
   async function load() {
     try {
@@ -51,7 +97,7 @@ export default function PurchasingWorkspace() {
     }
   }
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); void loadTieOut(); }, []);
 
   const receiptOrders = useMemo(() => (data?.orders ?? []).filter((order) => ["APPROVED", "PARTIALLY_RECEIVED"].includes(order.status)), [data]);
   const invoiceOrders = useMemo(() => (data?.orders ?? []).filter((order) => ["APPROVED", "PARTIALLY_RECEIVED", "RECEIVED"].includes(order.status)), [data]);
@@ -226,6 +272,32 @@ export default function PurchasingWorkspace() {
       <div className="payable-control-grid">
         <div className="payable-schedule-list"><div className="payable-list-head"><strong>지급 대상 큐</strong><span>원천 지급기한과 내부 지급일을 분리</span></div>{payableInvoices.map((invoice) => <button type="button" className={payableDraft?.id === invoice.id ? "active" : ""} key={invoice.id} onClick={() => setPayableDraft(editablePayable(invoice))}><span className={`payable-priority ${invoice.priority.toLowerCase()}`}>{invoice.priority}</span><p><strong>{invoice.vendorName}</strong><small>{invoice.invoiceNumber} · 원천기한 {invoice.dueDate || "미입력"}</small></p><b>{won(invoice.totalAmount)}</b><em>{invoice.planStatus === "HOLD" ? "보류" : invoice.plannedPaymentDate || "일정 미설정"}</em></button>)}</div>
         <div className="payable-plan-editor">{payableDraft ? <form onSubmit={savePayablePlan}><p>SOURCE INVOICE · READ ONLY</p><h3>{payableDraft.vendorName}</h3><dl><div><dt>인보이스</dt><dd>{payableDraft.invoiceNumber}</dd></div><div><dt>총액</dt><dd>{won(payableDraft.totalAmount)}</dd></div><div><dt>원천 지급기한</dt><dd>{payableDraft.dueDate || "미입력"}</dd></div><div><dt>지급요청</dt><dd>{payableDraft.paymentRequestStatus || "미생성"}</dd></div></dl><div className="payable-plan-fields"><label>계획 상태<select value={payableDraft.planStatus} onChange={(event) => setPayableDraft({ ...payableDraft, planStatus: event.target.value as PurchaseInvoice["planStatus"] })}><option value="SCHEDULED">지급 예정</option><option value="HOLD">지급 보류</option></select></label><label>내부 지급예정일<input type="date" value={payableDraft.plannedPaymentDate} onChange={(event) => setPayableDraft({ ...payableDraft, plannedPaymentDate: event.target.value })} /></label><label>우선순위<select value={payableDraft.priority} onChange={(event) => setPayableDraft({ ...payableDraft, priority: event.target.value as PurchaseInvoice["priority"] })}><option value="LOW">낮음</option><option value="NORMAL">보통</option><option value="HIGH">높음</option><option value="CRITICAL">긴급</option></select></label><label>담당자<select value={payableDraft.ownerEmployeeId} onChange={(event) => setPayableDraft({ ...payableDraft, ownerEmployeeId: event.target.value })}><option value="">미지정</option>{companyEmployees.map((employee) => <option value={employee.id} key={employee.id}>{employee.name} · {employee.department}</option>)}</select></label></div>{payableDraft.planStatus === "HOLD" && <label>지급 보류 사유<textarea rows={3} value={payableDraft.holdReason} onChange={(event) => setPayableDraft({ ...payableDraft, holdReason: event.target.value })} /></label>}<label>지급 메모<textarea rows={3} value={payableDraft.planMemo} onChange={(event) => setPayableDraft({ ...payableDraft, planMemo: event.target.value })} /></label><button type="submit">지급계획 저장</button><small>저장한 내부 지급일은 공급사 인보이스의 원천 지급기한을 변경하지 않으며 13주 자금예측 보완 정보로 사용합니다.</small></form> : <div className="finance-empty">대사 완료된 매입 인보이스가 없습니다.</div>}</div>
+      </div>
+    </section>
+
+    <section className="panel payable-control-panel">
+      <header><div><p>SUBSIDIARY ↔ LEDGER TIE-OUT</p><h3>매입채무 보조부 ↔ 원장 대사</h3></div><span>{tieOut ? `${tieOut.period} · 원장 기준일 ${tieOut.as_of}` : "아직 계산되지 않음"}</span></header>
+      {tieOutMessage && <div className="finance-control-message" role="status">{tieOutMessage}</div>}
+      <div className="payable-plan-editor">
+        <p>이카운트 IMPORT 원장과의 대사 · 자동 계산</p>
+        <h3>{tieOut ? (tieOut.difference_amount === 0 ? "잔액 일치" : `차이 ${won(tieOut.difference_amount)}`) : "대사 미실행"}</h3>
+        <dl>
+          <div><dt>보조부(미지급 인보이스)</dt><dd>{won(tieOut?.subsidiary_amount ?? 0)}</dd></div>
+          <div><dt>원장 잔액</dt><dd>{won(tieOut?.gl_amount ?? 0)}</dd></div>
+          <div><dt>계정</dt><dd>{tieOut?.gl_account_code ? `${tieOut.gl_account_code} ${tieOut.gl_account_name}` : "매핑 대기"}</dd></div>
+        </dl>
+        <button type="button" onClick={() => void recomputeTieOut()} disabled={tieOutBusy}>{tieOutBusy ? "계산 중…" : "지금 다시 계산"}</button>
+        {tieOut && tieOut.difference_amount !== 0 && (
+          tieOut.reviewed_at
+            ? <p>{tieOut.difference_reason === "STRUCTURAL" ? "구조적 차이로 확인됨" : "미확인 차이로 기록됨"} · {tieOut.note}</p>
+            : <form onSubmit={reviewTieOut}>
+                <div className="payable-plan-fields">
+                  <label>차이 사유<select value={tieOutReason} onChange={(event) => setTieOutReason(event.target.value as "STRUCTURAL" | "UNCONFIRMED")}><option value="STRUCTURAL">구조적 차이(설명 가능, 월마감 차단 안 함)</option><option value="UNCONFIRMED">미확인(월마감 차단)</option></select></label>
+                </div>
+                <label>설명<textarea rows={2} minLength={5} value={tieOutNote} onChange={(event) => setTieOutNote(event.target.value)} placeholder="예: 월말 매입 인보이스 등록 지연으로 인한 시차" /></label>
+                <button type="submit" disabled={tieOutBusy || tieOutNote.trim().length < 5}>{tieOutBusy ? "저장 중…" : "사유 저장"}</button>
+              </form>
+        )}
       </div>
     </section>
 

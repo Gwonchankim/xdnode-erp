@@ -1,6 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { financeCurrentData } from "./finance-current-data";
+
+const currentPeriod = financeCurrentData.asOf.slice(0, 7);
+type TieOutCheck = { check_type: string; period: string; as_of: string; gl_account_code: string; gl_account_name: string;
+  subsidiary_amount: number; gl_amount: number; difference_amount: number; difference_reason: string; note: string;
+  reviewed_by: string; reviewed_at: number | null };
 
 type Product = { id: string; sku: string; name: string; category: string; unit: string; minimumStock: number; status: string };
 type Warehouse = { id: string; code: string; name: string; location: string; status: string };
@@ -25,6 +31,46 @@ export default function InventoryWorkspace() {
   const [warehouseEdit, setWarehouseEdit] = useState<Warehouse | null>(null);
   const [receiptDraft, setReceiptDraft] = useState({ receiptLineId: "", productId: "", warehouseId: "", movementDate: today() });
   const [movementDraft, setMovementDraft] = useState({ movementType: "DELIVERY_OUT", deliveryId: "", productId: "", warehouseId: "", movementDate: today(), quantity: "", unitCost: "", referenceNumber: "", reason: "" });
+  const [tieOut, setTieOut] = useState<TieOutCheck | null>(null);
+  const [tieOutBusy, setTieOutBusy] = useState(false);
+  const [tieOutMessage, setTieOutMessage] = useState("");
+  const [tieOutReason, setTieOutReason] = useState<"STRUCTURAL" | "UNCONFIRMED">("STRUCTURAL");
+  const [tieOutNote, setTieOutNote] = useState("");
+
+  async function loadTieOut() {
+    try {
+      const response = await fetch("/api/finance/tie-out", { cache: "no-store" });
+      const payload = await response.json() as { checks?: TieOutCheck[]; error?: string };
+      if (!response.ok) throw new Error(payload.error || "대사 결과를 불러오지 못했습니다.");
+      setTieOut(payload.checks?.find((item) => item.check_type === "INVENTORY") ?? null);
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "대사 결과를 불러오지 못했습니다."); }
+  }
+
+  async function recomputeTieOut() {
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RECOMPUTE", checkType: "INVENTORY", period: tieOut?.period ?? currentPeriod }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "대사를 재계산하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutNote(""); setTieOutMessage("재고자산 대사를 다시 계산했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "대사를 재계산하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
+
+  async function reviewTieOut(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tieOut) return;
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REVIEW", checkType: "INVENTORY", period: tieOut.period, reason: tieOutReason, note: tieOutNote }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "차이 사유를 저장하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutMessage("차이 사유를 저장했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "차이 사유를 저장하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
 
   async function load() {
     try {
@@ -47,7 +93,7 @@ export default function InventoryWorkspace() {
     } finally { setLoading(false); }
   }
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(); void loadTieOut(); }, []);
 
   const activeProducts = useMemo(() => (data?.products ?? []).filter((row) => row.status === "ACTIVE"), [data]);
   const activeWarehouses = useMemo(() => (data?.warehouses ?? []).filter((row) => row.status === "ACTIVE"), [data]);
@@ -107,6 +153,32 @@ export default function InventoryWorkspace() {
       <article><small>보유 SKU</small><strong>{data?.summary.stockedProductCount ?? 0}개</strong><span>수량 0 초과</span></article>
       <article className={(data?.summary.belowMinimumCount ?? 0) ? "warn" : ""}><small>안전재고 미달</small><strong>{data?.summary.belowMinimumCount ?? 0}개</strong><span>전체 창고 합계 기준</span></article>
       <article className={(data?.summary.unmappedReceiptCount ?? 0) ? "warn" : ""}><small>미반영 입고</small><strong>{data?.summary.unmappedReceiptCount ?? 0}건</strong><span>상품·창고 연결 필요</span></article>
+    </section>
+
+    <section className="panel payable-control-panel">
+      <header><div><p>SUBSIDIARY ↔ LEDGER TIE-OUT</p><h3>재고자산 보조부 ↔ 원장 대사</h3></div><span>{tieOut ? `${tieOut.period} · 원장 기준일 ${tieOut.as_of}` : "아직 계산되지 않음"}</span></header>
+      {tieOutMessage && <div className="sales-live-message" role="status">{tieOutMessage}</div>}
+      <div className="payable-plan-editor">
+        <p>이카운트 IMPORT 원장과의 대사 · 자동 계산</p>
+        <h3>{tieOut ? (tieOut.difference_amount === 0 ? "잔액 일치" : `차이 ${won(tieOut.difference_amount)}`) : "대사 미실행"}</h3>
+        <dl>
+          <div><dt>보조부(이동원장 누적)</dt><dd>{won(tieOut?.subsidiary_amount ?? 0)}</dd></div>
+          <div><dt>원장 잔액</dt><dd>{won(tieOut?.gl_amount ?? 0)}</dd></div>
+          <div><dt>계정</dt><dd>{tieOut?.gl_account_code ? `${tieOut.gl_account_code} ${tieOut.gl_account_name}` : "매핑 대기"}</dd></div>
+        </dl>
+        <button type="button" onClick={() => void recomputeTieOut()} disabled={tieOutBusy}>{tieOutBusy ? "계산 중…" : "지금 다시 계산"}</button>
+        {tieOut && tieOut.difference_amount !== 0 && (
+          tieOut.reviewed_at
+            ? <p>{tieOut.difference_reason === "STRUCTURAL" ? "구조적 차이로 확인됨" : "미확인 차이로 기록됨"} · {tieOut.note}</p>
+            : <form onSubmit={reviewTieOut}>
+                <div className="payable-plan-fields">
+                  <label>차이 사유<select value={tieOutReason} onChange={(event) => setTieOutReason(event.target.value as "STRUCTURAL" | "UNCONFIRMED")}><option value="STRUCTURAL">구조적 차이(설명 가능, 월마감 차단 안 함)</option><option value="UNCONFIRMED">미확인(월마감 차단)</option></select></label>
+                </div>
+                <label>설명<textarea rows={2} minLength={5} value={tieOutNote} onChange={(event) => setTieOutNote(event.target.value)} placeholder="예: 실사 반영 지연으로 인한 시차" /></label>
+                <button type="submit" disabled={tieOutBusy || tieOutNote.trim().length < 5}>{tieOutBusy ? "저장 중…" : "사유 저장"}</button>
+              </form>
+        )}
+      </div>
     </section>
 
     <section className="panel inventory-stock-panel">

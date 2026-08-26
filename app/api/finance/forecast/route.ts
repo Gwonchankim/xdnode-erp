@@ -93,7 +93,7 @@ async function loadForecastItems(collectionProbability: number) {
     db.prepare(`SELECT * FROM (SELECT invoice.id, invoice.document_number, invoice.due_date,
       invoice.amount - COALESCE((SELECT SUM(allocation.amount) FROM sales_payment_allocations allocation
         JOIN sales_documents payment ON payment.id = allocation.payment_document_id
-        WHERE allocation.invoice_document_id = invoice.id AND payment.status <> 'CANCELLED'), 0) AS outstanding_amount,
+        WHERE allocation.invoice_document_id = invoice.id AND payment.status IN ('ACCEPTED','COMPLETED')), 0) AS outstanding_amount,
       account.name AS account_name, opportunity.title AS opportunity_title
       FROM sales_documents invoice JOIN sales_opportunities opportunity ON opportunity.id = invoice.opportunity_id
       LEFT JOIN sales_accounts account ON account.id = opportunity.account_id

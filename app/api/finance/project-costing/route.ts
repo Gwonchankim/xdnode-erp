@@ -13,7 +13,7 @@ type Source = { sourceType: "SALES_INVOICE" | "PURCHASE_INVOICE" | "EXPENSE_REQU
   linkedCenterId: string; autoAssigned: boolean };
 
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
-const validPeriod = (period: string) => /^2026-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
+const validPeriod = (period: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
 const validDate = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date);
 const centerTypes = new Set(["PROJECT", "DEPARTMENT", "OVERHEAD"]);
 

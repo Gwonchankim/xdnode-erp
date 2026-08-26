@@ -19,8 +19,12 @@ type ScheduleRow = { id: string; asset_id: string; period: string; opening_accum
   posted_by: string; posted_at: number | null; created_at: number; updated_at: number; asset_code?: string; asset_name?: string };
 
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
-const validPeriod = (period: string) => /^2026-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
+const validPeriod = (period: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
 const validDate = (date: string) => /^\d{4}-\d{2}-\d{2}$/.test(date);
+function lastDay(period: string) {
+  const [year, month] = period.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
 const categories = new Set(["EQUIPMENT", "VEHICLE", "FURNITURE", "SOFTWARE", "LEASEHOLD", "OTHER"]);
 const positiveAmount = (value: unknown, label: string, allowZero = false) => {
   const parsed = Math.round(Number(value));
@@ -307,7 +311,7 @@ export async function POST(request: Request) {
           debit_account_code, debit_account_name, credit_account_code, credit_account_name, amount, status,
           prepared_by, posted_by, posted_at, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, '', NULL, ?, ?)`)
-          .bind(journalId, paymentRef, `${schedule.period}-28`, `${schedule.asset_code} ${schedule.asset_name} 월 감가상각`,
+          .bind(journalId, paymentRef, lastDay(schedule.period), `${schedule.asset_code} ${schedule.asset_name} 월 감가상각`,
             schedule.expense_account_code, expenseAccount.name, schedule.accumulated_account_code, accumulatedAccount.name, schedule.depreciation_amount,
             authorization.principal.employeeId, now, now),
         db.prepare("UPDATE finance_asset_depreciation_schedules SET status = 'DRAFTED', journal_entry_id = ?, updated_at = ? WHERE id = ? AND status = 'PLANNED'")

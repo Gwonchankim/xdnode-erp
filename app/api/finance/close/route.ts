@@ -6,6 +6,7 @@ import { buildFinanceAlertReportSnapshot } from "../../../finance-alert-reportin
 import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../../finance-ledger-integrity";
 import { buildFinanceLedgerSnapshot } from "../../../finance-ledger-snapshot";
 import { ensureFinancePostingSchema } from "../../../finance-posting";
+import { ensureFinanceTieOutSchema, tieOutPasses, type TieOutRow } from "../../../finance-tie-out";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -27,7 +28,7 @@ type DocumentRow = { id: string; category: string; version: number; file_name: s
 type StoredCloseSnapshot = { controls?: CloseControl[]; ledgerSnapshot?: LedgerIntegritySnapshot };
 
 const currentPeriod = financeCurrentData.asOf.slice(0, 7);
-const validPeriod = (period: string) => /^2026-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
+const validPeriod = (period: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
 const lastDayOfPeriod = (period: string) => {
   const [year, month] = period.split("-").map(Number);
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
@@ -259,6 +260,13 @@ async function computeControls(period: string): Promise<CloseControl[]> {
   const alertCutoff = period === currentPeriod ? financeCurrentData.asOf : lastDayOfPeriod(period);
   const alertActions = await buildFinanceAlertReportSnapshot(db, alertCutoff);
   const ledgerSnapshot = await ledgerSnapshotPromise;
+  await ensureFinanceTieOutSchema(db);
+  const receivablesTieOut = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = 'RECEIVABLES' AND period = ?")
+    .bind(period).first<TieOutRow>();
+  const payablesTieOut = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = 'PAYABLES' AND period = ?")
+    .bind(period).first<TieOutRow>();
+  const inventoryTieOut = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = 'INVENTORY' AND period = ?")
+    .bind(period).first<TieOutRow>();
   const controls: CloseControl[] = [
     { key: "APPROVED_OPENING_BALANCE", category: "STATEMENT", title: "승인된 2026 개시잔액",
       status: ledgerSnapshot.openingSetId ? "PASS" : "FAIL",
@@ -272,6 +280,27 @@ async function computeControls(period: string): Promise<CloseControl[]> {
       message: `전기 ${ledgerSnapshot.lineCount}행 · 개시 차이 ${ledgerSnapshot.difference.opening.toLocaleString("ko-KR")}원 · 당기 차이 ${ledgerSnapshot.difference.period.toLocaleString("ko-KR")}원 · 기말 차이 ${ledgerSnapshot.difference.ending.toLocaleString("ko-KR")}원 · 회계등식 차이 ${ledgerSnapshot.statements.balanceSheet.equationDifference.toLocaleString("ko-KR")}원`,
       count: Math.abs(ledgerSnapshot.difference.opening) + Math.abs(ledgerSnapshot.difference.period)
         + Math.abs(ledgerSnapshot.difference.ending) + Math.abs(ledgerSnapshot.statements.balanceSheet.equationDifference) },
+    { key: "RECEIVABLES_TIE_OUT", category: "STATEMENT", title: "매출채권 보조부 ↔ 원장 대사",
+      status: tieOutPasses(receivablesTieOut) ? "PASS" : "FAIL",
+      message: !receivablesTieOut ? "이번 마감월의 매출채권 대사를 아직 계산하지 않았습니다."
+        : receivablesTieOut.difference_amount === 0 ? `보조부·원장 잔액 일치 (${receivablesTieOut.gl_account_code} ${receivablesTieOut.gl_account_name})`
+        : receivablesTieOut.difference_reason === "STRUCTURAL" ? `차이 ${receivablesTieOut.difference_amount.toLocaleString("ko-KR")}원 · 구조적 차이로 확인됨: ${receivablesTieOut.note}`
+        : `차이 ${receivablesTieOut.difference_amount.toLocaleString("ko-KR")}원 · 사유 미확인`,
+      count: tieOutPasses(receivablesTieOut) ? 0 : 1 },
+    { key: "PAYABLES_TIE_OUT", category: "STATEMENT", title: "매입채무 보조부 ↔ 원장 대사",
+      status: tieOutPasses(payablesTieOut) ? "PASS" : "FAIL",
+      message: !payablesTieOut ? "이번 마감월의 매입채무 대사를 아직 계산하지 않았습니다."
+        : payablesTieOut.difference_amount === 0 ? `보조부·원장 잔액 일치 (${payablesTieOut.gl_account_code} ${payablesTieOut.gl_account_name})`
+        : payablesTieOut.difference_reason === "STRUCTURAL" ? `차이 ${payablesTieOut.difference_amount.toLocaleString("ko-KR")}원 · 구조적 차이로 확인됨: ${payablesTieOut.note}`
+        : `차이 ${payablesTieOut.difference_amount.toLocaleString("ko-KR")}원 · 사유 미확인`,
+      count: tieOutPasses(payablesTieOut) ? 0 : 1 },
+    { key: "INVENTORY_TIE_OUT", category: "STATEMENT", title: "재고자산 보조부 ↔ 원장 대사",
+      status: tieOutPasses(inventoryTieOut) ? "PASS" : "FAIL",
+      message: !inventoryTieOut ? "이번 마감월의 재고자산 대사를 아직 계산하지 않았습니다."
+        : inventoryTieOut.difference_amount === 0 ? `보조부·원장 잔액 일치 (${inventoryTieOut.gl_account_code} ${inventoryTieOut.gl_account_name})`
+        : inventoryTieOut.difference_reason === "STRUCTURAL" ? `차이 ${inventoryTieOut.difference_amount.toLocaleString("ko-KR")}원 · 구조적 차이로 확인됨: ${inventoryTieOut.note}`
+        : `차이 ${inventoryTieOut.difference_amount.toLocaleString("ko-KR")}원 · 사유 미확인`,
+      count: tieOutPasses(inventoryTieOut) ? 0 : 1 },
     { key: "BANK_RECONCILIATION", category: "BANK", title: "원화 은행거래 대사",
       status: bankTotal > 0 && bankPending === 0 ? "PASS" : "FAIL",
       message: bankTotal ? `${bankTotal}건 중 미대사 ${bankPending}건` : "해당 월 은행 거래 원문이 없습니다.", count: bankPending },

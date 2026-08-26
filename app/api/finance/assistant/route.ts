@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { authorizeErpRequest } from "../../../erp-platform";
+import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { financeCurrentInsights } from "../../../finance-current-insights";
 import { financeHistoricalData } from "../../../finance-historical-data";
@@ -115,6 +115,9 @@ async function responseWithHistory(db: D1Database, principal: Parameters<typeof 
   question: string, evidence: FinanceAssistantEvidence, payload: FinanceAssistantAnswerPayload) {
   try {
     const historyEntry = await saveFinanceAssistantAnswer(db, principal, question, evidence, payload);
+    await writeErpAudit(db, { principal, module: "finance", action: "ASSISTANT_ANSWER_SAVED",
+      entityType: "financeAssistantAnswer", entityId: historyEntry.id,
+      after: { question, provider: payload.provider, evidenceStatus: payload.evidenceStatus, basisAsOf: payload.basisAsOf } });
     return Response.json({ ...payload, historyEntry });
   } catch {
     return Response.json({ error: "답변 감사기록을 저장하지 못했습니다. 기록 저장 상태를 확인한 뒤 다시 질문해 주세요." }, { status: 503 });

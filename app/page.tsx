@@ -495,8 +495,15 @@ function ERPTopNavigation({ active, onChange, onOpenAlert, openRequestKey = 0 }:
   );
 }
 
+const MODULE_STORAGE_KEY = "xdnode-active-module";
+const validModuleKeys: ModuleKey[] = ["finance", "sales", "hr", "compensation"];
+
 export default function Home() {
-  const [active, setActive] = useState<ModuleKey>("finance");
+  const [active, setActive] = useState<ModuleKey>(() => {
+    if (typeof window === "undefined") return "finance";
+    const saved = window.localStorage.getItem(MODULE_STORAGE_KEY);
+    return validModuleKeys.includes(saved as ModuleKey) ? (saved as ModuleKey) : "finance";
+  });
   const [hrNavigation, setHrNavigation] = useState({ view: "dashboard", requestKey: 0 });
   const [search, setSearch] = useState("");
   const [alertRequestKey, setAlertRequestKey] = useState(0);
@@ -506,6 +513,10 @@ export default function Home() {
   const [salesCreateRequestKey, setSalesCreateRequestKey] = useState(0);
   const [toast, setToast] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    window.localStorage.setItem(MODULE_STORAGE_KEY, active);
+  }, [active]);
 
   useEffect(() => {
     function focusSearch(event: KeyboardEvent) {
@@ -1259,7 +1270,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
             <Metric label="자산총계" value={formatCompactWon(selectedHistorical.assets)} delta="차대변 균형 확인" trend="neutral" hint={`${statementYear}년 기말`} />
             <Metric label="매출" value={formatCompactWon(selectedHistorical.revenue)} delta={statementYear === "2025" ? "전년 대비 +95.8%" : "상품매출"} trend={statementYear === "2025" ? "up" : "neutral"} hint="회계상 매출" />
             <Metric label="매출총이익" value={formatCompactWon(grossProfit)} delta={`매출총이익률 ${grossMargin.toFixed(1)}%`} trend={grossProfit >= 0 ? "up" : "down"} hint="매출 - 매출원가" />
-            <Metric label="당기순이익" value={formatCompactWon(selectedHistorical.netIncome)} delta={statementYear === "2025" ? "전년 대비 -68.2%" : "결산후"} trend={statementYear === "2025" ? "down" : "neutral"} hint="세후 결산 계정" />
+            <Metric label="당기순이익" value={formatCompactWon(selectedHistorical.netIncome)} delta={statementYear === "2025" ? "전년 대비 -68.2%" : "결산후"} trend={statementYear === "2025" ? "down" : "neutral"} hint="법인세비용 계정 없음 · 세전·세후 여부 미확인" />
           </section>
 
           {statementYear === "2025" && (

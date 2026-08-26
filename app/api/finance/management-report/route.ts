@@ -100,7 +100,7 @@ async function ensureSchema() {
 }
 
 function validPeriod(period: string) {
-  return /^2026-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
+  return /^\d{4}-(0[1-9]|1[0-2])$/.test(period) && period <= currentPeriod;
 }
 
 function lastDay(period: string) {

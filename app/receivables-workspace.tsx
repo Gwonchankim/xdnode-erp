@@ -1,7 +1,10 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { financeCurrentData } from "./finance-current-data";
 import { companyEmployees } from "./hr-company-data";
+
+const currentPeriod = financeCurrentData.asOf.slice(0, 7);
 
 type CollectionStatus = "OPEN" | "IN_PROGRESS" | "PROMISED" | "PARTIAL" | "DISPUTED" | "HOLD" | "CLOSED";
 type AgingBucket = "CURRENT" | "1_30" | "31_60" | "61_90" | "OVER_90" | "MISSING_DUE";
@@ -21,6 +24,9 @@ type Summary = {
 };
 type ResponseData = { asOf: string; invoices: Invoice[]; notes: Note[]; legacyRecords: LegacyRecord[]; summary: Summary };
 type FilterKey = "ALL" | "OPEN" | "OVERDUE" | "PROMISED" | "DISPUTED" | "MISSING_DUE";
+type TieOutCheck = { check_type: string; period: string; as_of: string; gl_account_code: string; gl_account_name: string;
+  subsidiary_amount: number; gl_amount: number; difference_amount: number; difference_reason: string; note: string;
+  reviewed_by: string; reviewed_at: number | null };
 
 const statusLabels: Record<CollectionStatus, string> = {
   OPEN: "미착수", IN_PROGRESS: "회수 진행", PROMISED: "입금 약속", PARTIAL: "일부 수금",
@@ -50,6 +56,37 @@ export default function ReceivablesWorkspace() {
   const [draft, setDraft] = useState<Invoice | null>(null);
   const [noteType, setNoteType] = useState("CALL");
   const [noteContent, setNoteContent] = useState("");
+  const [tieOut, setTieOut] = useState<TieOutCheck | null>(null);
+  const [tieOutBusy, setTieOutBusy] = useState(false);
+  const [tieOutMessage, setTieOutMessage] = useState("");
+  const [tieOutReason, setTieOutReason] = useState<"STRUCTURAL" | "UNCONFIRMED">("STRUCTURAL");
+  const [tieOutNote, setTieOutNote] = useState("");
+
+  async function recomputeTieOut() {
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RECOMPUTE", checkType: "RECEIVABLES", period: tieOut?.period ?? currentPeriod }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "대사를 재계산하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutNote(""); setTieOutMessage("매출채권 대사를 다시 계산했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "대사를 재계산하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
+
+  async function reviewTieOut(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tieOut) return;
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REVIEW", checkType: "RECEIVABLES", period: tieOut.period, reason: tieOutReason, note: tieOutNote }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "차이 사유를 저장하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutMessage("차이 사유를 저장했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "차이 사유를 저장하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
 
   async function load(preferredId = selectedId) {
     setLoading(true);
@@ -82,6 +119,13 @@ export default function ReceivablesWorkspace() {
       })
       .catch((error: unknown) => { if (!cancelled) setMessage(error instanceof Error ? error.message : "채권 자료를 불러오지 못했습니다."); })
       .finally(() => { if (!cancelled) setLoading(false); });
+    fetch("/api/finance/tie-out", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { checks?: TieOutCheck[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "대사 결과를 불러오지 못했습니다.");
+        if (!cancelled) setTieOut(payload.checks?.find((item) => item.check_type === "RECEIVABLES") ?? null);
+      })
+      .catch((error: unknown) => { if (!cancelled) setTieOutMessage(error instanceof Error ? error.message : "대사 결과를 불러오지 못했습니다."); });
     return () => { cancelled = true; };
   }, []);
 
@@ -151,6 +195,31 @@ export default function ReceivablesWorkspace() {
       <div className="receivable-aging-grid">{(Object.keys(agingLabels) as AgingBucket[]).map((bucket) => <button type="button" key={bucket} onClick={() => setFilter(bucket === "MISSING_DUE" ? "MISSING_DUE" : bucket === "CURRENT" ? "OPEN" : "OVERDUE")}>
         <span>{agingLabels[bucket]}</span><strong>{formatCompact(data.summary.aging[bucket]?.amount ?? 0)}</strong><small>{data.summary.aging[bucket]?.count ?? 0}건</small><i style={{ width: `${((data.summary.aging[bucket]?.amount ?? 0) / maxAgingAmount) * 100}%` }} />
       </button>)}</div>
+    </section>
+    <section className="panel receivable-aging-panel receivable-tie-out-panel">
+      <div className="receivable-section-head"><div><p>SUBSIDIARY ↔ LEDGER TIE-OUT</p><h3>매출채권 보조부 ↔ 원장 대사</h3></div><small>{tieOut ? `${tieOut.period} · 원장 기준일 ${tieOut.as_of}` : "아직 계산되지 않음"}</small></div>
+      {tieOutMessage && <div className="finance-inline-message">{tieOutMessage}</div>}
+      <div className="receivable-source-card">
+        <span>이카운트 import 원장과의 대사 · 자동 계산</span>
+        <h3>{tieOut ? (tieOut.difference_amount === 0 ? "잔액 일치" : `차이 ${formatWon(tieOut.difference_amount)}`) : "대사 미실행"}</h3>
+        <p>{tieOut?.gl_account_code ? `${tieOut.gl_account_code} ${tieOut.gl_account_name}` : "계정 매핑 대기"}</p>
+        <dl>
+          <div><dt>보조부(청구서 − 확정수금)</dt><dd>{formatWon(tieOut?.subsidiary_amount ?? 0)}</dd></div>
+          <div><dt>원장 잔액</dt><dd>{formatWon(tieOut?.gl_amount ?? 0)}</dd></div>
+        </dl>
+      </div>
+      <button type="button" onClick={() => void recomputeTieOut()} disabled={tieOutBusy}>{tieOutBusy ? "계산 중…" : "지금 다시 계산"}</button>
+      {tieOut && tieOut.difference_amount !== 0 && (
+        tieOut.reviewed_at
+          ? <p className="receivable-closed-message">{tieOut.difference_reason === "STRUCTURAL" ? "구조적 차이로 확인됨" : "미확인 차이로 기록됨"} · {tieOut.note}</p>
+          : <form className="receivable-case-form" onSubmit={reviewTieOut}>
+              <div className="receivable-form-grid">
+                <label>차이 사유<select value={tieOutReason} onChange={(event) => setTieOutReason(event.target.value as "STRUCTURAL" | "UNCONFIRMED")}><option value="STRUCTURAL">구조적 차이(설명 가능, 월마감 차단 안 함)</option><option value="UNCONFIRMED">미확인(월마감 차단)</option></select></label>
+              </div>
+              <label>설명<textarea rows={2} minLength={5} value={tieOutNote} onChange={(event) => setTieOutNote(event.target.value)} placeholder="예: 12월 말 발행분 이연 반영으로 인한 시차" /></label>
+              <button type="submit" className="receivable-save-button" disabled={tieOutBusy || tieOutNote.trim().length < 5}>{tieOutBusy ? "저장 중…" : "사유 저장"}</button>
+            </form>
+      )}
     </section>
     <section className="receivable-toolbar">
       <div className="segment-control">{(["ALL", "OPEN", "OVERDUE", "PROMISED", "DISPUTED", "MISSING_DUE"] as FilterKey[]).map((key) => <button type="button" className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{{ ALL: "전체", OPEN: "미수", OVERDUE: "연체", PROMISED: "입금약속", DISPUTED: "분쟁·보류", MISSING_DUE: "만기일 없음" }[key]}</button>)}</div>

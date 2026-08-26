@@ -391,9 +391,10 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
       .bind(actorEmployeeId, now, now, targetEntityId, requestId, transitionToken)];
     return [
       db.prepare(`INSERT OR IGNORE INTO finance_master_accounts
-        (id, code, name, category, normal_balance, status, source, valid_from, valid_to, created_by, created_at, updated_at)
+        (id, code, name, category, normal_balance, statement_line, liquidity, status, source, valid_from, valid_to, created_by, created_at, updated_at)
         SELECT target_id, json_extract(after_json, '$.code'), json_extract(after_json, '$.name'),
-          json_extract(after_json, '$.category'), json_extract(after_json, '$.normalBalance'), 'ACTIVE', 'MANUAL',
+          json_extract(after_json, '$.category'), json_extract(after_json, '$.normalBalance'),
+          COALESCE(json_extract(after_json, '$.statementLine'), ''), COALESCE(json_extract(after_json, '$.liquidity'), ''), 'ACTIVE', 'MANUAL',
           COALESCE(json_extract(after_json, '$.validFrom'), ''), COALESCE(json_extract(after_json, '$.validTo'), ''),
           created_by, ?, ? FROM finance_master_change_requests WHERE id = ? AND target_type = 'ACCOUNT' AND change_type = 'CREATE'
           AND status = 'SUBMITTED' AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
@@ -403,10 +404,12 @@ export function buildApprovalOutcomeStatements(db: D1Database, targetEntityType:
           name = COALESCE((SELECT json_extract(after_json, '$.name') FROM finance_master_change_requests WHERE id = ?), name),
           category = COALESCE((SELECT json_extract(after_json, '$.category') FROM finance_master_change_requests WHERE id = ?), category),
           normal_balance = COALESCE((SELECT json_extract(after_json, '$.normalBalance') FROM finance_master_change_requests WHERE id = ?), normal_balance),
+          statement_line = COALESCE((SELECT json_extract(after_json, '$.statementLine') FROM finance_master_change_requests WHERE id = ?), statement_line),
+          liquidity = COALESCE((SELECT json_extract(after_json, '$.liquidity') FROM finance_master_change_requests WHERE id = ?), liquidity),
           status = COALESCE((SELECT json_extract(after_json, '$.status') FROM finance_master_change_requests WHERE id = ?), status), updated_at = ?
         WHERE id = (SELECT target_id FROM finance_master_change_requests WHERE id = ? AND target_type = 'ACCOUNT' AND change_type <> 'CREATE')
           AND EXISTS (SELECT 1 FROM erp_approval_requests WHERE id = ? AND transition_token = ?)`)
-        .bind(targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken),
+        .bind(targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, targetEntityId, now, targetEntityId, requestId, transitionToken),
       db.prepare(`INSERT OR IGNORE INTO finance_master_partners
         (id, canonical_name, normalized_key, business_number, partner_type, payment_terms_days, status, source, created_by, created_at, updated_at)
         SELECT target_id, json_extract(after_json, '$.canonicalName'), json_extract(after_json, '$.normalizedKey'),

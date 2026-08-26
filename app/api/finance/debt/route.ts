@@ -27,8 +27,9 @@ type ReviewRow = {
 };
 
 const loanAccounts = financeCurrentData.accounts.filter((account) => account.type === "LOAN");
+const currentPeriod = financeCurrentData.asOf.slice(0, 7);
 const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
-const validPeriod = (value: string) => /^2026-(0[1-9]|1[0-2])$/.test(value);
+const validPeriod = (value: string) => /^\d{4}-(0[1-9]|1[0-2])$/.test(value) && value <= currentPeriod;
 
 async function ensureSchema() {
   await db.batch([

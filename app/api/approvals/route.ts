@@ -1,6 +1,8 @@
 import { env } from "cloudflare:workers";
 import { approvalTypeLabels, buildApprovalOutcomeStatements, createApprovalRequest, isApprovalType, type ApprovalModule, type ApprovalPriority } from "../../approval-engine";
 import { authorizeErpRequest, ensureErpPlatformSchema, safeJson, writeErpAudit, type ErpModule } from "../../erp-platform";
+import { evaluateLedgerSnapshotDrift, type LedgerIntegritySnapshot } from "../../finance-ledger-integrity";
+import { buildFinanceLedgerSnapshot } from "../../finance-ledger-snapshot";
 import { MasterImpactError, reassessMasterImpact, type MasterImpactAction, type MasterImpactEntityType } from "../../master-impact";
 
 type Bindings = { DB: D1Database };
@@ -190,6 +192,25 @@ export async function PUT(request: Request) {
           if (error instanceof MasterImpactError) return Response.json({ error: error.message }, { status: error.status });
           throw error;
         }
+      }
+    }
+    if (finalApprove && before.target_entity_type === "FINANCE_CLOSE_RUN") {
+      // The approver is reviewing the ledger snapshot frozen at SUBMIT_CLOSE, not whatever the
+      // ledger looks like right now. posting-control blocks new postings into a SUBMITTED period,
+      // but a reversal against an already-CLOSED prior period, or a manual DB change, could still
+      // move the ledger this period's opening carries forward. Re-verify before letting the
+      // approval bind that stale snapshot to a permanent CLOSED status.
+      const run = await db.prepare("SELECT snapshot_json FROM finance_close_runs WHERE period = ? AND status = 'SUBMITTED'")
+        .bind(before.target_entity_id).first<{ snapshot_json: string }>();
+      const frozen = (() => { try {
+        return (JSON.parse(run?.snapshot_json ?? "{}") as { ledgerSnapshot?: LedgerIntegritySnapshot }).ledgerSnapshot;
+      } catch { return undefined; } })();
+      if (run && frozen?.ledgerHash && frozen.asOf) {
+        try {
+          const current = await buildFinanceLedgerSnapshot(db, frozen.asOf);
+          const drift = evaluateLedgerSnapshotDrift(frozen, current);
+          if (drift.drifted) return Response.json({ error: "마감 제출 이후 원장 계보가 바뀌었습니다. 재개방 후 다시 검토·제출해 주세요." }, { status: 409 });
+        } catch { return Response.json({ error: "동결 원장과 현재 원장의 무결성을 확인하지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 503 }); }
       }
     }
     const nextStatus = action === "APPROVE" ? (finalApprove ? "APPROVED" : "IN_REVIEW") : action === "REJECT" ? "REJECTED" : "CHANGES_REQUESTED";

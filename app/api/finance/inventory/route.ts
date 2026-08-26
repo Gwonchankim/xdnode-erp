@@ -76,12 +76,18 @@ async function ensureSchema() {
   ]);
 }
 
-async function currentStock(productId: string, warehouseId: string) {
-  return db.prepare(`SELECT
+// asOfDate가 주어지면 그 날짜까지 기록된 이동만 합산한다. "이동평균"이라는 이름에 맞으려면 새
+// 거래의 단가·가용재고는 입력 시점의 전체 누적이 아니라 그 거래일까지의 잔고를 기준으로 계산해야
+// 한다 — 그렇지 않으면 나중에 입력됐지만 더 이른 날짜의 출고가, 그 날짜 이후에 실제로 입고된
+// 수량까지 포함한 평균단가를 쓰게 되고, 그 시점엔 존재하지도 않았던 재고를 출고할 수도 있다.
+async function currentStock(productId: string, warehouseId: string, asOfDate?: string) {
+  const dateFilter = asOfDate ? " AND movement_date <= ?" : "";
+  const statement = db.prepare(`SELECT
     COALESCE(SUM(CASE WHEN direction = 'IN' THEN quantity_milli ELSE -quantity_milli END), 0) AS quantity_milli,
     COALESCE(SUM(CASE WHEN direction = 'IN' THEN amount ELSE -amount END), 0) AS stock_amount
-    FROM inventory_movements WHERE product_id = ? AND warehouse_id = ?`)
-    .bind(productId, warehouseId).first<{ quantity_milli: number; stock_amount: number }>();
+    FROM inventory_movements WHERE product_id = ? AND warehouse_id = ?${dateFilter}`);
+  return (asOfDate ? statement.bind(productId, warehouseId, asOfDate) : statement.bind(productId, warehouseId))
+    .first<{ quantity_milli: number; stock_amount: number }>();
 }
 
 async function isClosedPeriod(date: string) {
@@ -257,7 +263,7 @@ export async function POST(request: Request) {
       sourceType = "SALES_DELIVERY"; sourceId = delivery.id; sourceLineKey = `${productId}:${warehouseId}`; referenceNumber = delivery.document_number;
       if (await db.prepare("SELECT id FROM inventory_movements WHERE source_type = ? AND source_id = ? AND source_line_key = ?").bind(sourceType, sourceId, sourceLineKey).first()) return Response.json({ error: "이 납품 문서의 같은 상품·창고 출고가 이미 반영됐습니다." }, { status: 409 });
     }
-    const stock = await currentStock(productId, warehouseId);
+    const stock = await currentStock(productId, warehouseId, movementDate);
     const onHandMilli = Number(stock?.quantity_milli ?? 0);
     const stockAmount = Number(stock?.stock_amount ?? 0);
     if (direction === "OUT") {
@@ -265,7 +271,9 @@ export async function POST(request: Request) {
       unitCost = onHandMilli > 0 ? Math.round(stockAmount * 1000 / onHandMilli) : 0;
     } else if (!Number.isSafeInteger(unitCost) || unitCost < 0) return Response.json({ error: "입고조정 단가를 확인해 주세요." }, { status: 400 });
     const id = crypto.randomUUID();
-    const amount = Math.round(quantityMilli * unitCost / 1000);
+    // 잔량을 전량 출고하는 경우 반올림 잔차를 남기지 않도록 남은 재고금액을 그대로 흡수한다 —
+    // 그렇지 않으면 수량은 0인데 재고금액만 1원 안팎으로 영구히 남는 경우가 생긴다.
+    const amount = direction === "OUT" && quantityMilli === onHandMilli ? stockAmount : Math.round(quantityMilli * unitCost / 1000);
     await db.prepare(`INSERT INTO inventory_movements
       (id, movement_date, movement_type, direction, product_id, warehouse_id, quantity_milli, unit_cost, amount,
         source_type, source_id, source_line_key, reference_number, reason, posted_by, created_at)

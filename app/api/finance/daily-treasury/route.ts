@@ -20,7 +20,7 @@ type AmountCount = { amount: number; count: number };
 
 const bindings = env as unknown as Bindings;
 const db = bindings.DB;
-const datePattern = /^2026-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+const datePattern = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 
 async function ensureSchema() {
   await db.batch([
@@ -73,7 +73,7 @@ async function buildSnapshot(reportDate: string) {
     db.prepare(`SELECT direction, COALESCE(SUM(amount), 0) AS amount, COUNT(*) AS count,
       COALESCE(SUM(CASE WHEN is_unclassified = 1 THEN amount ELSE 0 END), 0) AS unclassified_amount,
       COALESCE(SUM(CASE WHEN is_unclassified = 1 THEN 1 ELSE 0 END), 0) AS unclassified_count
-      FROM finance_bank_transactions WHERE transaction_date = ? GROUP BY direction`).bind(reportDate).all<{
+      FROM finance_bank_transactions WHERE transaction_date = ? AND currency = 'KRW' GROUP BY direction`).bind(reportDate).all<{
         direction: string; amount: number; count: number; unclassified_amount: number; unclassified_count: number;
       }>(),
     db.prepare(`SELECT direction, COALESCE(SUM(amount * probability / 100), 0) AS amount, COUNT(*) AS count

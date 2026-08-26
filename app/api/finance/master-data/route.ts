@@ -3,6 +3,7 @@ import { createApprovalRequest } from "../../../approval-engine";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { financeHistoricalData } from "../../../finance-historical-data";
+import { liquidityFor, normalBalanceFor, openingAccountCategory, statementLineFor } from "../../../finance-opening-balance";
 import { consumeMasterImpactAssessment, MasterImpactError, type MasterImpactEntityType, validateMasterImpactAssessment } from "../../../master-impact";
 
 type Bindings = { DB: D1Database };
@@ -16,21 +17,12 @@ function normalizePartner(value: string) {
   return value.toLowerCase().replace(/[^0-9a-z가-힣]/g, "");
 }
 
-function categoryFor(code: string, name: string) {
-  const first = Number(code.slice(0, 1));
-  if (first === 1) return { category: "ASSET", normalBalance: "DEBIT" };
-  if (first === 2) return { category: "LIABILITY", normalBalance: "CREDIT" };
-  if (first === 3) return { category: "EQUITY", normalBalance: "CREDIT" };
-  if (/원가|비용|차손/.test(name) || [6, 7, 8].includes(first)) return { category: "EXPENSE", normalBalance: "DEBIT" };
-  if (/매출|차익|수입|잡이익/.test(name) || [4, 5].includes(first)) return { category: "REVENUE", normalBalance: "CREDIT" };
-  return { category: "OTHER", normalBalance: "DEBIT" };
-}
-
 async function ensureSchema() {
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS finance_master_accounts (
       id TEXT PRIMARY KEY NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL, category TEXT NOT NULL,
-      normal_balance TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'ACTIVE', source TEXT NOT NULL DEFAULT 'MANUAL',
+      normal_balance TEXT NOT NULL, statement_line TEXT NOT NULL DEFAULT '', liquidity TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'ACTIVE', source TEXT NOT NULL DEFAULT 'MANUAL',
       valid_from TEXT NOT NULL DEFAULT '', valid_to TEXT NOT NULL DEFAULT '', created_by TEXT NOT NULL,
       created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
     db.prepare(`CREATE TABLE IF NOT EXISTS finance_master_partners (
@@ -71,11 +63,12 @@ async function seedAuthoritativeData(employeeId: string) {
   const statements: D1PreparedStatement[] = [];
   for (const item of financeHistoricalData.trialBalance2025) {
     if (!item.code || !item.name) continue;
-    const category = categoryFor(item.code, item.name);
+    const category = openingAccountCategory(item.code, item.name);
     statements.push(db.prepare(`INSERT OR IGNORE INTO finance_master_accounts
-      (id, code, name, category, normal_balance, status, source, valid_from, valid_to, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'ACTIVE', 'ECOUNT_2025', '2025-01-01', '', ?, ?, ?)`)
-      .bind(`acct:${item.code}`, item.code, item.name, category.category, category.normalBalance, employeeId, now, now));
+      (id, code, name, category, normal_balance, statement_line, liquidity, status, source, valid_from, valid_to, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'ACTIVE', 'ECOUNT_2025', '2025-01-01', '', ?, ?, ?)`)
+      .bind(`acct:${item.code}`, item.code, item.name, category, normalBalanceFor(category),
+        statementLineFor(category, item.code, item.name), liquidityFor(category, item.name), employeeId, now, now));
   }
   for (const item of financeCurrentData.accounts) {
     statements.push(db.prepare(`INSERT INTO finance_master_bank_accounts
@@ -204,7 +197,11 @@ export async function POST(request: Request) {
     after.name = String(payload.name ?? before?.name ?? "").trim();
     after.category = String(payload.category ?? before?.category ?? "OTHER");
     after.normalBalance = String(payload.normalBalance ?? before?.normal_balance ?? "DEBIT");
+    after.statementLine = String(payload.statementLine ?? before?.statement_line ?? statementLineFor(String(after.category), String(after.code), String(after.name)));
+    after.liquidity = String(payload.liquidity ?? before?.liquidity ?? liquidityFor(String(after.category), String(after.name)));
     if (!after.code || !after.name || !["ASSET","LIABILITY","EQUITY","REVENUE","EXPENSE","OTHER"].includes(String(after.category))) return Response.json({ error: "계정코드·계정명·분류를 확인해 주세요." }, { status: 400 });
+    if (after.statementLine && !["SALES_REVENUE","NON_OPERATING_INCOME","COGS","SGA","NON_OPERATING_EXPENSE","INCOME_TAX"].includes(String(after.statementLine))) return Response.json({ error: "손익계산서 세부 라인을 확인해 주세요." }, { status: 400 });
+    if (after.liquidity && !["CURRENT","NON_CURRENT"].includes(String(after.liquidity))) return Response.json({ error: "유동·비유동 구분을 확인해 주세요." }, { status: 400 });
     const duplicate = await db.prepare("SELECT id FROM finance_master_accounts WHERE code = ? AND id <> ?").bind(after.code, targetId).first();
     if (duplicate) return Response.json({ error: "같은 계정코드가 이미 있습니다." }, { status: 409 });
   } else if (targetType === "PARTNER") {

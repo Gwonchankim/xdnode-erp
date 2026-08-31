@@ -15,16 +15,23 @@ export async function ensureFinanceTieOutSchema(db: D1Database) {
       subsidiary_amount INTEGER NOT NULL DEFAULT 0, gl_amount INTEGER NOT NULL DEFAULT 0,
       difference_amount INTEGER NOT NULL DEFAULT 0, difference_reason TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '', reviewed_by TEXT NOT NULL DEFAULT '', reviewed_at INTEGER,
+      breakdown_json TEXT NOT NULL DEFAULT '[]',
       created_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_tie_out_type_period ON finance_tie_out_checks(check_type, period)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_tie_out_reason ON finance_tie_out_checks(difference_reason, difference_amount)"),
   ]);
+  await db.prepare("ALTER TABLE finance_tie_out_checks ADD COLUMN breakdown_json TEXT NOT NULL DEFAULT '[]'").run().catch(() => {});
 }
+
+// BANK 유형에서만 쓰는, 미매칭 은행 거래를 방향별로 묶은 참고용 항목 — 미기입예금/미결제출금 후보를
+// 가리키되, Clobe 은행 거래 원문이 수집된 기간에만 채워진다(수집 밖 기간은 항상 빈 배열).
+export type TieOutBreakdownItem = { label: string; direction: "IN" | "OUT"; count: number; amount: number };
 
 export type TieOutRow = {
   id: string; check_type: string; period: string; as_of: string; gl_account_code: string; gl_account_name: string;
   subsidiary_amount: number; gl_amount: number; difference_amount: number; difference_reason: string; note: string;
-  reviewed_by: string; reviewed_at: number | null; created_by: string; created_at: number; updated_at: number;
+  reviewed_by: string; reviewed_at: number | null; breakdown_json: string;
+  created_by: string; created_at: number; updated_at: number;
 };
 
 // 재계산 결과를 기록한다. 차이 금액이 이전과 동일하면 사람이 이미 남긴 사유·검토 기록은 그대로 두고
@@ -32,10 +39,11 @@ export type TieOutRow = {
 // 맞는지 알 수 없으므로 검토 기록을 지워 재검토를 요구한다.
 export async function recordTieOutCheck(db: D1Database, input: {
   checkType: TieOutCheckType; period: string; asOf: string; glAccountCode: string; glAccountName: string;
-  subsidiaryAmount: number; glAmount: number; actorEmployeeId: string;
+  subsidiaryAmount: number; glAmount: number; actorEmployeeId: string; breakdown?: TieOutBreakdownItem[];
 }) {
   await ensureFinanceTieOutSchema(db);
   const differenceAmount = input.subsidiaryAmount - input.glAmount;
+  const breakdownJson = JSON.stringify(input.breakdown ?? []);
   const existing = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = ? AND period = ?")
     .bind(input.checkType, input.period).first<TieOutRow>();
   const now = Date.now();
@@ -43,8 +51,8 @@ export async function recordTieOutCheck(db: D1Database, input: {
   const id = existing?.id ?? crypto.randomUUID();
   await db.prepare(`INSERT INTO finance_tie_out_checks
       (id, check_type, period, as_of, gl_account_code, gl_account_name, subsidiary_amount, gl_amount,
-        difference_amount, difference_reason, note, reviewed_by, reviewed_at, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        difference_amount, difference_reason, note, reviewed_by, reviewed_at, breakdown_json, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(check_type, period) DO UPDATE SET as_of = excluded.as_of,
       gl_account_code = excluded.gl_account_code, gl_account_name = excluded.gl_account_name,
       subsidiary_amount = excluded.subsidiary_amount, gl_amount = excluded.gl_amount,
@@ -53,9 +61,10 @@ export async function recordTieOutCheck(db: D1Database, input: {
       note = CASE WHEN ? THEN note ELSE '' END,
       reviewed_by = CASE WHEN ? THEN reviewed_by ELSE '' END,
       reviewed_at = CASE WHEN ? THEN reviewed_at ELSE NULL END,
+      breakdown_json = excluded.breakdown_json,
       updated_at = excluded.updated_at`)
     .bind(id, input.checkType, input.period, input.asOf, input.glAccountCode, input.glAccountName,
-      input.subsidiaryAmount, input.glAmount, differenceAmount, "", "", "", null,
+      input.subsidiaryAmount, input.glAmount, differenceAmount, "", "", "", null, breakdownJson,
       input.actorEmployeeId, now, now,
       keepReview, keepReview, keepReview, keepReview).run();
   return db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = ? AND period = ?")

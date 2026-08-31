@@ -5,6 +5,7 @@ import HRWorkspace from "./hr-workspace";
 import FinanceOperationsCenter from "./finance-operations-center";
 import PurchasingWorkspace from "./purchasing-workspace";
 import CashReconciliationWorkspace from "./cash-reconciliation-workspace";
+import TieOutBoardWorkspace from "./tie-out-board-workspace";
 import CashForecastWorkspace from "./cash-forecast-workspace";
 import FinanceCloseWorkspace from "./finance-close-workspace";
 import BudgetActualWorkspace from "./budget-actual-workspace";
@@ -26,6 +27,7 @@ import ApprovalCenter from "./approval-center";
 import OperationsWorkbench from "./operations-workbench";
 import DataGovernanceCenter from "./data-governance-center";
 import CompensationCalculator from "./compensation-calculator";
+import LocalCodexAssistant from "./local-codex-assistant";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
@@ -124,7 +126,7 @@ const financeChecks = [
 ];
 
 type FinanceMetric = "cash" | "sales";
-type FinanceWorkspaceView = "overview" | "risk-actions" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "ledger" | "statements" | "liquidity" | "quality" | "policy";
+type FinanceWorkspaceView = "overview" | "risk-actions" | "daily-report" | "control" | "report" | "purchasing" | "inventory" | "tax" | "fixed-assets" | "project-costing" | "expense-control" | "debt" | "reconciliation" | "reconciliation-board" | "forecast" | "budget" | "close" | "master" | "commercial" | "receivables" | "ledger" | "statements" | "liquidity" | "quality" | "policy";
 
 type FinanceAssistantSourceView = {
   id: string; label: string; period: string; basis: string;
@@ -147,7 +149,7 @@ type FinanceAssistantHistoryView = FinanceAssistantMeta & {
 type HistoricalMetric = "cashBalance" | "revenue" | "netIncome";
 const financeWorkspaceViews = new Set<FinanceWorkspaceView>([
   "overview", "risk-actions", "daily-report", "control", "report", "purchasing", "inventory", "tax", "fixed-assets",
-  "project-costing", "expense-control", "debt", "reconciliation", "forecast", "budget", "close", "master",
+  "project-costing", "expense-control", "debt", "reconciliation", "reconciliation-board", "forecast", "budget", "close", "master",
   "commercial", "receivables", "ledger", "statements", "liquidity", "quality", "policy",
 ]);
 const treasuryStatusLabels: Record<TreasuryOverviewReport["status"], string> = {
@@ -499,11 +501,7 @@ const MODULE_STORAGE_KEY = "xdnode-active-module";
 const validModuleKeys: ModuleKey[] = ["finance", "sales", "hr", "compensation"];
 
 export default function Home() {
-  const [active, setActive] = useState<ModuleKey>(() => {
-    if (typeof window === "undefined") return "finance";
-    const saved = window.localStorage.getItem(MODULE_STORAGE_KEY);
-    return validModuleKeys.includes(saved as ModuleKey) ? (saved as ModuleKey) : "finance";
-  });
+  const [active, setActive] = useState<ModuleKey>("finance");
   const [hrNavigation, setHrNavigation] = useState({ view: "dashboard", requestKey: 0 });
   const [search, setSearch] = useState("");
   const [alertRequestKey, setAlertRequestKey] = useState(0);
@@ -513,6 +511,14 @@ export default function Home() {
   const [salesCreateRequestKey, setSalesCreateRequestKey] = useState(0);
   const [toast, setToast] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(MODULE_STORAGE_KEY);
+    if (validModuleKeys.includes(saved as ModuleKey)) {
+      setActive(saved as ModuleKey);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(MODULE_STORAGE_KEY, active);
@@ -583,6 +589,7 @@ export default function Home() {
       <div className="hr-module-shell">
         <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
         <HRWorkspace requestedView={hrNavigation.view} navigationRequestKey={hrNavigation.requestKey} />
+        <LocalCodexAssistant module="hr" />
       </div>
     );
   }
@@ -592,6 +599,7 @@ export default function Home() {
       <div className="compensation-erp-shell">
         <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
         <CompensationCalculator />
+        <LocalCodexAssistant module="compensation" />
       </div>
     );
   }
@@ -600,8 +608,8 @@ export default function Home() {
     <div className="app-shell">
       <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
 
-      <main className={`main ${active === "finance" ? "finance-main" : ""}`}>
-        {active !== "finance" && <header className="topbar">
+      <main className={`main ${active === "finance" ? "finance-main" : active === "sales" ? "sales-main" : ""}`}>
+        {active !== "finance" && active !== "sales" && <header className="topbar">
           <div className="mobile-brand">XD NODE</div>
           <label className="search-box">
             <span aria-hidden="true">⌕</span>
@@ -993,7 +1001,7 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
   const financeNavigation: Array<{ title: string; items: Array<[FinanceWorkspaceView, string, string]> }> = [
     { title: "재무 홈", items: [["overview", "통합 대시보드", "통"], ["risk-actions", "재무 경보 조치", "경"], ["daily-report", "일일 자금일보", "일"], ["control", "재무 운영센터", "운"], ["report", "월간 경영보고", "보"]] },
     { title: "거래 관리", items: [["purchasing", "구매·매입채무", "구"], ["expense-control", "법인카드·지출증빙", "증"], ["inventory", "재고·상품원가", "재"], ["commercial", "매입·매출 분석", "매"], ["receivables", "외상·미수 관리", "미"]] },
-    { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["ledger", "총계정원장·시산표", "장"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
+    { title: "재무 분석", items: [["project-costing", "프로젝트·원가센터", "프"], ["debt", "차입금·상환·약정", "차"], ["reconciliation", "자금 대사", "대"], ["reconciliation-board", "대사 현황판", "황"], ["forecast", "13주 자금예측", "예"], ["budget", "예산·실적", "실"], ["ledger", "총계정원장·시산표", "장"], ["statements", "손익·재무상태", "손"], ["liquidity", "자금·채권채무", "자"]] },
     { title: "데이터 관리", items: [["fixed-assets", "고정자산·감가상각", "고"], ["tax", "부가세 검토", "세"], ["master", "통합 재무 마스터", "기"], ["close", "월마감 통제", "마"], ["quality", "원장·데이터 점검", "원"], ["policy", "회사 재무정책", "설"]] },
   ];
 
@@ -1171,6 +1179,8 @@ function FinanceDashboard({ search, requestedWorkspace, workspaceRequestKey, req
       {workspace === "debt" && <DebtManagementWorkspace onOpenOperations={() => setWorkspace("control")} />}
 
       {workspace === "reconciliation" && <CashReconciliationWorkspace />}
+
+      {workspace === "reconciliation-board" && <TieOutBoardWorkspace onNavigate={(view) => selectWorkspace(view as FinanceWorkspaceView)} />}
 
       {workspace === "forecast" && <CashForecastWorkspace />}
 

@@ -1,0 +1,39 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["answer", "cautions", "nextSteps", "proposedActions"],
+  "properties": {
+    "answer": { "type": "string", "description": "한국어로 된 간결한 답변" },
+    "cautions": { "type": "array", "items": { "type": "string" }, "description": "확인 또는 주의가 필요한 사항" },
+    "nextSteps": { "type": "array", "items": { "type": "string" }, "description": "사용자가 ERP 화면에서 수행할 다음 단계" },
+    "proposedActions": {
+      "type": "array",
+      "description": "사용자 확인 뒤에만 적용할 제한된 ERP 변경안",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "title", "summary", "employeeId", "values", "period"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string", "enum": ["UPDATE_HR_COMPENSATION_DEFAULTS", "CREATE_COMPENSATION_DRAFT"] },
+          "title": { "type": "string" },
+          "summary": { "type": "string" },
+          "employeeId": { "type": "string" },
+          "period": { "type": "string" },
+          "values": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["annualSalary", "basePay", "mealAllowance", "childcareAllowance", "vehicleAllowance"],
+            "properties": {
+              "annualSalary": { "type": ["integer", "null"] },
+              "basePay": { "type": ["integer", "null"] },
+              "mealAllowance": { "type": ["integer", "null"] },
+              "childcareAllowance": { "type": ["integer", "null"] },
+              "vehicleAllowance": { "type": ["integer", "null"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

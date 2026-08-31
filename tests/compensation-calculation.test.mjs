@@ -101,3 +101,106 @@ test("HR base-pay default is used and prorated when a manual-basic employee leav
   assert.equal(result.meal, Math.floor(200_000 * 12 / 365 * 15));
   assert.equal(result.car, Math.floor(100_000 * 12 / 365 * 15));
 });
+
+// 서버 검증식(app/api/hr/compensation/route.ts 의 validateDraft)이 이 total 산식과 어긋나면
+// 자동 저장이 통째로 400 으로 막힌다. 화면에서 고친 값이 조용히 사라지고 새로고침하면
+// 예전 값으로 되돌아가는데, 실제로 공제가 있는 달에서 그렇게 됐다. 두 식을 같이 묶어 둔다.
+test("지급총액은 연차수당을 더하고 공제를 뺀 값이다", () => {
+  const withColumns = { research: true, extra: true, welfare: false, severance: true, deduction: true, annualLeave: true };
+  const row = calculateCompensation(employee({
+    basePay: 4_216_667, meal: 200_000, manualBasic: true,
+    monthly: { "2026-08": { deduction: 84_703, deductionNote: "마이너스 연월차 공제 0.5일", annualLeave: 0, severance: 0 } },
+  }), 2026, 8, "round", withColumns);
+  const 항목합 = row.basic + row.meal + row.car + row.child + row.incentive + row.bonus
+    + row.extra + row.research + row.severance + row.annualLeave - row.deduction;
+  assert.equal(row.deduction, 84_703);
+  assert.equal(row.total, 항목합);
+});
+
+test("서버 검증식이 연차수당·공제를 함께 센다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/api/hr/compensation/route.ts", import.meta.url), "utf8");
+  assert.match(source, /values\.annualLeave! \+ values\.personalExpense! - values\.deduction!/);
+  assert.match(source, /"severance", "annualLeave", "personalExpense", "deduction", "welfare", "total"/);
+  // 공제 사유는 숫자 항목이 아니라 따로 실어야 확정할 때 살아남는다.
+  assert.match(source, /deductionNote: String\(row\.deductionNote \?\? ""\)\.trim\(\)/);
+});
+
+// 개인비용지급은 업무에 쓴 개인 돈을 되돌려 주는 실비다. 일할계산하지 않고 적은 금액 그대로
+// 지급총액에 더한다. 서버 검증식(validateDraft)도 같은 항목을 세야 자동 저장이 막히지 않는다.
+test("개인비용지급은 일할계산 없이 지급총액에 더해진다", () => {
+  const withColumns = { research: true, extra: true, welfare: false, severance: true, deduction: false, annualLeave: false, personalExpense: true };
+  // 15일만 근무해도 실비는 깎이지 않는다.
+  const row = calculateCompensation(employee({
+    basePay: 3_000_000, meal: 200_000, manualBasic: true, joinDate: "2026-08-16",
+    monthly: { "2026-08": { personalExpense: 150_000, personalExpenseNote: "출장 택시비 실비" } },
+  }), 2026, 8, "round", withColumns);
+  assert.equal(row.personalExpense, 150_000);
+  const 항목합 = row.basic + row.meal + row.car + row.child + row.incentive + row.bonus
+    + row.extra + row.research + row.severance + row.annualLeave + row.personalExpense - row.deduction;
+  assert.equal(row.total, 항목합);
+
+  // 열이 꺼져 있으면 금액이 있어도 지급총액에 들어가지 않는다 (다른 선택 열과 같은 규칙).
+  const off = calculateCompensation(employee({
+    basePay: 3_000_000, meal: 200_000, manualBasic: true, joinDate: "2026-08-16",
+    monthly: { "2026-08": { personalExpense: 150_000 } },
+  }), 2026, 8, "round", { ...withColumns, personalExpense: false });
+  assert.equal(off.personalExpense, 0);
+  assert.equal(off.total, row.total - 150_000);
+});
+
+test("서버 검증식이 개인비용지급을 함께 센다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/api/hr/compensation/route.ts", import.meta.url), "utf8");
+  assert.match(source, /values\.annualLeave! \+ values\.personalExpense! - values\.deduction!/);
+  assert.match(source, /"annualLeave", "personalExpense", "deduction"/);
+  // 확정하면 급여기록의 personal_expense 로 넘어가야 금액의 출처가 남는다.
+  assert.match(source, /personal_expense/);
+});
+
+// 선택 열 토글은 settings_json 에 저장된다. normalizeSettings 의 목록에서 빠진 열은 저장되지 않고
+// 다시 열 때 꺼진 채로 돌아오는데, 연차수당·개인비용지급은 열이 꺼지면 지급총액에서도 빠지므로
+// 지급액이 조용히 줄어든다. 새 선택 열을 만들면 반드시 이 목록에 넣어야 한다.
+test("선택 열 토글은 일곱 개가 모두 저장된다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/api/hr/compensation/route.ts", import.meta.url), "utf8");
+  const block = source.slice(source.indexOf("const columnDefaults"), source.indexOf("const standardDefaults"));
+  for (const field of ["research", "extra", "welfare", "severance", "deduction", "annualLeave", "personalExpense"]) {
+    assert.ok(block.includes(`${field}:`), `${field} 가 columnDefaults 에 없습니다`);
+  }
+  // 목록을 손으로 다시 적지 말고 defaults 의 키를 그대로 쓴다 — 그래야 빠뜨릴 수 없다.
+  assert.match(source, /Object\.keys\(columnDefaults\)\.map/);
+});
+
+// 엑셀 내보내기는 화면 표와 같은 열을 담아야 한다. 예전에는 헤더 배열과 값 배열이 따로 있어
+// 열을 추가할 때 한쪽만 고쳐졌고(개인비용지급이 그렇게 빠졌다), 표시할 열 선택도 무시됐다.
+// 이제 열마다 이름과 값을 한 묶음으로 적고 두 조건으로 한 번에 거른다.
+test("엑셀 내보내기는 체크된 열만, 화면과 같은 기준으로 담는다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/compensation-calculator.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("function sheetData");
+  const end = source.indexOf("async function exportCurrent", start);
+  const sheet = source.slice(start, end);
+
+  // 헤더와 값이 한 묶음이라 서로 어긋날 수 없다.
+  assert.match(sheet, /type SheetColumn = \{ key: string; label: string; money\?: boolean; value:/);
+  // 수당·표시 항목 체크를 그대로 따른다.
+  for (const field of ["extra", "research", "annualLeave", "personalExpense", "severance", "deduction", "welfare"]) {
+    assert.ok(sheet.includes(`columns.${field} ?`), `엑셀이 columns.${field} 를 보지 않습니다`);
+  }
+  // 표시할 열 선택에서 숨긴 열도 뺀다.
+  assert.match(sheet, /hiddenColumnSet\.has\(/);
+  // 개인비용지급은 금액과 사유가 짝으로 들어간다.
+  assert.match(sheet, /label: "개인비용지급"/);
+  assert.match(sheet, /label: "개인비용 사유"/);
+});
+
+// 임금계산기를 열면 저장된 임금안이 그대로 뜬다. 그게 언제 것인지 밝히지 않으면
+// 오늘 고친 값인지 판단할 수 없다.
+test("임금 계산 결과 표에 마지막 저장 시각을 보여준다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/compensation-calculator.tsx", import.meta.url), "utf8");
+  assert.match(source, /className="wage-saved-at"/);
+  assert.match(source, /run\?\.updatedAt/);
+  assert.match(source, /마지막 저장 \$\{new Date\(run\.updatedAt\)\.toLocaleString\("ko-KR"/);
+});

@@ -152,7 +152,7 @@ function csv(snapshot: Awaited<ReturnType<typeof buildSnapshot>>) {
     [], ["채용 지표", "값"], ["지원자", snapshot.recruitment.total], ["입사 확정", snapshot.recruitment.accepted], ["전환율(%)", snapshot.recruitment.conversionRate], ["평균 채용기간(일)", snapshot.recruitment.averageHiringDays],
     [], ["지원경로", "지원자"], ...snapshot.recruitment.sources.map((item) => [item.label, item.value]),
     [], ["교육 지표", "값"], ["대상", snapshot.training.total], ["수료·면제", snapshot.training.completed], ["증빙 검토 대기", snapshot.training.submitted], ["미이수", snapshot.training.incomplete], ["이수율(%)", snapshot.training.completionRate]];
-  if (snapshot.payroll) rows.push([], ["급여월", "대상 인원", "지급총액", "공제총액", "기록상 지급액"], ...snapshot.payroll.months.map((item) => [item.period, item.employees, item.grossPay, item.deductions, item.netPay]));
+  if (snapshot.payroll) rows.push([], ["급여월", "대상 인원", "지급총액", "공제총액", "실 지급액"], ...snapshot.payroll.months.map((item) => [item.period, item.employees, item.grossPay, item.deductions, item.netPay]));
   if (snapshot.performance) rows.push([], ["성과평가 지표", "값"], ["최종 확정 대상", snapshot.performance.finalized], ["평균 점수", snapshot.performance.averageScore], ...snapshot.performance.ratings.map((item) => [`등급 ${item.label}`, item.value]));
   rows.push([], ["데이터 품질", "건수"], ...snapshot.quality.map((item) => [item.label, item.value]));
   const escape = (value: string | number | null) => `"${String(value ?? "").replaceAll('"', '""')}"`;

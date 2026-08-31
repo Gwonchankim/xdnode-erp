@@ -35,3 +35,15 @@
 @media(max-width:1280px){.compensation-erp-shell .erp-module-tab{min-width:110px}.compensation-sidebar{width:200px}.compensation-main{margin-left:200px}.compensation-page{width:calc(100% - 32px)}.compensation-kpis{grid-template-columns:repeat(3,1fr)}.wage-setup-grid{grid-template-columns:1fr}}
 @media(max-width:820px){.compensation-erp-shell .erp-module-tab{width:25%!important}.compensation-module-shell{flex-direction:column}.compensation-sidebar{position:static;top:auto;width:100%;flex-direction:row;align-items:center;gap:14px;overflow-x:auto;border-right:0;border-bottom:1px solid #ececee}.compensation-sidebar-nav{flex-direction:row;gap:6px}.compensation-sidebar-nav>p{display:none}.compensation-sidebar-item{min-height:44px}.compensation-main{margin-left:0;padding-top:12px}.compensation-page{width:calc(100% - 24px)}.compensation-hero h1{font-size:26px}.compensation-formula{width:100%}.compensation-kpis{grid-template-columns:1fr 1fr}.compensation-toolbar{align-items:flex-start;flex-direction:column}.wage-period-controls{width:100%}.wage-period-controls label{flex:1}.wage-period-controls input,.wage-period-controls select{width:100%;min-width:0}.compensation-run-status{align-items:stretch;flex-direction:column}.compensation-final-actions{width:100%}.compensation-final-actions button{flex:1}.allowance-standards{grid-template-columns:1fr}.column-visibility>div{grid-template-columns:repeat(2,minmax(0,1fr))}.wage-alerts>div{grid-template-columns:1fr}.wage-table-panel footer{align-items:flex-start;flex-direction:column}.wage-table-panel footer span{margin-left:0}}
 @media(max-width:520px){.compensation-sidebar-item small{display:none}.compensation-kpis{grid-template-columns:1fr}.compensation-hero h1{font-size:22px}.wage-period-controls{flex-direction:column}.wage-period-controls label{width:100%}}
+
+/* 임금 계산 결과 표: 직원·부서·직책은 가로 스크롤에도 왼쪽에 고정한다.
+   left 값은 열 너비를 드래그로 바꿀 수 있어 compensation-calculator.tsx 에서 계산해 넣는다.
+   행 배경색은 기존 규칙이 이미 칠하고 있어 스크롤된 셀이 비쳐 보이지 않는다. */
+.wage-table-panel td.sticky-col { position: sticky; z-index: 1; }
+.wage-table-panel th.sticky-col { position: sticky; z-index: 3; }
+.wage-table-panel th.sticky-col-last, .wage-table-panel td.sticky-col-last { border-right: 1px solid #c4c4ca; }
+
+/* 표 헤더 오른쪽: 드래그 안내 아래에 마지막 저장 시각을 붙인다. 화면을 열면 저장된 임금안이
+   그대로 떠서, 이게 언제 것인지 모르면 오늘 고친 값인지 판단할 수 없다. */
+.wage-table-hint { display: grid; gap: 3px; justify-items: end; text-align: right; }
+.wage-table-hint .wage-saved-at { color: #6b7280; font-size: 11px; font-style: normal; white-space: nowrap; }

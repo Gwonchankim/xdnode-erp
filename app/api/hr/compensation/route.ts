@@ -30,11 +30,17 @@ const normalizeSettings = (value: unknown) => {
   const rounding = ["round", "up", "down"].includes(String(settings.rounding)) ? String(settings.rounding) : "round";
   const columns = settings.columns && typeof settings.columns === "object" ? settings.columns as Record<string, unknown> : {};
   const standards = settings.standards && typeof settings.standards === "object" ? settings.standards as Record<string, unknown> : {};
-  const columnDefaults: Record<string, boolean> = { research: true, extra: true, welfare: false, severance: true };
+  // 선택 열은 여기 목록에 있는 것만 저장된다. 새 열을 추가하고 이 목록에 넣지 않으면 토글이
+  // 저장되지 않고, 다시 열었을 때 기본값(꺼짐)으로 돌아간다. 연차수당·개인비용지급은 열이 꺼지면
+  // 금액이 지급총액에서 빠지므로 그대로 두면 지급액이 조용히 줄어든다.
+  const columnDefaults: Record<string, boolean> = {
+    research: true, extra: true, welfare: false, severance: true,
+    deduction: false, annualLeave: false, personalExpense: false,
+  };
   const standardDefaults: Record<string, number> = { meal: 200_000, car: 200_000, child: 200_000 };
   return {
     rounding,
-    columns: Object.fromEntries(["research", "extra", "welfare", "severance"].map((field) => [field,
+    columns: Object.fromEntries(Object.keys(columnDefaults).map((field) => [field,
       typeof columns[field] === "boolean" ? columns[field] : columnDefaults[field]])),
     standards: Object.fromEntries(["meal", "car", "child"].map((field) => [field,
       standards[field] === undefined ? standardDefaults[field] : money(standards[field]) ?? standardDefaults[field]])),
@@ -141,12 +147,21 @@ function validateDraft(body: Record<string, unknown>) {
     employeeIds.add(employeeId);
     const row = rows[index];
     if (String(row.employeeId ?? "") !== employeeId) return { error: "직원과 계산 결과의 순서가 일치하지 않습니다." } as const;
-    const fields = ["basic", "meal", "car", "child", "incentive", "bonus", "extra", "research", "severance", "welfare", "total"] as const;
+    // 연차수당과 공제도 지급총액에 들어간다. app/compensation-calculation.ts 의 total 산식과 같아야 하고,
+    // 어긋나면 자동 저장이 통째로 400 으로 막혀 화면에서 고친 값이 조용히 사라진다.
+    //   total = 기본급+식대+차량+육아+인센티브+상여+수당+연구 + 퇴직금 + 연차수당 − 공제
+    const fields = ["basic", "meal", "car", "child", "incentive", "bonus", "extra", "research", "severance", "annualLeave", "personalExpense", "deduction", "welfare", "total"] as const;
     const values = Object.fromEntries(fields.map((field) => [field, money(row[field])])) as Record<(typeof fields)[number], number | null>;
     if (Object.values(values).some((value) => value === null)) return { error: `${name}의 임금 항목은 0원 이상이어야 합니다.` } as const;
-    const expected = values.basic! + values.meal! + values.car! + values.child! + values.incentive! + values.bonus! + values.extra! + values.research! + values.severance!;
-    if (expected !== values.total) return { error: `${name}의 지급총액이 세부 항목 합계와 일치하지 않습니다.` } as const;
-    normalizedRows.push({ employeeId, name, ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value!])) });
+    const expected = values.basic! + values.meal! + values.car! + values.child! + values.incentive! + values.bonus!
+      + values.extra! + values.research! + values.severance! + values.annualLeave! + values.personalExpense! - values.deduction!;
+    if (expected !== values.total) {
+      return { error: `${name}의 지급총액이 세부 항목 합계와 일치하지 않습니다. (합계 ${expected.toLocaleString("ko-KR")}원 · 지급총액 ${values.total!.toLocaleString("ko-KR")}원)` } as const;
+    }
+    // 공제 사유는 숫자가 아니라 위 fields 에 없다. 따로 실어 두지 않으면 확정할 때 사유가 사라진다.
+    normalizedRows.push({ employeeId, name, deductionNote: String(row.deductionNote ?? "").trim(),
+      personalExpenseNote: String(row.personalExpenseNote ?? "").trim(),
+      ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value!])) });
   }
   return { employees, rows: normalizedRows } as const;
 }
@@ -254,6 +269,9 @@ export async function POST(request: Request) {
       ? db.prepare(`DELETE FROM hr_compensation_lines WHERE period = ? AND employee_id NOT IN (${employeeIds.map(() => "?").join(",")})`).bind(period, ...employeeIds)
       : db.prepare("DELETE FROM hr_compensation_lines WHERE period = ?").bind(period);
     const grossPay = draft.rows.reduce((sum, row) => sum + Number(row.total), 0);
+    // 임금계산기의 total 은 공제를 이미 뺀 실지급액이다. 급여관리 화면은 지급총액·공제총액·
+    // 실 지급액을 따로 보여주므로, 공제를 더해 공제 전 금액을 되살려 넘긴다.
+    const totalDeductions = draft.rows.reduce((sum, row) => sum + Number(row.deduction ?? 0), 0);
     const nextStatus = action === "CONFIRM" ? "CONFIRMED" : "DRAFT";
     const statements = [
       ...lineStatements, deleteRemoved,
@@ -285,25 +303,36 @@ export async function POST(request: Request) {
         const recordId = `compensation:${period}:${String(employee.id)}`;
         const appliedIncentiveAmount = appliedByRecordId.get(recordId) ?? 0;
         const incentiveTotal = Number(row.incentive) + appliedIncentiveAmount;
-        const payTotal = Number(row.total) + appliedIncentiveAmount;
+        const rowDeduction = Number(row.deduction ?? 0);
+        // row.total 은 공제 후 금액이다. 공제를 되더해 공제 전 지급총액을 만든다.
+        const payNet = Number(row.total) + appliedIncentiveAmount;
+        const payGross = payNet + rowDeduction;
+        // 공제 사유가 있으면 원본 메모 뒤에 덧붙인다. 저장할 때마다 메모에서 새로 만들기 때문에
+        // 여러 번 저장해도 사유가 겹쳐 쌓이지 않는다.
+        const baseNote = String((employee.monthly as Record<string, Record<string, unknown>> | undefined)?.[period]?.note ?? "");
+        const deductionNote = String(row.deductionNote ?? "").trim();
+        const personalExpenseNote = String(row.personalExpenseNote ?? "").trim();
+        const recordNote = [baseNote, deductionNote ? `공제 사유: ${deductionNote}` : "",
+          personalExpenseNote ? `개인비용 사유: ${personalExpenseNote}` : ""].filter(Boolean).join(" / ");
         statements.push(db.prepare(`INSERT INTO hr_payroll_records
           (id, year_month, employee_id, employee_name, department, annual_salary, base_pay, meal_allowance,
-            childcare_allowance, vehicle_allowance, incentive, bonus, annual_leave_pay, retirement_pay, deductions,
+            childcare_allowance, vehicle_allowance, incentive, bonus, annual_leave_pay, personal_expense, retirement_pay, deductions,
             gross_pay, net_pay, card_allowance, card_usage, personal_purchase, non_taxable, welfare_fund,
             notes, source_sheet, source_row, imported_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0, ?, ?, 0, 0, 0, ?, ?, ?, 'ERP 임금계산', ?, ?)`)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?, 'ERP 임금계산', ?, ?)`)
           .bind(recordId, period, String(employee.id), String(employee.name), String(employee.department ?? ""),
             money(employee.annualSalary) ?? 0, Number(row.basic), Number(row.meal), Number(row.child), Number(row.car), incentiveTotal, combinedBonus,
-            Number(row.severance), payTotal, payTotal, Number(row.meal) + Number(row.child) + Number(row.car), Number(row.welfare),
-            String((employee.monthly as Record<string, Record<string, unknown>> | undefined)?.[period]?.note ?? ""), index + 1, now));
+            Number(row.annualLeave ?? 0), Number(row.personalExpense ?? 0), Number(row.severance), rowDeduction, payGross, payNet, Number(row.meal) + Number(row.child) + Number(row.car), Number(row.welfare),
+            recordNote, index + 1, now));
       });
       statements.push(db.prepare(`INSERT INTO hr_payroll_runs
         (period, status, employee_count, gross_pay, deductions, net_pay, prepared_by, reviewed_by, approved_by,
-          locked_at, reopened_reason, created_at, updated_at) VALUES (?, 'DRAFT', ?, ?, 0, ?, ?, '', '', NULL, '', ?, ?)
+          locked_at, reopened_reason, created_at, updated_at) VALUES (?, 'DRAFT', ?, ?, ?, ?, ?, '', '', NULL, '', ?, ?)
         ON CONFLICT(period) DO UPDATE SET employee_count=excluded.employee_count, gross_pay=excluded.gross_pay,
-          deductions=0, net_pay=excluded.net_pay, prepared_by=excluded.prepared_by, reviewed_by='', approved_by='',
+          deductions=excluded.deductions, net_pay=excluded.net_pay, prepared_by=excluded.prepared_by, reviewed_by='', approved_by='',
           locked_at=NULL, reopened_reason='', updated_at=excluded.updated_at WHERE hr_payroll_runs.status='DRAFT'`)
-        .bind(period, draft.employees.length, grossPay + totalAppliedIncentive, grossPay + totalAppliedIncentive, authorization.principal.employeeId, now, now));
+        .bind(period, draft.employees.length, grossPay + totalAppliedIncentive + totalDeductions, totalDeductions,
+          grossPay + totalAppliedIncentive, authorization.principal.employeeId, now, now));
     }
     const results = await db.batch(statements);
     const runResult = results[lineStatements.length + 1];

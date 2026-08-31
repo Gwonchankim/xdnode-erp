@@ -1,5 +1,5 @@
 import { env } from "cloudflare:workers";
-import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { authorizeErpRequest, isFinancePeriodLocked, writeErpAudit } from "../../../erp-platform";
 import { financeCurrentData } from "../../../finance-current-data";
 import { calculateStraightLineDepreciation, monthsBetween } from "../../../fixed-asset-calculation.mjs";
 
@@ -64,7 +64,7 @@ async function ensureSchema() {
 }
 
 async function locked(period: string) {
-  return (await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(period).first<{ status: string }>())?.status === "CLOSED";
+  return isFinancePeriodLocked(db, period);
 }
 
 async function activeAccounts(codes: string[]) {

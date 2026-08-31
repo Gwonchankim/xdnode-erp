@@ -162,7 +162,11 @@ export async function GET() {
   return Response.json({
     applicants: applicantResult.results.map((row) => {
       const offer = latestOffer.get(row.id);
-      return { ...toApplicant(row), ...(offerStage(offer?.status ?? "") ? { stage: offerStage(offer?.status ?? "") } : {}), offer };
+      // 오퍼 상태로 단계를 다시 만들되, 저장된 단계가 더 구체적이면 그대로 둔다.
+      // 타사 합격은 오퍼 상태가 DECLINED 라서, 덮어쓰면 "채용 제안 거절"로 되돌아간다.
+      const derived = offerStage(offer?.status ?? "");
+      const keepStored = row.stage === "타사 합격";
+      return { ...toApplicant(row), ...(derived && !keepStored ? { stage: derived } : {}), offer };
     }),
     recruiterIds: recruiterResult.results.map((row: { employee_id: string }) => row.employee_id),
     offers: offerResult.results.map(toOffer),
@@ -189,16 +193,20 @@ export async function PUT(request: Request) {
     const now = Date.now();
     const responseNote = stringValue("responseNote").trim();
     if (action === "DECLINE") {
+      // 타사 합격은 우리가 떨어뜨린 것이 아니라 지원자가 다른 회사로 간 경우다. 채용단계 열에서
+      // "탈락"과 구분해 보여야 해서 단계 이름을 달리 저장한다. 제안 자체는 똑같이 DECLINED 다.
+      const declinedStage = stringValue("declineKind").trim() === "OTHER_OFFER" ? "타사 합격" : "채용 제안 거절";
       await db.batch([
         db.prepare(`UPDATE hr_offer_requests SET status = 'DECLINED', response_note = ?, responded_by = ?, responded_at = ?, updated_at = ?
           WHERE id = ? AND status = 'APPROVED'`).bind(responseNote, authorization.principal.employeeId, now, now, id),
-        db.prepare(`UPDATE hr_applicants SET stage = '채용 제안 거절', updated_at = ? WHERE id = ?
+        db.prepare(`UPDATE hr_applicants SET stage = ?, updated_at = ? WHERE id = ?
           AND EXISTS (SELECT 1 FROM hr_offer_requests WHERE id = ? AND status = 'DECLINED' AND updated_at = ?)`)
-          .bind(now, offer.applicant_id, id, now),
+          .bind(declinedStage, now, offer.applicant_id, id, now),
       ]);
       const after = await db.prepare("SELECT * FROM hr_offer_requests WHERE id = ?").bind(id).first<OfferRow>();
       await writeErpAudit(db, { principal: authorization.principal, module: "recruitment", action: "OFFER_DECLINED", entityType: "recruitmentOffer", entityId: id, before: toOffer(offer), after: after ? toOffer(after) : null, reason: responseNote });
-      return Response.json({ offer: after ? toOffer(after) : null });
+      // 화면이 단계를 다시 추측하지 않도록 여기서 정한 값을 그대로 돌려준다.
+      return Response.json({ offer: after ? toOffer(after) : null, stage: declinedStage });
     }
 
     const hrAuthorization = await authorizeErpRequest(db, "hr", "write");
@@ -216,7 +224,7 @@ export async function PUT(request: Request) {
     const employeeId = stringValue("employeeId").trim();
     const position = stringValue("position").trim();
     const jobTitle = stringValue("jobTitle").trim() || offer.proposed_title;
-    if (!employeeId || !position || !jobTitle) return Response.json({ error: "입사 전환을 위한 사번·직급·직책을 입력해 주세요." }, { status: 400 });
+    if (!employeeId || !position || !jobTitle) return Response.json({ error: "입사 전환을 위한 사번·직위·직책을 입력해 주세요." }, { status: 400 });
     if (employeeIds.has(employeeId)) return Response.json({ error: "이미 회사 기준자료에 등록된 사번입니다." }, { status: 409 });
     const duplicate = await db.prepare("SELECT employee_id FROM hr_employee_records WHERE employee_id = ?")
       .bind(employeeId).first<{ employee_id: string }>();
@@ -225,8 +233,21 @@ export async function PUT(request: Request) {
       ["CONTRACT", "근로계약서 작성·서명"], ["ACCOUNT", "이메일·업무 계정 발급"],
       ["EQUIPMENT", "장비·출입권한 준비"], ["ORIENTATION", "오리엔테이션·부서 인수인계"],
     ];
+    // 수락 팝업에서 최종 처우를 고칠 수 있다. 오지 않은 항목은 제안 당시 값을 그대로 쓴다.
+    // 제안 저장(POST offer)은 진행 중인 제안이 있으면 409 라, 확정 값은 여기서 함께 받는다.
+    const finalStartDate = /^\d{4}-\d{2}-\d{2}$/.test(stringValue("startDate").trim()) ? stringValue("startDate").trim() : offer.start_date;
+    const finalSalaryInput = Number(body.annualSalary);
+    const finalSalary = Number.isFinite(finalSalaryInput) && finalSalaryInput > 0 ? Math.round(finalSalaryInput) : offer.annual_salary;
+    const finalProbationInput = Number(body.probationMonths);
+    const finalProbation = Number.isInteger(finalProbationInput) && finalProbationInput >= 0 && finalProbationInput <= 12
+      ? finalProbationInput : offer.probation_months;
+    const finalDepartment = stringValue("department").trim() || offer.department;
+    const finalProposedTitle = stringValue("proposedTitle").trim() || offer.proposed_title;
+    const finalEmploymentType = stringValue("employmentType").trim() || offer.employment_type;
+
     const statements = [
       db.prepare(`UPDATE hr_offer_requests SET status = 'ACCEPTED', employee_id = ?, position = ?, job_title = ?,
+        start_date = ?, annual_salary = ?, probation_months = ?, department = ?, proposed_title = ?, employment_type = ?,
         response_note = ?, responded_by = ?, responded_at = ?, updated_at = ?
         WHERE id = ? AND status = 'APPROVED' AND (
           NOT EXISTS (SELECT 1 FROM hr_applicants a WHERE a.id = hr_offer_requests.applicant_id AND TRIM(a.requisition_id) <> '')
@@ -235,7 +256,9 @@ export async function PUT(request: Request) {
               AND r.requested_headcount > (SELECT COUNT(DISTINCT accepted.id) FROM hr_applicants accepted
                 JOIN hr_offer_requests accepted_offer ON accepted_offer.applicant_id = accepted.id
                 WHERE accepted.requisition_id = r.id AND accepted_offer.status = 'ACCEPTED'))
-        )`).bind(employeeId, position, jobTitle, responseNote, authorization.principal.employeeId, now, now, id),
+        )`).bind(employeeId, position, jobTitle, finalStartDate, finalSalary, finalProbation,
+          finalDepartment, finalProposedTitle, finalEmploymentType,
+          responseNote, authorization.principal.employeeId, now, now, id),
       db.prepare(`UPDATE hr_applicants SET stage = '입사 예정', updated_at = ? WHERE id = ?
         AND EXISTS (SELECT 1 FROM hr_offer_requests WHERE id = ? AND status = 'ACCEPTED' AND updated_at = ?)`)
         .bind(now, offer.applicant_id, id, now),
@@ -243,7 +266,8 @@ export async function PUT(request: Request) {
         (id, employee_id, lifecycle_type, task_group, title, owner_employee_id, due_date, status, completed_at, created_at, updated_at)
         SELECT ?, ?, 'ONBOARDING', ?, ?, ?, ?, 'OPEN', NULL, ?, ?
         WHERE EXISTS (SELECT 1 FROM hr_offer_requests WHERE id = ? AND status = 'ACCEPTED' AND updated_at = ?)`)
-        .bind(`${id}:ONBOARDING:${group}`, employeeId, group, title, authorization.principal.employeeId, offer.start_date, now, now, id, now)),
+        // 입사 준비 업무의 기한은 수락 팝업에서 확정한 입사일을 따른다.
+        .bind(`${id}:ONBOARDING:${group}`, employeeId, group, title, authorization.principal.employeeId, finalStartDate, now, now, id, now)),
     ];
     if (applicant.requisition_id) {
       statements.push(db.prepare(`UPDATE hr_recruitment_requisitions SET status = 'FILLED', closed_by = ?, closed_at = ?,
@@ -284,7 +308,7 @@ export async function PUT(request: Request) {
       const responseNote = stringValue("responseNote").trim();
       if (!employeeId || !/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !department || !proposedTitle || !position || !jobTitle || !employmentType
         || !Number.isFinite(annualSalary) || annualSalary <= 0 || !Number.isInteger(probationMonths) || probationMonths < 0 || probationMonths > 12) {
-        return Response.json({ error: "사번·입사예정일·소속·직무·직급·직책·고용형태·처우를 확인해 주세요." }, { status: 400 });
+        return Response.json({ error: "사번·입사예정일·소속·직무·직위·직책·고용형태·처우를 확인해 주세요." }, { status: 400 });
       }
       if (employeeId !== offer.employee_id) {
         if (employeeIds.has(employeeId)) return Response.json({ error: "이미 회사 기준자료에 등록된 사번입니다." }, { status: 409 });

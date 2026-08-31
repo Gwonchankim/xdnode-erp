@@ -116,7 +116,32 @@ export async function GET() {
     department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json,
     annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance, updated_at
     FROM hr_employee_records ORDER BY employee_id`).all<EmployeeRecordRow>();
-  return Response.json({ records: result.results.map(toRecord) });
+
+  // 퇴직일과 사유는 retirement_json 이 아니라 hr_retirement_requests 에 있다. 화면은 employee.retirement
+  // 하나만 보므로 여기서 합쳐 준다. 이게 없으면 퇴직 절차 팝업의 퇴직일이 기본값으로 보이고,
+  // 대시보드도 "누가 언제 나가는지"를 알 수 없다.
+  type RetirementRequestRow = { employee_id: string; id: string; retirement_date: string; reason: string; status: string };
+  let requestRows: RetirementRequestRow[] = [];
+  try {
+    // 퇴직 요청 테이블은 입·퇴사 관리 라우트가 처음 돌 때 만들어진다. 아직 없을 수도 있다.
+    const requests = await db.prepare(`SELECT employee_id, id, retirement_date, reason, status
+      FROM hr_retirement_requests ORDER BY created_at`).all<RetirementRequestRow>();
+    requestRows = requests.results;
+  } catch { requestRows = []; }
+  const byEmployee = new Map(requestRows.map((row) => [row.employee_id, row]));
+  const records = result.results.map(toRecord).map((record) => {
+    const request = byEmployee.get(record.employeeId);
+    if (!request) return record;
+    const retirement = (record.retirement ?? {}) as Record<string, unknown>;
+    return { ...record, retirement: {
+      ...retirement,
+      requestId: retirement.requestId ?? request.id,
+      date: retirement.date ?? request.retirement_date,
+      reason: retirement.reason ?? request.reason,
+      status: retirement.status ?? request.status,
+    } };
+  });
+  return Response.json({ records });
 }
 
 export async function PUT(request: Request) {

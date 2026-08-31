@@ -3,7 +3,8 @@ import test from "node:test";
 
 import {
   DAILY_WORK_HOURS, MONTHLY_ORDINARY_HOURS, dailyOrdinaryWageOn, normalizeDate, workingTimeRuleFor,
-  calculateLeaveAllowance, calculateSeverance, daysInYearMonth, ordinaryDailyWageOf, precedingMonths,
+  averageWageMonths, calculateLeaveAllowance, calculateSeverance, daysInYearMonth, isMonthEnd,
+  ordinaryDailyWageOf, precedingMonths,
 } from "../app/hr-severance-calculation.ts";
 
 const wages = (entries) => entries.map(([yearMonth, grossPay]) => ({ yearMonth, grossPay }));
@@ -37,10 +38,11 @@ test("계속근로 1년 미만은 법정 퇴직금 대상이 아니다", () => {
 test("퇴직금은 1일 평균임금 × 30 × 재직일수/365 로 계산한다", () => {
   const result = calculateSeverance({
     joinDate: "2023-10-01", retirementDate: "2026-09-30",
-    recentWages: wages([["2026-08", 6_200_000], ["2026-07", 6_200_000], ["2026-06", 6_200_000]]),
+    // 9/30 은 말일 퇴사라 9월을 만근했다. 산정기간은 9·8·7월이다.
+    recentWages: wages([["2026-09", 6_200_000], ["2026-08", 6_200_000], ["2026-07", 6_200_000]]),
     monthlyOrdinaryWage: 5_000_000,
   });
-  // 2026-06(30) + 2026-07(31) + 2026-08(31) = 92일, 임금총액 18,600,000
+  // 2026-07(31) + 2026-08(31) + 2026-09(30) = 92일, 임금총액 18,600,000
   assert.equal(result.averageWageDays, 92);
   assert.equal(result.averageWageTotal, 18_600_000);
   assert.equal(Math.round(result.averageDailyWage), 202_174);
@@ -218,4 +220,101 @@ test("연차수당은 잔여일수 × 1일 통상임금이고 마이너스 연�
   assert.ok(negative.amount < 0);
   assert.equal(negative.amount, Math.round(daily * -3.5));
   assert.equal(negative.days, -3.5);
+});
+
+// 실수를 막으려고 고정해 둔 세 가지 원칙. 순서가 어긋나면 금액이 조용히 몇 원씩 틀어진다.
+//   1) 근속일수는 월수가 아니라 일수로 세고 양끝을 포함한다: (퇴사일 - 입사일) + 1
+//   2) 1일 평균임금과 1일 통상임금을 비교해 큰 쪽을 쓴다
+//   3) 반올림은 마지막 한 번만 한다 (1일 임금을 먼저 반올림하지 않는다)
+test("근속일수는 (퇴사일 - 입사일) + 1 일로 센다", () => {
+  const result = calculateSeverance({
+    joinDate: "2024-07-02", retirementDate: "2026-07-10",
+    recentWages: [], monthlyOrdinaryWage: 3_666_666.6666666665,
+  });
+  // 2024-07-02 ~ 2026-07-10 = 739일. 세무상 근속월수(25개월)나 근속연수(3년)로 세면 안 된다.
+  assert.equal(result.tenureDays, 739);
+});
+
+test("반올림은 마지막에 한 번만 한다", () => {
+  const dailyOrdinary = 140_587.232746;
+  const result = calculateSeverance({
+    joinDate: "2024-07-02", retirementDate: "2026-07-10",
+    recentWages: [],
+    // 1일 통상임금이 정확히 140,587.232746 이 되도록 월 통상임금을 거꾸로 만든다 (209h × 8h 기준).
+    monthlyOrdinaryWage: (dailyOrdinary * MONTHLY_ORDINARY_HOURS) / DAILY_WORK_HOURS,
+  });
+  assert.equal(result.basis, "ORDINARY");
+  // 140,587.232746 × 30 × 739 ÷ 365 = 8,539,230
+  assert.equal(result.severance, 8_539_230);
+  // 1일 임금을 먼저 반올림했다면 8,539,216 이 나온다. 그 값이면 중간 반올림이 끼어든 것이다.
+  assert.notEqual(result.severance, Math.round(Math.round(dailyOrdinary) * 30 * (739 / 365)));
+});
+
+test("평균임금과 통상임금 중 큰 쪽을 적용한다", () => {
+  const base = {
+    joinDate: "2024-07-02", retirementDate: "2026-07-10",
+    monthlyOrdinaryWage: 3_666_666.6666666665,
+  };
+  // 평균임금이 통상임금보다 높은 경우
+  const high = calculateSeverance({ ...base, recentWages: wages([["2026-06", 6_000_000], ["2026-05", 6_000_000], ["2026-04", 6_000_000]]) });
+  assert.equal(high.basis, "AVERAGE");
+  assert.equal(high.severance, high.averageSeverance);
+  assert.ok(high.averageSeverance > high.ordinarySeverance);
+  // 평균임금이 낮으면 법정 하한인 통상임금 기준으로 올라간다
+  const low = calculateSeverance({ ...base, recentWages: wages([["2026-06", 2_000_000], ["2026-05", 2_000_000], ["2026-04", 2_000_000]]) });
+  assert.equal(low.basis, "ORDINARY");
+  assert.equal(low.severance, low.ordinarySeverance);
+});
+
+// 평균임금 산정기간은 퇴사일이 말일인지에 따라 갈린다. 말일 퇴사는 그 달을 만근했으므로
+// 법정 기간(퇴직일 이전 3개월)에 퇴직월이 들어간다. 이 규칙이 없으면 마지막 달 인센티브가
+// 확정되어도 퇴직금에 반영될 자리가 없다.
+test("말일 퇴사는 퇴직월을 평균임금 산정기간에 넣는다", () => {
+  assert.equal(isMonthEnd("2026-08-31"), true);
+  assert.equal(isMonthEnd("2026-02-28"), true);   // 평년 2월
+  assert.equal(isMonthEnd("2024-02-29"), true);   // 윤년 2월
+  assert.equal(isMonthEnd("2026-07-10"), false);
+  assert.deepEqual(averageWageMonths("2026-08-31"), ["2026-08", "2026-07", "2026-06"]);
+  // 중도 퇴사는 그 달이 일할이라 예전처럼 뺀다.
+  assert.deepEqual(averageWageMonths("2026-07-10"), ["2026-06", "2026-05", "2026-04"]);
+  assert.deepEqual(averageWageMonths(""), []);
+});
+
+test("확정되지 않은 급여월은 잠정으로 표시하고 사유를 남긴다", () => {
+  const result = calculateSeverance({
+    joinDate: "2024-01-01", retirementDate: "2026-08-31",
+    recentWages: wages([["2026-08", 4_000_000], ["2026-07", 4_000_000], ["2026-06", 4_000_000]]),
+    monthlyOrdinaryWage: 3_000_000,
+    unconfirmedMonths: ["2026-08"],
+  });
+  assert.deepEqual(result.provisionalMonths, ["2026-08"]);
+  assert.ok(result.limitations.some((item) => item.includes("2026-08") && item.includes("확정")));
+  // 산정에 쓰지 않은 달은 경고하지 않는다.
+  const other = calculateSeverance({
+    joinDate: "2024-01-01", retirementDate: "2026-08-31",
+    recentWages: wages([["2026-08", 4_000_000], ["2026-07", 4_000_000], ["2026-06", 4_000_000]]),
+    monthlyOrdinaryWage: 3_000_000,
+    unconfirmedMonths: ["2026-09"],
+  });
+  assert.deepEqual(other.provisionalMonths, []);
+});
+
+// 이호영 사례로 굳혀 둔다. 2026-08 급여기록의 지급총액 7,306,925 에는 퇴직금 3,773,296 과
+// 퇴직 정산 연차수당 616,962 가 함께 적혀 있었고, 그대로 평균임금에 넣으면 퇴직금이
+// 5,664,812 원으로 1,370,761 원 부풀었다. 퇴직금이 평균임금을 올리고 그 평균임금이 다시
+// 퇴직금을 키우는 순환이다. 산입 대상은 근로의 대가뿐이다.
+test("퇴직금과 퇴직 연차수당은 평균임금에 넣지 않는다", () => {
+  const base = { joinDate: "2025-05-22", retirementDate: "2026-08-31", monthlyOrdinaryWage: 35_000_000 / 12 };
+  const 오염 = calculateSeverance({ ...base, recentWages: wages([
+    ["2026-08", 7_306_925], ["2026-07", 2_916_667], ["2026-06", 3_354_167],
+  ]) });
+  const 정상 = calculateSeverance({ ...base, recentWages: wages([
+    ["2026-08", 2_916_667], ["2026-07", 2_916_667], ["2026-06", 3_354_167],
+  ]) });
+  assert.equal(오염.severance, 5_664_812);
+  assert.equal(정상.severance, 4_294_051);
+  // 오염된 쪽은 평균임금이 통상임금을 넘어서 적용 기준까지 뒤집힌다.
+  assert.equal(오염.basis, "AVERAGE");
+  assert.equal(정상.basis, "ORDINARY");
+  assert.equal(정상.tenureDays, 467);
 });

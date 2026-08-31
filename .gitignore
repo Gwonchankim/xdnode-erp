@@ -40,3 +40,18 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+
+# Local-only ERP data, analysis and recovery artifacts
+/.claude/
+/.codex-analysis/
+/.codex-sheet-analysis/
+/.codex_analysis/
+/recovery/
+/tmp/
+/tmp_modelb_refresh/
+/work_*/
+/council_incentive_review/
+/work_incentive_report/
+/*.tar.gz
+/__pycache__/
+/tsconfig.tsbuildinfo

@@ -576,7 +576,12 @@ test("applicant popup owns screening and interview, and the list only reports st
   // 목록은 채용단계(서류 결과)와 현재 단계(면접 일정)만 보여준다.
   assert.match(workspace, /<th>현재 단계<\/th><th>채용단계<\/th>/);
   assert.doesNotMatch(workspace, /<th>채용 처리<\/th>/);
-  assert.match(workspace, /PENDING: "서류 평가중", PASSED: "서류 합격", REJECTED: "서류 탈락"/);
+  assert.match(workspace, /PENDING: "서류 평가중", PASSED: "서류 합격", REJECTED: "탈락", INTERVIEW: "면접"/);
+  // 사유가 무엇이든 탈락자는 채용단계에 "탈락" 하나로 묶고, 처우 단계까지 간 사람만 "면접"이다.
+  assert.match(workspace, /if \(REJECTED_STAGES\.includes\(applicant\.stage\)\) return "REJECTED";/);
+  assert.match(workspace, /if \(OFFER_STAGES\.includes\(applicant\.stage\)\) return "INTERVIEW";/);
+  // 면접 단계에서 내린 탈락은 불참이든 아니든 현재 단계에 "면접 탈락"으로 적는다.
+  assert.match(workspace, /INTERVIEW_NO_SHOW_STAGE\) return INTERVIEW_REJECTED_STAGE;/);
   assert.match(workspace, /function currentStageOf\(applicant: Applicant\)/);
 
   // 면접관리 탭과 서류 합격 처리 페이지는 팝업으로 흡수되어 사라졌다.
@@ -584,12 +589,46 @@ test("applicant popup owns screening and interview, and the list only reports st
   assert.doesNotMatch(workspace, /label: "면접관리"/);
   // 흡수된 기능(면접 녹음, 제안 수락 전환)은 팝업 안에 남아 있어야 한다.
   assert.match(workspace, /<ApplicantInterviewRecorder applicantId=\{applicant\.id\} \/>/);
-  assert.match(workspace, /제안 수락 입사 전환/);
+  // 처우 제안 단계는 별도 박스다. 제안 → 수락/거절 순서이고, 수락은 최종 처우 팝업에서 확정한다.
+  assert.match(workspace, /처우 제안 단계/);
+  assert.match(workspace, /최종 처우 확정/);
+  assert.match(workspace, /제안 거절 기록/);
   // 합격은 처우 입력 모달로 이어지고 판단 근거가 메모로 남는다.
   assert.match(workspace, /className="employee-modal interview-pass-modal"/);
   assert.match(workspace, /면접 결과\(합격\): \$\{interviewResult\.trim\(\)\}/);
-  assert.match(workspace, /면접 결과\(탈락\): \$\{interviewResult\.trim\(\)\}/);
+  // 탈락은 면접 불참과 면접 후 탈락 두 갈래로 나뉘고, 적어 둔 면접 결과가 메모로 남는다.
+  assert.match(workspace, /const prefix = attended \? "면접 결과\(탈락\)" : "면접 불참\(탈락\)";/);
+  assert.match(workspace, /\$\{prefix\}: \$\{interviewResult\.trim\(\)\}/);
+  assert.match(workspace, />면접 불참 탈락<\/button>/);
+  assert.match(workspace, />면접 후 탈락<\/button>/);
   assert.match(styles, /\.screening-stage\.rejected \{/);
+  assert.match(styles, /\.screening-stage\.interview \{/);
+  // 지원 현황 아래에 면접 일시 순으로 정렬된 면접 전형 표가 따로 있다.
+  assert.match(workspace, /className="panel table-panel interview-schedule-panel"/);
+  assert.match(workspace, /<th>면접 일시<\/th>/);
+  assert.match(workspace, /\.sort\(\(a, b\) => interviewSortKey\(a\)\.localeCompare\(interviewSortKey\(b\)\)\)/);
+  // 절차가 끝난 사람(탈락·제안 거절·타사 합격·오퍼 수락)은 지원 현황에서 빼고
+  // 페이지 맨 아래 "채용 종료" 표 한 곳에 모은다.
+  assert.match(workspace, /className="panel table-panel closed-applicant-panel"/);
+  assert.match(workspace, /const REJECTED_STAGES = \[SCREENING_REJECTED_STAGE, INTERVIEW_REJECTED_STAGE, INTERVIEW_NO_SHOW_STAGE\]/);
+  assert.match(workspace, /const CLOSED_STAGES = \[/);
+  assert.match(workspace, /const active = visible\.filter\(\(applicant\) => !CLOSED_STAGES\.includes\(applicant\.stage\)\);/);
+  assert.match(workspace, /<th>종료 구분<\/th>/);
+  assert.match(styles, /\.closed-applicant-panel \{/);
+  // 탈락자 표 위에 면접 합격자 표가 있고, 처우가 저장된 사람만 입사예정일 순으로 모인다.
+  assert.match(workspace, /className="panel table-panel passed-applicant-panel"/);
+  assert.match(workspace, /OFFER_STAGES\.includes\(applicant\.stage\) && applicant\.offer/);
+  assert.match(workspace, /<th>입사예정일<\/th>/);
+  // 면접 합격은 이제 실제 단계다. 처우를 제안하기 전에도 "면접 합격"으로 읽혀야 한다.
+  assert.match(workspace, /const INTERVIEW_PASSED_STAGE = "면접 합격";/);
+  // 처우까지 제안했으면 면접 절차가 끝난 것이라 "면접 종료"로 적는다.
+  assert.match(workspace, /if \(applicant\.stage === OFFER_PREPARED_STAGE\) return "면접 종료";/);
+  // 면접 이후 단계는 지난 면접 일정이 아니라 단계 이름을 보여준다.
+  assert.match(workspace, /if \(OFFER_STAGES\.includes\(applicant\.stage\)\) return applicant\.stage;/);
+  // 타사 합격은 우리가 떨어뜨린 "탈락"과 구분해 채용단계에 따로 적는다.
+  assert.match(workspace, /const OTHER_OFFER_STAGE = "타사 합격";/);
+  assert.match(workspace, /OTHER_OFFER: OTHER_OFFER_STAGE/);
+  assert.match(styles, /\.passed-applicant-panel \{/);
 });
 
 test("employee lifecycle opens each retirement in its own modal beside the onboarding table", async () => {
@@ -755,7 +794,10 @@ test("post-approval finance and HR workflows require explicit controls before co
   assert.match(onboarding, /ONBOARDING_EFFECTIVE/);
   assert.match(hr, /resource === "retirementSettlement"/);
   assert.match(hr, /settlement\?\.status !== "READY"/);
-  assert.match(workspace, /제안 수락 입사 전환/);
+  // 처우 제안 단계는 별도 박스다. 제안 → 수락/거절 순서이고, 수락은 최종 처우 팝업에서 확정한다.
+  assert.match(workspace, /처우 제안 단계/);
+  assert.match(workspace, /최종 처우 확정/);
+  assert.match(workspace, /제안 거절 기록/);
   assert.match(workspace, /퇴직 정산·회수 통제/);
   for (const table of ["finance_journal_entries", "hr_retirement_settlements"]) assert.match(migration, new RegExp(table));
 });
@@ -1176,7 +1218,10 @@ test("recruitment offers move directly into the onboarding lifecycle", async () 
   assert.match(api, /\["onboardingUpdate", "onboardingComplete", "onboardingCancel"\]\.includes\(resource\)/);
   assert.match(api, /resource === "onboardingCancel"/);
   assert.doesNotMatch(api, /requestType: "OFFER"/);
-  assert.match(workspace, /제안 수락 입사 전환/);
+  // 처우 제안 단계는 별도 박스다. 제안 → 수락/거절 순서이고, 수락은 최종 처우 팝업에서 확정한다.
+  assert.match(workspace, /처우 제안 단계/);
+  assert.match(workspace, /최종 처우 확정/);
+  assert.match(workspace, /제안 거절 기록/);
   assert.match(workspace, /입사 완료/);
   assert.match(workspace, /입사 정보 수정/);
 });
@@ -1812,14 +1857,17 @@ test("finance import mappings are versioned, approval-gated and balance-blocking
 });
 
 test("finance posting control preserves multi-line lineage and requires tax, period and approval gates", async () => {
-  const [api, server, workspace, integration, approval, close, schema, migration, plan] = await Promise.all([
+  const [api, server, workspace, integration, approval, close, schema, migration, plan, platform] = await Promise.all([
     read("app/api/finance/posting-control/route.ts"), read("app/finance-posting.ts"), read("app/finance-posting-workspace.tsx"),
     read("app/data-integration-workspace.tsx"), read("app/approval-engine.ts"), read("app/api/finance/close/route.ts"), read("db/schema.ts"),
-    read("drizzle/0056_finance_posting_control.sql"), read("docs/finance-posting-control-plan.md"),
+    read("drizzle/0056_finance_posting_control.sql"), read("docs/finance-posting-control-plan.md"), read("app/erp-platform.ts"),
   ]);
   for (const source of [api, server, schema, migration]) for (const table of ["finance_posting_batches", "finance_posting_vouchers", "finance_posting_lines", "finance_posting_events"]) assert.match(source, new RegExp(table));
   assert.match(api, /authorizeErpRequest\(db, "finance", "admin"\)/); assert.match(api, /validation\.status='PASSED'/); assert.match(api, /validation\.data_type='JOURNAL'/);
-  assert.match(api, /total_debit.*total_credit/); assert.match(api, /tax_review_status !== "REVIEWED"/); assert.match(api, /finance_close_runs WHERE period IN/); assert.match(api, /미개방 회계기간/);
+  assert.match(api, /total_debit.*total_credit/); assert.match(api, /tax_review_status !== "REVIEWED"/);
+  // The period-lock query itself lives in erp-platform.ts's shared blockedFinancePeriods() now
+  // (docs/finance-remediation-plan.md Stage 2 — "blockedPeriods() 공용화"), not duplicated here.
+  assert.match(api, /blockedFinancePeriods\(db,/); assert.match(platform, /finance_close_runs WHERE period IN/); assert.match(api, /미개방 회계기간/);
   assert.match(api, /requestType:"JOURNAL_POSTING"/); assert.match(api, /status='APPROVED'/); assert.match(api, /source_canonical_row_id/); assert.match(api, /reversal_of_line_id/);
   assert.match(api, /Number\(line\.credit_amount\), Number\(line\.debit_amount\)/); assert.doesNotMatch(api, /DELETE FROM finance_posting_batches WHERE id=\? AND status='POSTED'/);
   assert.match(approval, /JOURNAL_POSTING: "분개 전기 승인"/); assert.match(approval, /targetEntityType === "FINANCE_POSTING_BATCH"/);
@@ -1952,7 +2000,7 @@ test("payables tie-out compares unpaid invoices against the ledger and closes th
   assert.match(api,/payment\.status = 'PAID' AND payment\.id IS NULL|payment\.id IS NULL/);
   assert.match(api,/invoice\.status <> 'CANCELLED'/);
   assert.match(api,/glAmount: -gl\.netDebit/);
-  assert.match(api,/"RECEIVABLES", "PAYABLES", "INVENTORY"\]\.includes\(checkType\)/);
+  assert.match(api,/"RECEIVABLES", "PAYABLES", "INVENTORY", "DEBT", "BANK"\]\.includes\(checkType\)/);
   assert.match(close,/PAYABLES_TIE_OUT/);assert.match(close,/payablesTieOut/);
   assert.match(workspace,/매입채무 보조부 ↔ 원장 대사/);assert.match(workspace,/보조부\(미지급 인보이스\)/);
 });
@@ -1968,10 +2016,59 @@ test("inventory tie-out aggregates the moving-average ledger against the stock G
   assert.match(workspace,/재고자산 보조부 ↔ 원장 대사/);assert.match(workspace,/보조부\(이동원장 누적\)/);
 });
 
+test("debt tie-out compares the Clobe loan-balance snapshot against the loan GL account",async()=>{
+  const[api,close,workspace]=await Promise.all([
+    read("app/api/finance/tie-out/route.ts"),read("app/api/finance/close/route.ts"),read("app/debt-management-workspace.tsx"),
+  ]);
+  assert.match(api,/DEBT_GL_ACCOUNT_CODE = "2954"/);
+  assert.match(api,/async function debtSubsidiaryAmount/);
+  assert.match(api,/financeCurrentData\.accounts\.filter\(\(account\) => account\.type === "LOAN"\)/);
+  assert.match(api,/"RECEIVABLES", "PAYABLES", "INVENTORY", "DEBT"/);
+  assert.match(close,/DEBT_TIE_OUT/);assert.match(close,/debtTieOut/);
+  assert.match(workspace,/차입금 보조부 ↔ 원장 대사/);assert.match(workspace,/보조부\(Clobe 스냅샷 대출잔액\)/);
+});
+
+test("bank tie-out (은행계정조정표) compares the Clobe bank-asset snapshot against the deposit GL account and itemizes unmatched bank transactions",async()=>{
+  const[tieOutModule,api,close,workspace]=await Promise.all([
+    read("app/finance-tie-out.ts"),read("app/api/finance/tie-out/route.ts"),
+    read("app/api/finance/close/route.ts"),read("app/cash-reconciliation-workspace.tsx"),
+  ]);
+  assert.match(api,/BANK_GL_ACCOUNT_CODE = "1039"/);
+  assert.match(api,/async function bankSubsidiaryAmount/);
+  assert.match(api,/financeCurrentData\.accountSummary\.checkingBalanceSum \+ financeCurrentData\.accountSummary\.fxBalanceSumKrw/);
+  assert.match(api,/async function bankBreakdown/);
+  assert.match(api,/FROM finance_bank_transactions transaction_row/);
+  assert.match(api,/"RECEIVABLES", "PAYABLES", "INVENTORY", "DEBT", "BANK"\]\.includes\(checkType\)/);
+  assert.match(tieOutModule,/breakdown_json/);
+  assert.match(close,/BANK_BALANCE_TIE_OUT/);assert.match(close,/bankTieOut/);
+  assert.match(workspace,/은행계정조정표\(보통예금 잔액 대사\)/);assert.match(workspace,/보조부\(Clobe 스냅샷 은행성 자산\)/);
+  assert.match(workspace,/미기입예금·미결제출금 후보/);
+});
+
+test("tie-out board unifies all 5 subsidiary-to-GL reconciliations with drill-down navigation and is wired into the finance sidebar",async()=>{
+  const[board,page]=await Promise.all([
+    read("app/tie-out-board-workspace.tsx"),read("app/page.tsx"),
+  ]);
+  for(const type of["RECEIVABLES","PAYABLES","INVENTORY","DEBT","BANK"]) assert.match(board,new RegExp(`type: "${type}"`));
+  assert.match(board,/fetch\(`\/api\/finance\/tie-out\?period=/);
+  assert.match(board,/action: "RECOMPUTE"/);
+  assert.match(board,/onNavigate\(item\.destination\)/);
+  assert.match(page,/import TieOutBoardWorkspace from ".\/tie-out-board-workspace"/);
+  assert.match(page,/"reconciliation-board"/);
+  assert.match(page,/대사 현황판/);
+});
+
 test("inventory moving average respects transaction date and fully liquidated stock leaves no rounding residue", async () => {
   const api = await read("app/api/finance/inventory/route.ts");
   assert.match(api, /async function currentStock\(productId: string, warehouseId: string, asOfDate\?: string\)/);
   assert.match(api, /AND movement_date <= \?/);
   assert.match(api, /currentStock\(productId, warehouseId, movementDate\)/);
   assert.match(api, /quantityMilli === onHandMilli \? stockAmount : Math\.round\(quantityMilli \* unitCost \/ 1000\)/);
+});
+
+test("평균임금 산정 쿼리는 퇴직금과 퇴직월 연차수당을 뺀다", async () => {
+  const source = await read("app/api/hr/operations/route.ts");
+  // 지급총액을 그대로 쓰면 퇴직금이 평균임금에 섞여 들어간다.
+  assert.match(source, /gross_pay - retirement_pay/);
+  assert.ok(source.includes("CASE WHEN year_month = ? THEN annual_leave_pay ELSE 0 END"));
 });

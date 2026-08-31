@@ -116,7 +116,7 @@ button { color: inherit; }
 .payroll-summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; overflow: hidden; margin-bottom: 15px; border: 1px solid var(--line); border-radius: 11px; background: var(--line); }.payroll-summary > div { min-height: 102px; padding: 19px; background: #fff; }.payroll-summary span, .payroll-summary strong, .payroll-summary small { display: block; }.payroll-summary span { color: #747d8e; }.payroll-summary strong { margin: 10px 0 7px; font-size: 19px; letter-spacing: -.03em; }.payroll-summary small { color: #929aaa; }.payroll-detail-table td:nth-last-child(2) { color: var(--navy); font-weight: 800; }
 
 .row-actions { display: flex; gap: 5px; min-width: 150px; }.row-actions button { height: 27px; padding: 0 9px; border-radius: 6px; font-weight: 700; cursor: pointer; }.row-actions button:disabled { opacity: .38; cursor: default; }.interview-action { color: #fff; border: 1px solid var(--navy); background: var(--navy); }.reject-action { color: #a64a50; border: 1px solid #edcdd0; background: #fff; }.applicant-table { min-width: 1020px; }
-.resume-drop { margin: 20px 24px 0; border: 1px dashed #cdd5e3; }.resume-drop label { min-height: 78px; display: flex; align-items: center; gap: 12px; padding: 12px 15px; cursor: pointer; }.resume-drop input { position: absolute; opacity: 0; pointer-events: none; }.resume-icon { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; font-size: 10px; font-weight: 900; }.resume-drop label > div { flex: 1; }.resume-drop strong, .resume-drop small { display: block; }.resume-drop strong { margin-bottom: 4px; }.resume-drop small { color: #8992a3; }.resume-drop em { height: 29px; display: grid; place-items: center; padding: 0 10px; border-radius: 6px; color: var(--navy); background: #e4eaf8; font-style: normal; font-weight: 700; }.resume-drop.analyzing { border-color: #bcb0e6; background: #f8f6ff; }.resume-drop.done { border-color: #9bcbb8; background: #f3fbf7; }.applicant-modal { max-height: 92vh; overflow-y: auto; }
+.resume-drop { margin: 20px 24px 0; border: 1px dashed #cdd5e3; }.resume-drop label { min-height: 78px; display: flex; align-items: center; gap: 12px; padding: 12px 15px; cursor: pointer; }.resume-drop input { position: absolute; opacity: 0; pointer-events: none; }.resume-icon { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; font-size: 10px; font-weight: 900; }.resume-drop label > div { flex: 1; }.resume-drop strong, .resume-drop small { display: block; }.resume-drop strong { margin-bottom: 4px; }.resume-drop small { color: #8992a3; }.resume-drop em { height: 29px; display: grid; place-items: center; padding: 0 10px; border-radius: 6px; color: var(--navy); background: #e4eaf8; font-style: normal; font-weight: 700; }.resume-rerun { display: flex; align-items: center; gap: 12px; padding: 10px 15px 12px; border-top: 1px dashed #cdd5e3; }.resume-rerun > div { flex: 1; min-width: 0; }.resume-rerun strong { display: block; margin-bottom: 3px; font-size: 12px; }.resume-rerun small { display: block; color: #8992a3; }.resume-rerun button { flex: 0 0 auto; height: 32px; padding: 0 14px; border: 1px solid #cdd5e3; border-radius: 8px; background: #fff; color: var(--navy); font-weight: 700; cursor: pointer; }.resume-rerun button:hover { background: #eef2fb; }.resume-drop.analyzing { border-color: #bcb0e6; background: #f8f6ff; }.resume-drop.done { border-color: #9bcbb8; background: #f3fbf7; }.applicant-modal { max-height: 92vh; overflow-y: auto; }
 .applicant-detail-modal { width: min(620px, 100%); overflow: hidden; background: #fff; animation: modalUp .2s ease; }.applicant-profile { display: flex; align-items: center; gap: 14px; padding: 22px 24px; border-bottom: 1px solid var(--line); }.applicant-profile .profile-avatar { width: 52px; height: 52px; border-radius: 14px; font-size: 19px; }.applicant-profile > div:nth-child(2) { flex: 1; }.applicant-profile h2 { margin: 0 0 6px; font-size: 17px; }.applicant-profile p { margin: 0; color: #7d8596; }.applicant-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding: 20px 24px; }.applicant-facts div { min-width: 0; }.applicant-facts span, .applicant-facts strong { display: block; }.applicant-facts span { margin-bottom: 5px; color: #949baa; }.applicant-facts strong { overflow: hidden; text-overflow: ellipsis; }.resume-summary { margin: 0 24px 22px; padding: 15px; border-radius: 9px; }.resume-summary > span { color: var(--navy); font-weight: 800; }.resume-summary p { margin: 8px 0 12px; color: #5d687c; line-height: 1.65; }.resume-summary div { display: flex; flex-wrap: wrap; gap: 5px; }.resume-summary em { padding: 5px 7px; border-radius: 5px; color: #5f6e8d; background: #fff; font-style: normal; }
 .candidate-banner { display: flex; align-items: center; gap: 11px; margin: 18px 24px 0; padding: 12px 14px; border-radius: 9px; }.candidate-banner > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; font-size: 11px; font-weight: 800; }.candidate-banner > div { flex: 1; }.candidate-banner strong, .candidate-banner small { display: block; }.candidate-banner small { margin-top: 3px; color: #858e9e; }.candidate-banner em { color: #8d95a5; font-style: normal; }.form-grid label.wide { grid-column: 1 / -1; }
 
@@ -131,7 +131,7 @@ button { color: inherit; }
 .personnel-note-required small { display: block; margin-top: 7px; color: #a65a61; line-height: 1.45; }
 .personnel-actions-stack { display: grid; grid-template-columns: 1fr; min-width: 108px; }
 .profile-actions .retirement-action:hover { color: #8e3d44; border-color: #dca8ad; background: #fff2f3; }
-.retirement-modal { width: min(880px, 100%); max-height: 92vh; overflow-y: auto; }
+.retirement-modal { width: min(1240px, 100%); max-height: 92vh; overflow-y: auto; }/* 퇴직금 정산 계산기는 체크리스트 안이 아니라 오른쪽 열에 둔다. 체크하면서 금액을 같이 본다. */.retirement-modal-body { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.9fr); gap: 20px; align-items: start; }.retirement-modal-main { min-width: 0; }.retirement-modal-side { min-width: 0; padding: 0 24px 22px 0; }.retirement-modal-side .retirement-settlement { margin-top: 0; }
 .retirement-fields { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; padding: 20px 24px 14px; }
 .retirement-fields label > span { display: block; margin-bottom: 7px; color: #626b7d; font-weight: 700; }
 .retirement-fields input, .retirement-fields textarea { width: 100%; border: 1px solid #dce1e9; border-radius: 7px; outline: 0; background: #fff; }
@@ -224,7 +224,7 @@ button { color: inherit; }
   .sidebar { height: auto; }.brand { height: 62px; }.main-nav { display: flex; overflow-x: auto; padding: 8px; }.nav-group { display: contents; }.nav-group > p, .sidebar-footer { display: none; }.nav-item { width: auto; min-width: max-content; }.topbar { top: var(--erp-nav-height, 66px); height: auto; min-height: 62px; padding: 10px 14px; }.breadcrumbs, .search-box kbd, .top-actions .outline-button { display: none; }.search-box { width: min(42vw, 260px); }.welcome-row, .module-hero { align-items: flex-start; flex-direction: column; }.metric-grid { grid-template-columns: 1fr 1fr; }.notification-panel { top: calc(var(--erp-nav-height, 66px) + 62px); width: min(390px, 100%); }.form-grid { grid-template-columns: 1fr; max-height: 55vh; overflow-y: auto; }.profile-hero { align-items: flex-start; flex-wrap: wrap; }.profile-actions { width: 100%; }.settings-layout { grid-template-columns: 1fr; }.settings-nav { display: flex; overflow-x: auto; }.settings-nav button { min-width: max-content; }.department-heading { grid-template-columns: 22px 1fr 50px; }.department-heading .dept-progress { display: none; }.organization-list { grid-template-columns: 1fr; }
 }
 @media (max-width: 680px) {
-  .retirement-fields, .retirement-checklist-grid { grid-template-columns: 1fr; }
+  .retirement-fields, .retirement-checklist-grid { grid-template-columns: 1fr; }  .retirement-modal-body { grid-template-columns: 1fr; gap: 0; }  .retirement-modal-side { padding: 0 24px 22px; }
   .retirement-modal { max-height: 96vh; }
 }
 @media (max-width: 560px) {
@@ -722,8 +722,11 @@ button { color: inherit; }
 
 .secure-document-badge { width: fit-content; padding: 9px 12px; color: #166534; background: #dcfce7; border: 1px solid #bbf7d0; border-radius: 14px; font-size: 10px; font-weight: 900; }
 .document-layout { margin-top: 22px; display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 18px; align-items: start; }
-.document-employee-list { max-height: calc(100vh - 180px); overflow: hidden; position: sticky; top: 20px; }
-.document-employee-list > div:last-child { max-height: calc(100vh - 255px); padding: 7px; overflow-y: auto; }
+/* 화면 아래까지 다 쓰게 한다. 예전에는 100vh-180px 로 옛 머리글 높이(145+40)를 빼고 있어
+   머리글을 줄인 뒤로는 아래가 남는데도 목록이 짧게 잘렸다. 세로 flex 로 두고 목록 칸이
+   남는 높이를 가져가게 하면 머리글 높이가 바뀌어도 숫자를 다시 맞출 필요가 없다. */
+.document-employee-list { display: flex; flex-direction: column; max-height: calc(100vh - 40px); overflow: hidden; position: sticky; top: 20px; }
+.document-employee-list > div:last-child { flex: 1 1 auto; min-height: 0; padding: 7px; overflow-y: auto; }
 .document-employee-list button { width: 100%; min-height: 54px; padding: 8px 10px; display: grid; grid-template-columns: 34px 1fr; gap: 9px; align-items: center; text-align: left; background: transparent; border: 0; border-radius: 14px; cursor: pointer; }
 .document-employee-list button:hover, .document-employee-list button.active { color: #fff; background: #18181b; }
 .document-employee-list button > span { width: 32px; height: 32px; display: grid; place-items: center; color: #18181b; background: #f4f4f5; border-radius: 11px; font-size: 10px; font-weight: 900; }
@@ -996,3 +999,284 @@ button { color: inherit; }
 .date-strip button { font-size: 12px !important; }
 .status-pill { font-size: 11px !important; }
 .table-message, .empty-cell { font-size: 12px !important; }
+
+/* 지원자 상세 팝업 --------------------------------------------------------- */
+/* 서류 심사는 특이사항 기록 바로 아래에 와야 해서 둘을 오른쪽 열로 묶었다. */
+.applicant-edit-side { display: flex; flex-direction: column; min-width: 0; }
+.applicant-edit-side .applicant-screening-block { margin: 0 24px 24px; }
+
+/* 스크롤 막대를 팝업 안쪽 왼편에 두고 위·아래 화살표를 없앤다. 컨테이너에 rtl 을 주면
+   막대가 왼쪽으로 가므로 자식들은 다시 ltr 로 되돌려 글자 방향은 그대로 둔다. */
+.retirement-modal,
+.employee-detail-modal,
+.applicant-edit-modal { direction: rtl; scrollbar-width: thin; scrollbar-color: #c7c7cc transparent; }
+.retirement-modal > *,
+.employee-detail-modal > *,
+.applicant-edit-modal > * { direction: ltr; }
+.retirement-modal::-webkit-scrollbar,
+.employee-detail-modal::-webkit-scrollbar,
+.applicant-edit-modal::-webkit-scrollbar { width: 10px; }
+.retirement-modal::-webkit-scrollbar-button,
+.employee-detail-modal::-webkit-scrollbar-button,
+.applicant-edit-modal::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.retirement-modal::-webkit-scrollbar-track,
+.employee-detail-modal::-webkit-scrollbar-track,
+.applicant-edit-modal::-webkit-scrollbar-track { margin: 10px 0; background: transparent; }
+.retirement-modal::-webkit-scrollbar-thumb,
+.employee-detail-modal::-webkit-scrollbar-thumb,
+.applicant-edit-modal::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-color: #c7c7cc; background-clip: content-box; }
+.retirement-modal::-webkit-scrollbar-thumb:hover,
+.employee-detail-modal::-webkit-scrollbar-thumb:hover,
+.applicant-edit-modal::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
+
+/* 제목줄은 스크롤해도 늘 위에 남는다. 내려가면 높이가 절반(92px→46px)으로 접히고
+   글자도 작아지며 APPLICANT PROFILE 눈금은 사라져 제목과 X 만 남는다. */
+.retirement-modal .modal-header,
+.applicant-edit-modal .modal-header { position: sticky; top: 0; z-index: 5; background: #fff; transition: min-height .18s ease; }
+.retirement-modal.condensed .modal-header,
+.applicant-edit-modal.condensed .modal-header { min-height: 46px; box-shadow: 0 1px 0 rgba(9, 9, 11, .08); }
+.retirement-modal.condensed .modal-header p,
+.applicant-edit-modal.condensed .modal-header p { display: none; }
+.retirement-modal.condensed .modal-header h2,
+.applicant-edit-modal.condensed .modal-header h2 { font-size: 16px; }
+.retirement-modal.condensed .modal-header button,
+.applicant-edit-modal.condensed .modal-header button { font-size: 20px; }
+
+/* 채용단계에 "면접"이 추가됐다. 서류 합격보다 한 단계 더 간 상태라 색을 달리한다. */
+.screening-stage.interview { border-color: #c7d2fe; background: #eef2ff; color: #3730a3; }
+
+/* 면접 전형 진행 표. 지원 현황 바로 아래에 면접 일시 순으로 놓인다. */
+.interview-schedule-panel { margin-top: 24px; }
+.interview-when { display: flex; align-items: baseline; gap: 8px; }
+.interview-when strong { font-weight: 700; }
+.interview-when em { color: #71717a; font-style: normal; font-weight: 600; }
+
+/* 탈락자 표. 면접 전형 진행 표 바로 아래에 놓인다. */
+.rejected-applicant-panel { margin-top: 24px; }
+.rejected-reason { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 1px solid #fecaca; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-size: 11px; font-weight: 700; }
+
+/* 면접 합격자 표. 탈락자 표 바로 위에 놓인다. */
+.passed-applicant-panel { margin-top: 24px; }
+.passed-status { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 1px solid #bbf7d0; border-radius: 999px; background: #f0fdf4; color: #15803d; font-size: 11px; font-weight: 700; }
+
+/* 모듈 상단 제목 영역 -------------------------------------------------------
+   눈금(EYEBROW)·제목·설명을 세로로 쌓아 두니 실측 145px 이라 표가 화면에 거의
+   안 들어왔다. 눈금과 제목을 한 줄에 두고 설명을 아랫줄에 붙여 약 1/3 로 줄인다.
+   통합 대시보드의 welcome-row 도 같은 구조라 함께 묶는다.
+   HR 은 shadow root 안에서 이 파일만 읽으므로 재무·영업 화면에는 영향이 없다. */
+.welcome-row, .module-hero { gap: 16px; margin-bottom: 24px; }
+@media (min-width: 841px) { .welcome-row, .module-hero { align-items: center; } }
+.welcome-row > div:first-child,
+.module-hero > div:first-child {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 10px;
+  row-gap: 2px;
+}
+.welcome-row .eyebrow,
+.module-hero .eyebrow {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 9px !important;
+  letter-spacing: .06em;
+}
+.welcome-row h1,
+.module-hero h1 {
+  grid-column: 2;
+  grid-row: 1;
+  max-width: none;
+  font-size: 20px;
+  line-height: 1.25;
+}
+.welcome-row > div:first-child > p:last-child,
+.module-hero > div:first-child > p:last-child {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  max-width: none;
+  margin: 0;
+  font-size: 11px !important;
+  line-height: 1.45;
+}
+
+/* 인사문서 업로드 카드. 탐색기에서 파일을 끌어다 놓으면 카드 전체가 드롭 영역이 된다. */
+.document-upload-card { transition: border-color .15s ease, background .15s ease; }
+.document-upload-card.dragging { border-color: #6366f1; background: #eef2ff; }
+.document-upload-card.dragging .file-field strong { border-color: #6366f1; border-style: solid; color: #3730a3; background: #fff; }
+
+.document-upload-notice { margin: 0 20px 16px; padding: 9px 12px; border: 1px solid #fecaca; border-radius: 12px; background: #fef2f2; color: #b91c1c; font-size: 11px !important; line-height: 1.5; }
+
+/* 인사문서: 분류별로 박스가 나뉜다. */
+.document-group-empty { margin: 0; padding: 22px 20px; color: #71717a; font-size: 12px !important; text-align: center; }
+.document-category-select { height: 30px; max-width: 150px; padding: 0 8px; border: 1px solid #d4d4d8; border-radius: 9px; background: #fff; font: inherit; font-size: 11px; cursor: pointer; }
+.document-category-select:disabled { color: #a1a1aa; cursor: progress; }
+
+/* 급여월 상태 변경 실패 사유. 예전에는 표 안에만 그려져 직원 데이터가 있으면 아예 안 보였다. */
+.payroll-status-error { margin: 0 0 18px; padding: 11px 14px; border: 1px solid #fecaca; border-radius: 12px; background: #fef2f2; color: #b91c1c; font-size: 12px !important; line-height: 1.5; }
+
+/* 지원자 팝업 제목줄의 저장 버튼. 제목줄이 스크롤에도 고정이라 어디서든 저장할 수 있다. */
+.modal-header-actions { display: flex; align-items: center; gap: 10px; }
+.header-save-button { height: 34px; padding: 0 14px; border: 0; border-radius: 10px; background: var(--navy); color: #fff; font-size: 12px !important; font-weight: 700; cursor: pointer; }
+.header-save-button:hover { opacity: .88; }
+.applicant-edit-modal.condensed .header-save-button { height: 28px; padding: 0 11px; font-size: 11px !important; }
+
+/* 지원자 정보 확인 및 수정 팝업만 모서리를 덜 둥글게 한다(24px -> 12px).
+   다른 팝업(.employee-modal 등)은 기존 곡률을 그대로 쓴다. */
+.retirement-modal,
+.employee-detail-modal,
+.applicant-edit-modal { border-radius: 9px; }
+
+/* 인사기록카드 상세. 목록을 대체하던 전체 페이지에서 겹쳐 뜨는 팝업으로 바꿨다.
+   곡률과 왼쪽 스크롤바는 위의 지원자 팝업 규칙을 같이 쓴다. */
+.employee-detail-modal { width: min(1120px, calc(100vw - 36px)); max-height: 92vh; overflow-y: auto;
+  border: 1px solid #ececee; background: #f7f7f8; animation: modalUp .2s ease; }
+.employee-detail-modal .modal-header { position: sticky; top: 0; z-index: 5; background: #fff; }
+.employee-detail-modal .detail-grid, .employee-detail-modal > section, .employee-detail-modal > .detail-grid { margin-left: 24px; margin-right: 24px; }
+.employee-detail-modal > *:last-child { margin-bottom: 24px; }
+
+/* 급여 상세 표 — 공제 열 제목을 눌러 항목별 내역을 편다. 열이 이미 많아 항상 펼쳐 두면
+   가로 스크롤이 길어지므로, 볼 때만 열도록 접어 둔다. */
+.payroll-deduction-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 0; color: inherit; font: inherit; border: 0; background: none; cursor: pointer; }
+.payroll-deduction-toggle:hover { color: #18181b; text-decoration: underline; }
+.payroll-deduction-toggle span { font-size: 10px; }
+.payroll-deduction-breakdown { display: grid; gap: 2px; margin: 6px 0 0; padding: 6px 0 0; list-style: none; border-top: 1px dashed #d8dbe2; }
+.payroll-deduction-breakdown li { display: flex; justify-content: space-between; gap: 10px; white-space: nowrap; }
+.payroll-deduction-breakdown li span { color: #6b7280; font-size: 11px; }
+.payroll-deduction-breakdown li em { color: #3f4654; font-size: 11px; font-style: normal; }
+.payroll-deduction-breakdown li.empty span { color: #9ca3af; }
+.payroll-detail-table td.payroll-gross-cell { font-weight: 600; }
+
+/* 개인별 급여 팝업. 앞서 정한 팝업 규칙 세 가지를 그대로 따른다 —
+   1) 네 귀퉁이 곡률 9px, 2) 스크롤 막대는 안쪽 왼편에 화살표 없이,
+   3) 내려가면 제목줄이 절반으로 접히며 글자도 줄고 위에 고정된다. */
+.payroll-record-modal { border-radius: 9px; direction: rtl; scrollbar-width: thin; scrollbar-color: #c7c7cc transparent; }
+.payroll-record-modal > * { direction: ltr; }
+.payroll-record-modal::-webkit-scrollbar { width: 10px; }
+.payroll-record-modal::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.payroll-record-modal::-webkit-scrollbar-track { margin: 10px 0; background: transparent; }
+.payroll-record-modal::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-color: #c7c7cc; background-clip: content-box; }
+.payroll-record-modal::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
+.payroll-record-modal .modal-header { position: sticky; top: 0; z-index: 5; background: #fff; transition: min-height .18s ease; }
+.payroll-record-modal.condensed .modal-header { min-height: 46px; box-shadow: 0 1px 0 rgba(9, 9, 11, .08); }
+.payroll-record-modal.condensed .modal-header p { display: none; }
+.payroll-record-modal.condensed .modal-header h2 { font-size: 16px; }
+.payroll-record-modal.condensed .modal-header .modal-close { font-size: 20px; }
+
+/* 팝업 안의 편집 영역. 지급 항목과 공제 내역을 같은 리듬으로 놓는다. */
+.payroll-edit-section { margin: 0 24px 22px; }
+.payroll-edit-section .detail-card-heading { margin-bottom: 12px; padding: 0; }
+.payroll-edit-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+.payroll-edit-grid label { display: flex; flex-direction: column; gap: 5px; }
+.payroll-edit-grid label span { color: #6b7280; }
+.payroll-edit-grid label.reference span { color: #9ca3af; }
+.payroll-edit-grid input, .payroll-deduction-row input, .payroll-edit-section textarea {
+  padding: 9px 11px; color: #18181b; border: 1px solid #dfe2e8; border-radius: 9px; background: #fff; font: inherit; }
+.payroll-edit-grid input:focus, .payroll-deduction-row input:focus, .payroll-edit-section textarea:focus { border-color: #a8b0bd; outline: none; }
+.payroll-edit-section textarea { width: 100%; min-height: 76px; resize: vertical; }
+.payroll-deduction-rows { display: grid; gap: 8px; margin-bottom: 10px; }
+.payroll-deduction-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.payroll-edit-section > small { display: block; margin-top: 8px; color: #8b93a2; }
+.payroll-record-modal .modal-header-actions { display: flex; align-items: center; gap: 10px; }
+
+/* 확정 전 급여월이 산정기간에 들어 있을 때의 안내. 퇴직금이 아직 잠정치라는 사실과
+   인센티브가 정해지면 얼마가 되는지 같은 자리에서 보여 준다. */
+.settlement-provisional { margin: 10px 0 0; padding: 12px 14px; border: 1px solid #fcd9a4; border-radius: 9px; background: #fffaf0; }
+.settlement-provisional strong { display: block; color: #92400e; }
+.settlement-provisional p { margin: 5px 0 0; color: #7c5310; line-height: 1.55; }
+.settlement-provisional label { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.settlement-provisional label span { color: #7c5310; white-space: nowrap; }
+.settlement-provisional input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid #e7c58a; border-radius: 8px; background: #fff; font: inherit; }
+.settlement-simulated { margin-top: 8px !important; color: #7c2d12 !important; }
+.settlement-simulated strong { display: inline; color: #7c2d12; }
+.settlement-simulated.muted { color: #a1794a !important; }
+.settlement-provisional .outline-button { margin-top: 10px; border-color: #e7c58a; background: #fff; color: #92400e; }
+.settlement-provisional .outline-button:hover { border-color: #d9a95c; background: #fffdf7; }
+
+/* 공제액 오른편 빈 칸에 놓는 "임금안에 반영". 라벨이 없는 칸이라 입력칸과 아래를 맞춘다. */
+.settlement-apply-cell { display: flex; align-items: flex-end; }
+.settlement-apply-cell .outline-button { width: 100%; height: 38px; border-radius: 11px; }
+
+/* 통합 대시보드 — 면접·입사·퇴사를 한 줄로 세운 일정과 그 아래 상세 표들. */
+.dashboard-timeline-panel { margin-bottom: 20px; padding: 18px 20px 14px; }
+.dashboard-timeline-panel .section-heading span { color: #71717a; font-size: 11px; }
+.people-timeline { display: grid; gap: 6px; margin: 12px 0 4px; padding: 0; list-style: none; }
+.people-timeline > li > button { width: 100%; display: grid; grid-template-columns: 62px 52px minmax(0, 1fr); align-items: center; gap: 12px;
+  padding: 9px 10px; text-align: left; border: 1px solid #ececee; border-radius: 11px; background: #fff; cursor: pointer; }
+.people-timeline > li > button:hover { border-color: #d4d4d8; background: #fafafa; }
+.timeline-date { display: grid; gap: 1px; }
+.timeline-date strong { color: #18181b; font-size: 13px; }
+.timeline-date em { color: #8b93a2; font-size: 10px; font-style: normal; }
+.timeline-kind { display: grid; place-items: center; height: 22px; border-radius: 999px; font-size: 11px; font-weight: 800; }
+.timeline-kind.interview { border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; }
+.timeline-kind.join { border: 1px solid #bbf7d0; background: #f0fdf4; color: #166534; }
+.timeline-kind.leave { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; }
+.timeline-who { display: grid; gap: 2px; min-width: 0; }
+.timeline-who strong { color: #18181b; font-size: 12px; }
+.timeline-who small { overflow: hidden; color: #71717a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
+.dashboard-people-grid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); margin-bottom: 20px; }
+.dashboard-people-grid .panel { padding: 16px 18px; }
+.dashboard-mini-table { margin-top: 10px; font-size: 11px; }
+.dashboard-mini-table th { color: #71717a; font-weight: 700; white-space: nowrap; }
+.dashboard-mini-table td { white-space: nowrap; }
+.dashboard-mini-table td strong { color: #18181b; }
+.headcount-leaving { margin-left: 5px; color: #b91c1c; font-size: 10px; font-style: normal; }
+/* 지표 카드 설명은 "가장 이른 퇴사일 …(D-3)" 처럼 한 줄을 넘긴다. 잘라내지 않고 접는다. */
+.dashboard-page .metric-card small { overflow: visible; line-height: 1.5; text-overflow: clip; white-space: normal; }
+.dashboard-page .metric-card { align-content: start; }
+
+/* 인사 일정을 입사·퇴사·면접 세 박스로 나눈다. 구분별 색으로 왼쪽 띠를 준다. */
+.dashboard-event-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 20px; }
+.dashboard-event-panel { position: relative; overflow: hidden; padding: 16px 18px; }
+.dashboard-event-panel::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; }
+.dashboard-event-panel.join::before { background: #16a34a; }
+.dashboard-event-panel.leave::before { background: #dc2626; }
+.dashboard-event-panel.interview::before { background: #4f46e5; }
+.dashboard-event-panel .section-heading h2 em { margin-left: 6px; color: #71717a; font-size: 12px; font-style: normal; font-weight: 700; }
+.dashboard-event-panel .people-timeline > li > button { grid-template-columns: 62px minmax(0, 1fr); }
+.dashboard-event-panel .empty-cell { margin-top: 10px; }
+
+/* 면접 합격 뒤의 처우 제안 단계. 면접 박스와 분리해 "제안 → 수락/거절" 순서가 보이게 한다. */
+.applicant-offer-block { margin: 0 24px 24px; padding: 16px 18px; border: 1px solid #e4e4e7; border-radius: 14px; background: #fff; }
+.applicant-offer-block .detail-card-heading { margin-bottom: 12px; padding: 0; }
+.applicant-offer-steps { display: grid; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px dashed #e4e4e7; }
+.applicant-offer-steps > .primary-button { justify-self: start; }
+.applicant-offer-response-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 14px; border-left: 2px solid #ececee; }
+.applicant-offer-steps button:disabled { opacity: .45; cursor: not-allowed; }
+.offer-response-modal { width: min(720px, calc(100vw - 36px)); max-height: 92vh; overflow-y: auto; border-radius: 9px; }
+
+/* 제안 수락·거절은 같은 무게의 결정이라 크기·모양을 똑같이 두고 색으로만 가른다. */
+.applicant-offer-response-actions { padding-left: 0; border-left: 0; }
+.offer-decision { min-width: 132px; height: 38px; padding: 0 18px; border-radius: 11px;
+  font: inherit; font-weight: 700; border: 1px solid transparent; cursor: pointer; }
+.offer-decision.accept { border-color: #86efac; background: #16a34a; color: #fff; }
+.offer-decision.accept:hover:not(:disabled) { background: #15803d; }
+.offer-decision.decline { border-color: #fca5a5; background: #dc2626; color: #fff; }
+.offer-decision.decline:hover:not(:disabled) { background: #b91c1c; }
+.offer-decision:disabled { opacity: .45; cursor: not-allowed; }
+/* 오퍼 회신 대기 — 확정 전이라 입사(초록)와 구분되는 주황 계열로 둔다. */
+.dashboard-event-panel.offer::before { background: #d97706; }
+.timeline-kind.offer { border: 1px solid #fcd9a4; background: #fffaf0; color: #92400e; }
+
+/* 처우 수락·거절 팝업의 여러 줄 입력. 폭을 주지 않으면 textarea 가 브라우저 기본값(약 20자)으로
+   쪼그라들어 팝업 안에서 혼자 작아 보인다. 처우 입력·채용요청 팝업과 같은 규칙을 쓴다. */
+.offer-response-modal .form-grid textarea { width: 100%; min-height: 92px; padding: 10px 11px;
+  border: 1px solid #dce1e9; border-radius: 14px; outline: 0; font: inherit; font-size: 11px; resize: vertical; }
+.offer-response-modal .form-grid textarea:focus { border-color: #a8b0bd; }
+
+/* 타사 합격 — 우리가 떨어뜨린 "탈락"(빨강)과 눈으로도 구분되게 회색 계열로 둔다.
+   진행 중(검정)도 아니고 탈락도 아닌, 지원자 사정으로 끝난 상태다. */
+.screening-stage.other_offer { border-color: #d4d4d8; background: #f4f4f5; color: #52525b; }
+
+/* 채용 종료 — 절차가 끝난 사람만 모아 두는 페이지 맨 아래 표. 종료 구분을 색으로 가른다. */
+.closed-applicant-panel { margin-top: 24px; }
+.closed-summary { color: #71717a; font-size: 11px; white-space: nowrap; }
+.closed-reason { display: inline-flex; padding: 5px 9px; border: 1px solid transparent; border-radius: 9px;
+  font-size: 11px; font-weight: 800; white-space: nowrap; }
+.closed-reason.reject { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.closed-reason.decline { border-color: #fcd9a4; background: #fffaf0; color: #92400e; }
+.closed-reason.other { border-color: #d4d4d8; background: #f4f4f5; color: #52525b; }
+.closed-reason.join { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }

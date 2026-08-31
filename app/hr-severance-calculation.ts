@@ -24,6 +24,8 @@ export type SeveranceInput = {
   retirementDate: string;  // YYYY-MM-DD (마지막 근무일)
   recentWages: SeveranceWage[];
   monthlyOrdinaryWage: number; // 월 통상임금 (연봉/12 등 고정 지급분)
+  /** 급여가 아직 확정되지 않은 급여월 키. 인센티브가 안 정해진 달이 여기 들어온다. */
+  unconfirmedMonths?: string[];
 };
 
 export type SeveranceResult = {
@@ -45,6 +47,8 @@ export type SeveranceResult = {
   workingTimeRule: WorkingTimeRule;
   /** 이 추정치가 법정 산식과 어긋나는 지점. 화면이 그대로 사람에게 보여 준다. */
   limitations: string[];
+  /** 산정에 쓴 급여월 중 아직 확정되지 않은 달. 비어 있지 않으면 금액이 바뀔 수 있다. */
+  provisionalMonths: string[];
 };
 
 const DAY = 86_400_000;
@@ -127,6 +131,36 @@ export function precedingMonths(retirementDate: string, count = 3) {
   return months;
 }
 
+/** 그 달의 마지막 날인가. 말일 퇴사는 그 달을 만근한 것이라 일할계산이 아니다. */
+export function isMonthEnd(date: string) {
+  const parsed = parseDate(date);
+  if (!parsed) return false;
+  const lastDay = new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth() + 1, 0)).getUTCDate();
+  return parsed.getUTCDate() === lastDay;
+}
+
+/**
+ * 평균임금 산정에 쓸 급여월. 법정 기준은 "퇴직일 이전 3개월"이라 8/31 퇴사면 6/1~8/30 이고
+ * 퇴직월(8월)이 들어간다. 급여 자료가 월 단위라 월로 근사하되, 퇴직월을 넣을지는 퇴사일로 가른다.
+ *
+ *   말일 퇴사(8/31) → 그 달을 만근했으므로 퇴직월 포함: 2026-08, 2026-07, 2026-06
+ *   중도 퇴사(7/10) → 일할이라 한 달치가 아니므로 제외: 2026-06, 2026-05, 2026-04
+ *
+ * 예전에는 퇴사일과 무관하게 늘 퇴직월을 뺐다. 그래서 말일 퇴사자는 마지막 달 인센티브가
+ * 확정되어도 퇴직금에 반영될 자리가 아예 없었다.
+ */
+export function averageWageMonths(retirementDate: string, count = 3) {
+  const date = parseDate(retirementDate);
+  if (!date) return [];
+  const offset = isMonthEnd(retirementDate) ? 0 : 1;
+  const months: string[] = [];
+  for (let index = offset; index < offset + count; index += 1) {
+    const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - index, 1));
+    months.push(`${target.getUTCFullYear()}-${String(target.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return months;
+}
+
 export function calculateSeverance(input: SeveranceInput): SeveranceResult {
   const join = parseDate(input.joinDate);
   const leave = parseDate(input.retirementDate);
@@ -135,7 +169,7 @@ export function calculateSeverance(input: SeveranceInput): SeveranceResult {
   const empty: SeveranceResult = {
     eligible: false, reason: "", tenureDays: 0, averageWageTotal: 0, averageWageDays: 0,
     averageDailyWage: 0, ordinaryDailyWage, appliedDailyWage: 0, basis: "NONE", months: [], severance: 0,
-    averageSeverance: 0, ordinarySeverance: 0, limitations: [], workingTimeRule,
+    averageSeverance: 0, ordinarySeverance: 0, limitations: [], provisionalMonths: [], workingTimeRule,
   };
   if (!join || !leave) return { ...empty, reason: "입사일과 퇴사일을 모두 확인해 주세요." };
   if (leave < join) return { ...empty, reason: "퇴사일이 입사일보다 빠릅니다." };
@@ -146,7 +180,7 @@ export function calculateSeverance(input: SeveranceInput): SeveranceResult {
     return { ...empty, tenureDays, reason: "계속근로기간이 1년 미만이라 법정 퇴직금 지급 대상이 아닙니다." };
   }
 
-  const months = precedingMonths(input.retirementDate);
+  const months = averageWageMonths(input.retirementDate);
   const wages = months.map((month) => input.recentWages.find((wage) => wage.yearMonth === month));
   const found = wages.filter((wage): wage is SeveranceWage => Boolean(wage));
   const averageWageTotal = found.reduce((sum, wage) => sum + Math.max(0, wage.grossPay), 0);
@@ -164,15 +198,21 @@ export function calculateSeverance(input: SeveranceInput): SeveranceResult {
   const severance = severanceFrom(appliedDailyWage);
 
   const missing = months.length - found.length;
+  // 산정에 실제로 쓴 달 중 아직 확정되지 않은 것만 남긴다. 쓰지도 않은 달을 경고할 필요는 없다.
+  const usedMonths = new Set(found.map((wage) => wage.yearMonth));
+  const provisionalMonths = (input.unconfirmedMonths ?? []).filter((month) => usedMonths.has(month));
   const limitations = [
-    "법정 기준은 퇴직일 이전 3개월이지만 급여 자료가 월 단위라 직전 3개 급여월로 근사했습니다.",
+    "법정 기준은 퇴직일 이전 3개월이지만 급여 자료가 월 단위라 3개 급여월로 근사했습니다.",
     "수습·휴업·출산전후휴가·육아휴직·업무상 요양 등 제외기간을 반영하지 못했습니다.",
     "상여금·연차수당의 3/12 산입 규칙을 반영하지 못했습니다.",
+    ...(provisionalMonths.length
+      ? [`${provisionalMonths.join(", ")} 급여가 아직 확정되지 않았습니다. 인센티브가 정해지면 금액이 바뀝니다.`]
+      : []),
   ];
   return {
     eligible: severance > 0, tenureDays, averageWageTotal, averageWageDays, averageDailyWage,
     ordinaryDailyWage, appliedDailyWage, basis, months: found.map((wage) => wage.yearMonth), severance, limitations,
-    averageSeverance, ordinarySeverance, workingTimeRule,
+    averageSeverance, ordinarySeverance, provisionalMonths, workingTimeRule,
     reason: appliedDailyWage <= 0 ? "직전 3개월 급여 자료와 통상임금이 모두 없어 평균임금을 산정할 수 없습니다."
       : missing > 0 ? `직전 3개월 중 ${missing}개월치 급여 자료가 없어 남은 ${found.length}개월로 산정했습니다. 금액을 확인해 주세요.`
       : "",

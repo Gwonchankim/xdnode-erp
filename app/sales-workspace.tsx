@@ -1,12 +1,13 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import IncentiveGovernance from "./incentive-governance";
 import SalesPlanningView from "./sales-planning-view";
 import SalesAccount360View from "./sales-account-360-view";
 import SalesPricingGovernance from "./sales-pricing-governance";
 import SalesContractManagement from "./sales-contract-management";
 import SalesServiceManagement from "./sales-service-management";
+import SalesSheetDataHub from "./sales-sheet-data-hub";
+import SalesSheetAnalyticsView from "./sales-sheet-analytics-view";
 
 type Account = { id: string; name: string; businessNumber: string; industry: string; ownerEmployeeId: string; status: string; memo: string };
 type Opportunity = { id: string; accountId: string; accountName: string; title: string; ownerEmployeeId: string; stage: string; leadType: string; expectedRevenue: number; expectedCost: number; probability: number; expectedCloseDate: string; nextAction: string; nextActionDate: string; status: string };
@@ -18,6 +19,19 @@ type Contact = { id: string; accountId: string; name: string; title: string; ema
 type Activity = { id: string; opportunityId: string; contactId: string; contactName: string; activityType: string; occurredAt: string; summary: string; nextAction: string; nextActionDate: string; createdBy: string; createdAt: number };
 type StageHistory = { id: string; opportunityId: string; fromStage: string; toStage: string; reason: string; changedBy: string; changedAt: number };
 type CrmData = { opportunity: Opportunity; contacts: Contact[]; activities: Activity[]; stageHistory: StageHistory[] };
+type SalesSection = "accounts" | "planning" | "catalog" | "contracts" | "service" | "documents" | "sheet_data" | "analytics";
+
+const salesNavigation: Array<{ title: string; items: Array<[SalesSection, string, string]> }> = [
+  { title: "영업 활동", items: [
+    ["accounts", "거래처·영업기회", "거"],
+    ["planning", "영업 목표·전망", "목"],
+    ["catalog", "상품·가격", "상"],
+    ["contracts", "계약 관리", "계"],
+    ["service", "사후지원", "사"],
+    ["documents", "견적·수주·납품·청구", "견"],
+  ] },
+  { title: "데이터 연동", items: [["sheet_data", "구글시트 데이터", "구"], ["analytics", "매출 분석", "분"]] },
+];
 
 const stageLabels: Record<string, string> = { LEAD: "리드", DISCOVERY: "요구 확인", PROPOSAL: "제안", CONTRACT: "계약 협의", WON: "수주", LOST: "실주" };
 const dataLabels: Record<string, string> = { MANUAL: "수기 관리", NOT_CONNECTED: "미연결", APPROVED: "승인 규칙", UNVERIFIED: "규칙 미확정" };
@@ -49,6 +63,7 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   const [activityDraft, setActivityDraft] = useState({ activityType: "CALL", contactId: "", occurredAt: localDateTime(), summary: "", nextAction: "", nextActionDate: "" });
   const opportunityPanelRef = useRef<HTMLElement>(null);
   const opportunityTitleRef = useRef<HTMLInputElement>(null);
+  const [section, setSection] = useState<SalesSection>("accounts");
 
   async function load() {
     try {
@@ -78,8 +93,11 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
   useEffect(() => { void load(); }, []);
   useEffect(() => {
     if (!createRequestKey) return;
-    opportunityPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    window.setTimeout(() => opportunityTitleRef.current?.focus(), 350);
+    setSection("accounts");
+    window.setTimeout(() => {
+      opportunityPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      opportunityTitleRef.current?.focus();
+    }, 50);
   }, [createRequestKey]);
 
   const opportunities = useMemo(() => (data?.opportunities ?? []).filter((item) => `${item.accountName} ${item.title}`.toLowerCase().includes(search.toLowerCase())), [data, search]);
@@ -206,17 +224,43 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
     await load();
   }
 
-  return <div className="sales-workspace-live">
-    <section className="sales-live-heading"><div><p>SALES OPERATIONS</p><h2>영업 운영</h2><span>거래처와 영업기회를 실제 저장하고 단계별 예상 매출을 관리합니다.</span></div><div><span className={`source-state ${(data?.dataStatus.crm ?? "NOT_CONNECTED").toLowerCase()}`}>{dataLabels[data?.dataStatus.crm ?? "NOT_CONNECTED"]}</span><span className={`source-state ${(data?.dataStatus.incentive ?? "UNVERIFIED").toLowerCase()}`}>{dataLabels[data?.dataStatus.incentive ?? "UNVERIFIED"]}</span></div></section>
+  return <div className="sales-workspace-layout">
+    <aside className="sales-side-navigation" aria-label="영업 메뉴">
+      <div className="sales-side-brand"><span>영</span><div><strong>SALES WORKSPACE</strong><small>SALES &amp; CRM</small></div></div>
+      <nav>
+        {salesNavigation.map((group) => (
+          <div className="sales-side-group" key={group.title}>
+            <p>{group.title}</p>
+            {group.items.map(([key, label, icon]) => (
+              <button type="button" aria-current={section === key ? "page" : undefined} className={section === key ? "active" : ""} key={key} onClick={() => setSection(key)}>
+                <span>{icon}</span><strong>{label}</strong>
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
+      <div className="sales-side-footer">
+        <span>연동 상태</span>
+        <div><span className={`source-state ${(data?.dataStatus.crm ?? "NOT_CONNECTED").toLowerCase()}`}>{dataLabels[data?.dataStatus.crm ?? "NOT_CONNECTED"]}</span></div>
+      </div>
+    </aside>
+
+    <div className="sales-workspace-live">
     {message && <div className="sales-live-message" role="status">{message}</div>}
+
+    {section === "sheet_data" && <SalesSheetDataHub />}
+
+    {section === "analytics" && <SalesSheetAnalyticsView />}
+
+    {section === "planning" && <SalesPlanningView />}
+
+    {section === "accounts" && <>
     <section className="sales-live-metrics">
       <article><small>진행 영업 건</small><strong>{open.length}건</strong><span>실제 등록 기준</span></article>
       <article><small>파이프라인</small><strong>{currency(pipeline)}</strong><span>예상 매출 합계</span></article>
       <article><small>가중 파이프라인</small><strong>{currency(weightedPipeline)}</strong><span>성공확률 반영</span></article>
       <article><small>예상 이익</small><strong>{currency(expectedMargin)}</strong><span>예상 매출 - 예상 원가</span></article>
     </section>
-
-    <SalesPlanningView />
 
     <section className="sales-live-grid">
       <article className="panel sales-entry-panel">
@@ -271,7 +315,9 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
         <article><h3>단계 변경 이력</h3>{crm.stageHistory.map((history) => <div key={history.id}><time>{new Date(history.changedAt).toLocaleString("ko-KR")}</time><strong>{history.fromStage ? `${stageLabels[history.fromStage]} → ` : ""}{stageLabels[history.toStage]}</strong><p>{history.reason}</p></div>)}{!crm.stageHistory.length && <p>단계 변경 이력이 없습니다.</p>}</article>
       </div>
     </section>}
+    </>}
 
+    {section === "catalog" && <>
     <section className="panel sales-catalog-panel">
       <header><div><p>PRODUCT & SERVICE MASTER</p><h2>상품·서비스 기준정보</h2><span>영업 문서의 품목명·단위·기본단가를 통일합니다.</span></div><strong>{data?.catalog.length ?? 0}개</strong></header>
       <form onSubmit={createCatalogItem}><label>품목 코드<input required value={catalogDraft.code} onChange={(event) => setCatalogDraft({ ...catalogDraft, code: event.target.value })} placeholder="예: SVC-AI-001" /></label><label>명칭<input required value={catalogDraft.name} onChange={(event) => setCatalogDraft({ ...catalogDraft, name: event.target.value })} /></label><label>유형<select value={catalogDraft.itemType} onChange={(event) => setCatalogDraft({ ...catalogDraft, itemType: event.target.value })}><option value="PRODUCT">상품</option><option value="SERVICE">서비스</option></select></label><label>단위<input required value={catalogDraft.unit} onChange={(event) => setCatalogDraft({ ...catalogDraft, unit: event.target.value })} /></label><label>기본단가<input required type="number" min="0" value={catalogDraft.defaultUnitPrice} onChange={(event) => setCatalogDraft({ ...catalogDraft, defaultUnitPrice: event.target.value })} /></label><button type="submit">+ 기준정보 등록</button></form>
@@ -279,11 +325,13 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
     </section>
 
     <SalesPricingGovernance refreshKey={data?.documents.length ?? 0} />
+    </>}
 
-    <SalesContractManagement refreshKey={data?.documents.filter((item) => item.documentType === "ORDER").length ?? 0} />
+    {section === "contracts" && <SalesContractManagement refreshKey={data?.documents.filter((item) => item.documentType === "ORDER").length ?? 0} />}
 
-    <SalesServiceManagement refreshKey={data?.documents.filter((item) => item.documentType === "DELIVERY").length ?? 0} />
+    {section === "service" && <SalesServiceManagement refreshKey={data?.documents.filter((item) => item.documentType === "DELIVERY").length ?? 0} />}
 
+    {section === "documents" && <>
     <section className="panel sales-document-flow">
       <header><div><p>QUOTE TO CASH</p><h2>견적·수주·납품·청구·수금</h2></div><span>{data?.documents.length ?? 0}개 문서</span></header>
       <div className="sales-live-metrics"><article><small>확정 청구</small><strong>{currency(acceptedInvoiceTotal)}</strong><span>{invoices.length}건</span></article><article><small>확정 수금</small><strong>{currency(collectedTotal)}</strong><span>승인·완료 수금</span></article><article><small>현재 미수금</small><strong>{currency(Math.max(0, acceptedInvoiceTotal - collectedTotal))}</strong><span>청구 - 확정 수금</span></article><article><small>수금 예약</small><strong>{currency(invoices.reduce((sum, item) => sum + Math.max(0, item.reservedAmount - item.collectedAmount), 0))}</strong><span>작성·결재 중 수금</span></article></div>
@@ -313,7 +361,7 @@ export default function SalesWorkspace({ search, createRequestKey = 0 }: { searc
       {(data?.documents ?? []).map((document) => <div className="sales-document-row" key={document.id}><p><strong>{document.accountName}</strong><small>{document.opportunityTitle}{document.linkedInvoiceNumber ? ` · 청구 ${document.linkedInvoiceNumber}` : ""}</small><small>{document.lines.length ? `${document.lines[0].description}${document.lines.length > 1 ? ` 외 ${document.lines.length - 1}건` : ""}` : document.documentType === "PAYMENT" ? "수금 문서" : "기존 총액 문서"}{document.sourceDocumentNumber ? ` · 근거 ${document.sourceDocumentNumber}` : ""}</small></p><span>{salesDocumentLabels[document.documentType] ?? document.documentType}</span><b>{document.documentNumber}</b><span>v{document.version}</span><strong>{currency(document.amount)}{document.documentType === "INVOICE" && <small>{document.outstandingAmount === 0 ? "완납" : `미수 ${currency(document.outstandingAmount)}`}</small>}</strong><time>{document.issuedDate || "미발행"}<small>{document.dueDate ? ` → ${document.dueDate}` : ""}</small></time><select aria-label={`${document.documentNumber} 상태`} value={document.status} onChange={(event) => void updateDocumentStatus(document.id, event.target.value)}>{availableDocumentStatuses(document).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>)}
       {!data?.documents.length && <div className="finance-empty">영업 문서를 등록하면 견적부터 수금까지 한 흐름으로 확인할 수 있습니다.</div>}
     </section>
-
-    <IncentiveGovernance />
+    </>}
+    </div>
   </div>;
 }

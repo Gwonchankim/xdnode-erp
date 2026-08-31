@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -18,11 +19,27 @@ const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
 const CALLBACK_PATH = "/callback";
 
+/**
+ * 로컬 단독 실행용 신원. 호스팅 플랫폼이 넣어 주는 로그인 헤더가 없고, 그리고 LOCAL_ERP_USER_EMAIL
+ * 이 명시적으로 설정돼 있을 때만 동작한다. 배포 환경에는 이 변수를 두지 않으면 예전과 똑같이
+ * 헤더가 없을 때 null 을 돌려주므로, 인증을 우회할 수 있는 경로가 새로 생기지 않는다.
+ *
+ * 여기서 만든 이메일이 erp_user_access 의 계정과 대조되어 역할이 정해진다. 명부에 없는 이메일을
+ * 넣으면 로그인은 되지만 "회사 인사기록과 연결되지 않은 계정입니다"로 막힌다.
+ */
+function localOnlyUser(): ChatGPTUser | null {
+  const runtime = env as unknown as { LOCAL_ERP_USER_EMAIL?: string; LOCAL_ERP_USER_NAME?: string };
+  const email = runtime.LOCAL_ERP_USER_EMAIL?.trim();
+  if (!email) return null;
+  const fullName = runtime.LOCAL_ERP_USER_NAME?.trim() || null;
+  return { userId: `local:${email}`, displayName: fullName ?? email, email, fullName };
+}
+
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   const requestHeaders = await headers();
   const userId = requestHeaders.get(USER_ID_HEADER);
   const email = requestHeaders.get(USER_EMAIL_HEADER);
-  if (!userId || !email) return null;
+  if (!userId || !email) return localOnlyUser();
 
   const encodedFullName = requestHeaders.get(USER_FULL_NAME_HEADER);
   const fullName =

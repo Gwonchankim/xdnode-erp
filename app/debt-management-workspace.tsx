@@ -1,6 +1,12 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { financeCurrentData } from "./finance-current-data";
+
+const currentPeriod = financeCurrentData.asOf.slice(0, 7);
+type TieOutCheck = { check_type: string; period: string; as_of: string; gl_account_code: string; gl_account_name: string;
+  subsidiary_amount: number; gl_amount: number; difference_amount: number; difference_reason: string; note: string;
+  reviewed_by: string; reviewed_at: number | null };
 
 type LoanAccount = { id: number; bankCode: string; last4: string; name: string; currency: string; balance: number; krwBalance: number };
 type DocumentItem = { id: string; category: string; version: number; fileName: string; uploadedBy: string; createdAt: number; downloadUrl: string };
@@ -32,6 +38,11 @@ export default function DebtManagementWorkspace({ onOpenOperations }: { onOpenOp
   const [scheduleDraft, setScheduleDraft] = useState({ dueDate: "", itemType: "PRINCIPAL", amount: "", note: "" });
   const [reviewDraft, setReviewDraft] = useState({ reviewDate: "", covenantName: "", comparator: "GTE", thresholdValue: "", actualValue: "", unit: "%", evidenceDocumentId: "", note: "", nextReviewDate: "" });
   const [message, setMessage] = useState(""); const [working, setWorking] = useState(false);
+  const [tieOut, setTieOut] = useState<TieOutCheck | null>(null);
+  const [tieOutBusy, setTieOutBusy] = useState(false);
+  const [tieOutMessage, setTieOutMessage] = useState("");
+  const [tieOutReason, setTieOutReason] = useState<"STRUCTURAL" | "UNCONFIRMED">("STRUCTURAL");
+  const [tieOutNote, setTieOutNote] = useState("");
 
   const load = async (preferred = "") => {
     const response = await fetch("/api/finance/debt", { cache: "no-store" }); const result = await response.json() as Data & { error?: string };
@@ -40,6 +51,43 @@ export default function DebtManagementWorkspace({ onOpenOperations }: { onOpenOp
     if (!result.facilities.some((item) => item.id === current)) setSelectedId(result.facilities[0]?.id ?? "");
   };
   useEffect(() => { void load().catch((error) => setMessage(error instanceof Error ? error.message : "조회 오류")); }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/finance/tie-out", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { checks?: TieOutCheck[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "대사 결과를 불러오지 못했습니다.");
+        if (!cancelled) setTieOut(payload.checks?.find((item) => item.check_type === "DEBT") ?? null);
+      })
+      .catch((error: unknown) => { if (!cancelled) setTieOutMessage(error instanceof Error ? error.message : "대사 결과를 불러오지 못했습니다."); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function recomputeTieOut() {
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RECOMPUTE", checkType: "DEBT", period: tieOut?.period ?? currentPeriod }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "대사를 재계산하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutNote(""); setTieOutMessage("차입금 대사를 다시 계산했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "대사를 재계산하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
+
+  async function reviewTieOut(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tieOut) return;
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REVIEW", checkType: "DEBT", period: tieOut.period, reason: tieOutReason, note: tieOutNote }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "차이 사유를 저장하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutMessage("차이 사유를 저장했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "차이 사유를 저장하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
   const selected = useMemo(() => data?.facilities.find((item) => item.id === selectedId) ?? null, [data, selectedId]);
 
   const mutate = async (payload: Record<string, unknown>, success: string, preferred = selectedId) => {
@@ -131,6 +179,33 @@ export default function DebtManagementWorkspace({ onOpenOperations }: { onOpenOp
     </section>
 
     <section className="panel debt-facility-ledger"><header><div><p>FACILITY LEDGER</p><h2>차입계약 원장</h2></div><span>계약을 선택하면 일정·약정 검토가 열립니다.</span></header><div className="debt-facility-row head"><span>계약</span><span>Clobe 현재잔액</span><span>기간</span><span>금리·상환</span><span>약정 점검</span><span>상태</span><span>작업</span></div>{data.facilities.map((facility) => <div className={`debt-facility-row ${facility.status.toLowerCase()} ${selectedId === facility.id ? "selected" : ""}`} key={facility.id} onClick={() => setSelectedId(facility.id)}><p><strong>{facility.facility_code} · {facility.facility_name}</strong><small>{facility.lender_name} · 계좌 끝 {facility.source_account?.last4 ?? "미연결"}</small></p><strong>{won(facility.current_balance)}</strong><span>{facility.agreement_date}<small>만기 {facility.maturity_date}</small></span><span>{interestLabel[facility.interest_type]}<small>{facility.interest_type === "FIXED" ? `${(facility.fixed_rate_bps / 100).toFixed(2)}%` : facility.interest_type === "FLOATING" ? `${facility.benchmark_name} + ${(facility.spread_bps / 100).toFixed(2)}%` : "고지액 입력"} · {repaymentLabel[facility.repayment_type]}</small></span><span>{facility.next_covenant_review_date || "일정 없음"}<small>{facility.reviews[0] ? `최근 ${statusLabel[facility.reviews[0].result]}` : "검토 기록 없음"}</small></span><em>{statusLabel[facility.status]}</em><div>{facility.status === "DRAFT" && <><button type="button" onClick={(event) => { event.stopPropagation(); editFacility(facility); }}>초안 수정</button><label onClick={(event) => event.stopPropagation()}>계약서<input type="file" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt" disabled={working} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadDocument(facility, file, "차입계약"); event.currentTarget.value = ""; }} /></label><button type="button" disabled={working || !facility.documents.length} onClick={(event) => { event.stopPropagation(); void activate(facility); }}>증빙 확인·활성화</button></>}{facility.status === "ACTIVE" && <><label onClick={(event) => event.stopPropagation()}>검토증빙<input type="file" accept=".pdf,.docx,.xlsx,.png,.jpg,.jpeg,.txt" disabled={working} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadDocument(facility, file, "약정검토"); event.currentTarget.value = ""; }} /></label><button type="button" onClick={(event) => { event.stopPropagation(); const reason = window.prompt("계약 재개방 사유(5자 이상)", ""); if (reason) void mutate({ action: "REOPEN_FACILITY", facilityId: facility.id, reason }, "계약을 초안으로 재개방했습니다."); }}>재개방</button>{facility.current_balance === 0 && <button type="button" onClick={(event) => { event.stopPropagation(); const reason = window.prompt("계약 종료 사유(5자 이상)", ""); if (reason) void mutate({ action: "CLOSE_FACILITY", facilityId: facility.id, reason }, "잔액과 미완료 일정을 확인해 계약을 종료했습니다."); }}>종료</button>}</>}</div></div>)}{!data.facilities.length && <div className="debt-empty">등록된 차입계약이 없습니다. 위 Clobe 계좌에서 계약 등록을 시작하세요.</div>}</section>
+
+    <section className="panel payable-control-panel">
+      <header><div><p>SUBSIDIARY ↔ LEDGER TIE-OUT</p><h3>차입금 보조부 ↔ 원장 대사</h3></div><span>{tieOut ? `${tieOut.period} · 원장 기준일 ${tieOut.as_of}` : "아직 계산되지 않음"}</span></header>
+      {tieOutMessage && <div className="finance-control-message" role="status">{tieOutMessage}</div>}
+      <div className="payable-plan-editor">
+        <p>이카운트 IMPORT 원장과의 대사 · 자동 계산</p>
+        <h3>{tieOut ? (tieOut.difference_amount === 0 ? "잔액 일치" : `차이 ${won(tieOut.difference_amount)}`) : "대사 미실행"}</h3>
+        <dl>
+          <div><dt>보조부(Clobe 스냅샷 대출잔액)</dt><dd>{won(tieOut?.subsidiary_amount ?? 0)}</dd></div>
+          <div><dt>원장 잔액</dt><dd>{won(tieOut?.gl_amount ?? 0)}</dd></div>
+          <div><dt>계정</dt><dd>{tieOut?.gl_account_code ? `${tieOut.gl_account_code} ${tieOut.gl_account_name}` : "매핑 대기"}</dd></div>
+        </dl>
+        <small>보조부 금액은 Clobe 스냅샷(financeCurrentData)의 최신 대출잔액 합계이며, 스냅샷이 갱신되지 않으면 이 대사도 함께 갱신되지 않습니다.</small>
+        <button type="button" onClick={() => void recomputeTieOut()} disabled={tieOutBusy}>{tieOutBusy ? "계산 중…" : "지금 다시 계산"}</button>
+        {tieOut && tieOut.difference_amount !== 0 && (
+          tieOut.reviewed_at
+            ? <p>{tieOut.difference_reason === "STRUCTURAL" ? "구조적 차이로 확인됨" : "미확인 차이로 기록됨"} · {tieOut.note}</p>
+            : <form onSubmit={reviewTieOut}>
+                <div className="payable-plan-fields">
+                  <label>차이 사유<select value={tieOutReason} onChange={(event) => setTieOutReason(event.target.value as "STRUCTURAL" | "UNCONFIRMED")}><option value="STRUCTURAL">구조적 차이(설명 가능, 월마감 차단 안 함)</option><option value="UNCONFIRMED">미확인(월마감 차단)</option></select></label>
+                </div>
+                <label>설명<textarea rows={2} minLength={5} value={tieOutNote} onChange={(event) => setTieOutNote(event.target.value)} placeholder="예: Clobe 스냅샷 갱신 지연으로 인한 시차" /></label>
+                <button type="submit" disabled={tieOutBusy || tieOutNote.trim().length < 5}>{tieOutBusy ? "저장 중…" : "사유 저장"}</button>
+              </form>
+        )}
+      </div>
+    </section>
 
     {selected && <>
       <section className="debt-detail-grid">

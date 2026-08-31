@@ -19,7 +19,7 @@ type WageSortState = { key: WageSortKey; direction: "asc" | "desc" };
 type ImportedCell = string | number | boolean | Date | null;
 type CompensationSettings = {
   rounding: Rounding;
-  columns: { research: boolean; extra: boolean; welfare: boolean; severance: boolean };
+  columns: { research: boolean; extra: boolean; welfare: boolean; severance: boolean; deduction: boolean; annualLeave: boolean; personalExpense: boolean };
   standards: { meal: number; car: number; child: number };
 };
 
@@ -28,14 +28,16 @@ const DAY = 86_400_000;
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
   employee: 86, department: 92, title: 78, joinDate: 108, leaveDate: 108, days: 62, probation: 70,
   annualSalary: 98, basic: 110, meal: 92, car: 96, child: 88, incentive: 96, bonus: 92,
-  extra: 92, research: 92, severance: 98, total: 116, welfare: 96, note: 132, action: 44,
+  extra: 92, research: 92, annualLeave: 104, personalExpense: 118, personalExpenseNote: 150, severance: 98, total: 116,
+  welfare: 96, deduction: 104, deductionNote: 150, note: 132, action: 44,
 };
 const COLUMN_VISIBILITY_OPTIONS = [
   ["department", "부서"], ["title", "직책"], ["joinDate", "입사일"], ["leaveDate", "퇴사일"],
   ["days", "근무일"], ["probation", "수습"], ["annualSalary", "연봉"], ["basic", "기본급"],
   ["meal", "식대"], ["car", "자가운전"], ["child", "육아"], ["incentive", "인센티브"],
   ["bonus", "상여금"], ["extra", "추가수당"], ["research", "연구수당"], ["severance", "퇴직금"],
-  ["welfare", "복지기금"], ["note", "비고"],
+  ["annualLeave", "연차수당"], ["personalExpense", "개인비용지급"], ["personalExpenseNote", "개인비용 사유"],
+  ["welfare", "복지기금"], ["deduction", "공제"], ["deductionNote", "공제 사유"], ["note", "비고"],
 ] as const;
 const money = (value: number) => `${Math.round(value).toLocaleString("ko-KR")}원`;
 const monthKey = compensationMonthKey;
@@ -104,7 +106,8 @@ function WageCalculator() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [rounding, setRounding] = useState<Rounding>("round");
   const [employees, setEmployees] = useState<Employee[]>([]);
-  const [columns, setColumns] = useState({ research: true, extra: true, welfare: false, severance: true });
+  // 공제는 없는 달이 더 많아 기본은 꺼 둔다. 필요할 때 "수당·표시 항목"에서 켜면 두 열이 생긴다.
+  const [columns, setColumns] = useState({ research: true, extra: true, welfare: false, severance: true, deduction: false, annualLeave: false, personalExpense: false });
   const [standards, setStandards] = useState({ meal: 200_000, car: 200_000, child: 200_000 });
   const [message, setMessage] = useState("직원 명부를 불러오거나 첫 직원을 추가해 주세요.");
   const [hydrated, setHydrated] = useState(false);
@@ -126,7 +129,9 @@ function WageCalculator() {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const data = JSON.parse(saved) as { columns?: typeof columns; standards?: typeof standards; rounding?: Rounding; columnWidths?: Record<string, number>; hiddenColumns?: string[] };
-        if (data.columns) setColumns(data.columns);
+        // 예전에 저장된 설정에는 뒤에 추가된 항목(예: deduction)이 없다. 통째로 덮어쓰면
+        // 그 값이 undefined 가 되므로 현재 기본값 위에 겹쳐 쓴다.
+        if (data.columns) setColumns((current) => ({ ...current, ...data.columns }));
         if (data.standards) setStandards(data.standards);
         if (data.rounding) setRounding(data.rounding);
         if (data.columnWidths) setColumnWidths((current) => ({ ...current, ...data.columnWidths }));
@@ -151,8 +156,34 @@ function WageCalculator() {
       setEmployees(restoredEmployees);
       if (restoredSettings) {
         setRounding(restoredSettings.rounding);
-        setColumns(restoredSettings.columns);
+        setColumns((current) => ({ ...current, ...restoredSettings.columns }));
         setStandards(restoredSettings.standards);
+      }
+      // HR 퇴직 정산에서 공제를 밀어 넣었는데 공제 열이 꺼져 있으면 값이 있는지도 모른 채 확정하게 된다.
+      // 불러온 임금안에 공제가 들어 있으면 열을 자동으로 켜고 숨김 목록에서도 빼 준다.
+      const hasDeduction = restoredEmployees.some((employee) => {
+        const monthly = employee.monthly?.[key];
+        return Number(monthly?.deduction ?? 0) > 0 || String(monthly?.deductionNote ?? "").trim() !== "";
+      });
+      if (hasDeduction) {
+        setColumns((current) => (current.deduction ? current : { ...current, deduction: true }));
+        setHiddenColumns((current) => current.filter((value) => value !== "deduction" && value !== "deductionNote"));
+      }
+      // 연차수당도 같다. 퇴직 정산에서 밀어 넣은 값이 꺼진 열 뒤에 숨어 있으면 안 된다.
+      const hasAnnualLeave = restoredEmployees.some((employee) => Number(employee.monthly?.[key]?.annualLeave ?? 0) !== 0);
+      if (hasAnnualLeave) {
+        setColumns((current) => (current.annualLeave ? current : { ...current, annualLeave: true }));
+        setHiddenColumns((current) => current.filter((value) => value !== "annualLeave"));
+      }
+      // 개인비용지급도 마찬가지다. 값이 있는데 열이 꺼져 있으면 그 금액이 지급총액에만 잡히고
+      // 어디서 왔는지 보이지 않는다.
+      const hasPersonalExpense = restoredEmployees.some((employee) => {
+        const monthly = employee.monthly?.[key];
+        return Number(monthly?.personalExpense ?? 0) !== 0 || String(monthly?.personalExpenseNote ?? "").trim() !== "";
+      });
+      if (hasPersonalExpense) {
+        setColumns((current) => (current.personalExpense ? current : { ...current, personalExpense: true }));
+        setHiddenColumns((current) => current.filter((value) => value !== "personalExpense" && value !== "personalExpenseNote"));
       }
       lastSavedEmployeesRef.current = payload.run ? draftSignature(restoredEmployees, restoredSettings ?? { rounding, columns, standards }) : "";
       setDraftDirty(false);
@@ -188,10 +219,33 @@ function WageCalculator() {
     { key: "incentive", label: "인센티브" }, { key: "bonus", label: "상여금" },
     ...(columns.extra ? [{ key: "extra", label: "추가수당" }] : []),
     ...(columns.research ? [{ key: "research", label: "연구수당" }] : []),
+    ...(columns.annualLeave ? [{ key: "annualLeave", label: "연차수당" }] : []),
+    ...(columns.personalExpense ? [{ key: "personalExpense", label: "개인비용지급" }, { key: "personalExpenseNote", label: "개인비용 사유" }] : []),
     ...(columns.severance ? [{ key: "severance", label: "퇴직금" }] : []),
+    ...(columns.deduction ? [{ key: "deduction", label: "공제" }, { key: "deductionNote", label: "공제 사유" }] : []),
     { key: "total", label: "지급총액" }, ...(columns.welfare ? [{ key: "welfare", label: "복지기금" }] : []),
     { key: "note", label: "비고" }, { key: "action", label: "" },
   ].filter((column) => !hiddenColumnSet.has(column.key)), [columns, hiddenColumnSet]);
+  // 직원·부서·직책은 가로 스크롤에도 왼쪽에 붙어 있게 한다. 열 너비를 드래그로 바꿀 수 있어
+  // CSS 에 고정값을 둘 수 없고, 숨긴 열은 건너뛰어야 해서 여기서 누적 위치를 계산한다.
+  const stickyLeft = useMemo(() => {
+    const offsets: Record<string, number> = {};
+    let accumulated = 0;
+    for (const key of ["employee", "department", "title"]) {
+      if (hiddenColumnSet.has(key)) continue;
+      offsets[key] = accumulated;
+      accumulated += columnWidths[key] ?? DEFAULT_COLUMN_WIDTHS[key];
+    }
+    return offsets;
+  }, [columnWidths, hiddenColumnSet]);
+  const lastStickyKey = useMemo(() => {
+    const keys = Object.keys(stickyLeft);
+    return keys.length ? keys[keys.length - 1] : "";
+  }, [stickyLeft]);
+  const stickyProps = (key: string) => (key in stickyLeft
+    ? { className: `sticky-col${key === lastStickyKey ? " sticky-col-last" : ""}`, style: { left: stickyLeft[key] } }
+    : {});
+
   const tableWidth = useMemo(() => tableColumns.reduce((sum, column) => sum + (columnWidths[column.key] ?? DEFAULT_COLUMN_WIDTHS[column.key]), 0), [tableColumns, columnWidths]);
 
   function beginColumnResize(event: ReactPointerEvent<HTMLButtonElement>, key: string) {
@@ -227,7 +281,10 @@ function WageCalculator() {
             rows: calculated.map((row) => ({
               employeeId: row.employee.id, basic: row.basic, meal: row.meal, car: row.car, child: row.child,
               incentive: row.incentive, bonus: row.bonus, extra: row.extra, research: row.research,
-              severance: row.severance, welfare: row.welfare, total: row.total,
+              severance: row.severance, annualLeave: row.annualLeave, personalExpense: row.personalExpense,
+              personalExpenseNote: String(row.employee.monthly[key]?.personalExpenseNote ?? ""),
+              welfare: row.welfare, deduction: row.deduction,
+              deductionNote: String(row.employee.monthly[key]?.deductionNote ?? ""), total: row.total,
             })),
           }),
         });
@@ -291,7 +348,7 @@ function WageCalculator() {
   function loadRoster(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => { try { const data = JSON.parse(String(reader.result)); if (!Array.isArray(data.employees)) throw new Error("명부 형식이 아닙니다."); setEmployees(data.employees); if (data.columns) setColumns(data.columns); if (data.standards) setStandards(data.standards); setMessage(`명부 ${data.employees.length}명을 불러왔습니다.`); } catch (error) { setMessage(error instanceof Error ? error.message : "명부 파일을 읽지 못했습니다."); } };
+    reader.onload = () => { try { const data = JSON.parse(String(reader.result)); if (!Array.isArray(data.employees)) throw new Error("명부 형식이 아닙니다."); setEmployees(data.employees); if (data.columns) setColumns((current) => ({ ...current, ...data.columns })); if (data.standards) setStandards(data.standards); setMessage(`명부 ${data.employees.length}명을 불러왔습니다.`); } catch (error) { setMessage(error instanceof Error ? error.message : "명부 파일을 읽지 못했습니다."); } };
     reader.readAsText(file); event.target.value = "";
   }
   function importIncentive() {
@@ -337,7 +394,10 @@ function WageCalculator() {
   const apiRows = () => rows.map((row) => ({
     employeeId: row.employee.id, basic: row.basic, meal: row.meal, car: row.car, child: row.child,
     incentive: row.incentive, bonus: row.bonus, extra: row.extra, research: row.research,
-    severance: row.severance, welfare: row.welfare, total: row.total,
+    severance: row.severance, annualLeave: row.annualLeave, personalExpense: row.personalExpense,
+    personalExpenseNote: String(row.employee.monthly[key]?.personalExpenseNote ?? ""),
+    welfare: row.welfare, deduction: row.deduction,
+    deductionNote: String(row.employee.monthly[key]?.deductionNote ?? ""), total: row.total,
   }));
   async function unlockPayrollRun() {
     const reason = window.prompt(`${key} 급여월이 HR 급여관리에서 검토·승인·마감 처리되어 있어 수정할 수 없습니다.\n잠금을 해제할 사유를 입력하면 계속 진행합니다.`)?.trim();
@@ -394,11 +454,11 @@ function WageCalculator() {
   function sheetData(targetYear: number, targetMonth: number): SheetData {
     const targetKey = monthKey(targetYear, targetMonth);
     const calculated = employees.map((employee) => calculatePay(employee, targetYear, targetMonth, rounding, columns));
-    const header = ["성명", "부서", "직책", "생년월일", "입사일", "퇴사일", "근무일", "수습(월)", "연봉", "기본급", "식대", "자가운전보조금", "육아수당", "인센티브", "상여금", ...(columns.extra ? ["추가수당"] : []), ...(columns.research ? ["연구수당"] : []), ...(columns.severance ? ["퇴직금"] : []), "지급총액", ...(columns.welfare ? ["복지기금", "복지기금 내역"] : []), "비고"];
+    const header = ["성명", "부서", "직책", "생년월일", "입사일", "퇴사일", "근무일", "수습(월)", "연봉", "기본급", "식대", "자가운전보조금", "육아수당", "인센티브", "상여금", ...(columns.extra ? ["추가수당"] : []), ...(columns.research ? ["연구수당"] : []), ...(columns.annualLeave ? ["연차수당"] : []), ...(columns.severance ? ["퇴직금"] : []), ...(columns.deduction ? ["공제", "공제 사유"] : []), "지급총액", ...(columns.welfare ? ["복지기금", "복지기금 내역"] : []), "비고"];
     return [
       [{ value: targetKey, fontWeight: "bold" }],
       header.map((value) => ({ value, fontWeight: "bold", backgroundColor: "#F4F4F5" })),
-      ...calculated.map((row) => { const monthly = row.employee.monthly[targetKey] ?? {}; return [row.employee.name, row.employee.department, row.employee.title, row.employee.birthDate, row.employee.joinDate, row.employee.leaveDate, row.days, row.employee.probationMonths, row.employee.annualSalary, row.basic, row.meal, row.car, row.child, row.incentive, row.bonus, ...(columns.extra ? [row.extra] : []), ...(columns.research ? [row.research] : []), ...(columns.severance ? [row.severance] : []), row.total, ...(columns.welfare ? [row.welfare, monthly.welfareNote ?? ""] : []), monthly.note ?? ""].map((value, index) => ({ value, format: typeof value === "number" && index >= 8 ? "₩#,##0" : undefined })); }),
+      ...calculated.map((row) => { const monthly = row.employee.monthly[targetKey] ?? {}; return [row.employee.name, row.employee.department, row.employee.title, row.employee.birthDate, row.employee.joinDate, row.employee.leaveDate, row.days, row.employee.probationMonths, row.employee.annualSalary, row.basic, row.meal, row.car, row.child, row.incentive, row.bonus, ...(columns.extra ? [row.extra] : []), ...(columns.research ? [row.research] : []), ...(columns.annualLeave ? [row.annualLeave] : []), ...(columns.severance ? [row.severance] : []), ...(columns.deduction ? [row.deduction, monthly.deductionNote ?? ""] : []), row.total, ...(columns.welfare ? [row.welfare, monthly.welfareNote ?? ""] : []), monthly.note ?? ""].map((value, index) => ({ value, format: typeof value === "number" && index >= 8 ? "₩#,##0" : undefined })); }),
     ];
   }
   async function exportCurrent() {
@@ -437,11 +497,11 @@ function WageCalculator() {
     <fieldset className="compensation-editing-fields" disabled={locked || saving}>
     <section className="wage-setup-grid">
       <article className="panel wage-setup-card"><header><div><p>EMPLOYEE ROSTER</p><h2>직원 명부</h2></div><span>{employees.length}명</span></header><div className="wage-actions"><button type="button" onClick={() => fileRef.current?.click()}>인건비 엑셀 불러오기</button><input ref={fileRef} hidden type="file" accept=".xlsx" onChange={importRoster} /><button type="button" onClick={addEmployee}>＋ 직원 추가</button><button type="button" onClick={copyPreviousMonth}>전월 값 이어받기</button><button type="button" onClick={loadExample}>예시 명부</button><button type="button" onClick={downloadRoster}>명부 저장</button><button type="button" onClick={() => rosterRef.current?.click()}>명부 불러오기</button><input ref={rosterRef} hidden type="file" accept=".json" onChange={loadRoster} /></div><p className="wage-message">{message}</p></article>
-      <article className="panel wage-setup-card"><header><div><p>ALLOWANCE STANDARD</p><h2>수당·표시 항목</h2></div></header><div className="allowance-standards">{(["meal", "car", "child"] as const).map((field) => <label key={field}>{field === "meal" ? "식대" : field === "car" ? "자가운전" : "육아"}<WonInput value={standards[field]} ariaLabel={`${field === "meal" ? "식대" : field === "car" ? "자가운전" : "육아"} 기준액`} onValueChange={(value) => { setStandards((current) => ({ ...current, [field]: value })); setEmployees((current) => current.map((employee) => employee[field] === standards[field] ? { ...employee, [field]: value } : employee)); }} /></label>)}</div><div className="column-toggles">{(["research", "extra", "welfare", "severance"] as const).map((field) => <label key={field}><input type="checkbox" checked={columns[field]} onChange={(event) => setColumns((current) => ({ ...current, [field]: event.target.checked }))} />{field === "research" ? "연구수당" : field === "extra" ? "추가수당" : field === "welfare" ? "복지기금" : "퇴직금"}</label>)}</div><details className="column-visibility"><summary>표시할 열 선택</summary><div>{COLUMN_VISIBILITY_OPTIONS.filter(([field]) => !(["extra", "research", "severance", "welfare"] as string[]).includes(field) || columns[field as keyof typeof columns]).map(([field, label]) => <label key={field}><input type="checkbox" checked={!hiddenColumnSet.has(field)} onChange={(event) => setHiddenColumns((current) => event.target.checked ? current.filter((value) => value !== field) : Array.from(new Set([...current, field])))} />{label}</label>)}</div></details><button type="button" className="incentive-pull" onClick={importIncentive}>저장된 인센티브 결과 가져오기</button></article>
+      <article className="panel wage-setup-card"><header><div><p>ALLOWANCE STANDARD</p><h2>수당·표시 항목</h2></div></header><div className="allowance-standards">{(["meal", "car", "child"] as const).map((field) => <label key={field}>{field === "meal" ? "식대" : field === "car" ? "자가운전" : "육아"}<WonInput value={standards[field]} ariaLabel={`${field === "meal" ? "식대" : field === "car" ? "자가운전" : "육아"} 기준액`} onValueChange={(value) => { setStandards((current) => ({ ...current, [field]: value })); setEmployees((current) => current.map((employee) => employee[field] === standards[field] ? { ...employee, [field]: value } : employee)); }} /></label>)}</div><div className="column-toggles">{(["research", "extra", "annualLeave", "personalExpense", "welfare", "severance", "deduction"] as const).map((field) => <label key={field}><input type="checkbox" checked={columns[field]} onChange={(event) => setColumns((current) => ({ ...current, [field]: event.target.checked }))} />{field === "research" ? "연구수당" : field === "extra" ? "추가수당" : field === "annualLeave" ? "연차수당" : field === "personalExpense" ? "개인비용지급" : field === "welfare" ? "복지기금" : field === "severance" ? "퇴직금" : "공제"}</label>)}</div><details className="column-visibility"><summary>표시할 열 선택</summary><div>{COLUMN_VISIBILITY_OPTIONS.filter(([field]) => (["deduction", "deductionNote"] as string[]).includes(field) ? columns.deduction : (["personalExpense", "personalExpenseNote"] as string[]).includes(field) ? columns.personalExpense : !(["extra", "research", "severance", "welfare", "annualLeave"] as string[]).includes(field) || columns[field as keyof typeof columns]).map(([field, label]) => <label key={field}><input type="checkbox" checked={!hiddenColumnSet.has(field)} onChange={(event) => setHiddenColumns((current) => event.target.checked ? current.filter((value) => value !== field) : Array.from(new Set([...current, field])))} />{label}</label>)}</div></details><button type="button" className="incentive-pull" onClick={importIncentive}>저장된 인센티브 결과 가져오기</button></article>
     </section>
     {(alerts.noJoin.length > 0 || alerts.probationOver.length > 0 || alerts.partial.length > 0 || alerts.mixed.length > 0 || alerts.zero.length > 0) && <section className="wage-alerts">{alerts.noJoin.length > 0 && <div className="critical"><b>입사일 없는 수습 대상 {alerts.noJoin.length}명</b><span>{alerts.noJoin.map((row) => row.employee.name || "이름 미입력").join(" · ")} — 수습 90%가 적용되지 않습니다.</span></div>}{alerts.probationOver.length > 0 && <div><b>수습 종료 {alerts.probationOver.length}명</b><span>현재 월은 100% 계산됩니다. 과거 계산 보존을 위해 수습 개월 값은 유지하세요.</span></div>}{alerts.mixed.length > 0 && <div><b>수습 종료가 걸친 달 {alerts.mixed.length}명</b><span>수습 90% 구간과 정상 100% 구간을 나눠 일할계산했습니다.</span></div>}{alerts.partial.length > 0 && <div className="ok"><b>일할계산 {alerts.partial.length}명</b><span>{alerts.partial.map((row) => `${row.employee.name || "이름 미입력"} ${row.days}일`).join(" · ")}</span></div>}{alerts.zero.length > 0 && <div><b>근무일 0일 {alerts.zero.length}명</b><span>해당 월 재직기간이 없어 전 항목을 0원 처리했습니다.</span></div>}</section>}
     </fieldset>
-    <section className="panel wage-table-panel"><header><div><p>PAYROLL CALCULATION</p><h2>{year}년 {month}월 임금 계산 결과</h2></div><span>열 제목 오른쪽 경계를 드래그해 너비를 조정할 수 있습니다.</span></header><fieldset className="wage-table-editable" disabled={locked || saving}><div className="wage-table-scroll"><table style={{ width: tableWidth }}><colgroup>{tableColumns.map((column) => <col key={column.key} style={{ width: columnWidths[column.key] ?? DEFAULT_COLUMN_WIDTHS[column.key] }} />)}</colgroup><thead><tr>{tableColumns.map((column) => { const sortable = (["employee", "department", "joinDate"] as string[]).includes(column.key); const activeSort = sort?.key === column.key ? sort : null; return <th key={column.key} aria-sort={activeSort ? activeSort.direction === "asc" ? "ascending" : "descending" : sortable ? "none" : undefined}><div className="wage-column-heading"><span>{column.label}</span>{sortable && <button type="button" className={`column-sort${activeSort ? " active" : ""}`} onClick={() => toggleSort(column.key as WageSortKey)} aria-label={`${column.label} ${activeSort?.direction === "asc" ? "내림차순" : "오름차순"} 정렬`}>{activeSort?.direction === "asc" ? "↑" : activeSort?.direction === "desc" ? "↓" : "↕"}</button>}</div><button type="button" className="column-resizer" aria-label={`${column.label || "작업"} 열 너비 조절`} onPointerDown={(event) => beginColumnResize(event, column.key)} /></th>; })}</tr></thead><tbody>{sortedRows.map((row) => { const employee = row.employee; const monthly = employee.monthly[key] ?? {}; return <tr key={employee.id} className={row.days ? "" : "inactive"}><td><input aria-label="성명" value={employee.name} onChange={(event) => updateEmployee(employee.id, { name: event.target.value })} placeholder="성명" /></td>{isColumnVisible("department") && <td><input list="wage-departments" aria-label="부서" value={employee.department} onChange={(event) => updateEmployee(employee.id, { department: event.target.value })} placeholder="부서" /></td>}{isColumnVisible("title") && <td><input list="wage-titles" aria-label="직책" value={employee.title} onChange={(event) => updateEmployee(employee.id, { title: event.target.value })} placeholder="직책" /></td>}{isColumnVisible("joinDate") && <td><input type="date" aria-label="입사일" value={employee.joinDate} onChange={(event) => updateEmployee(employee.id, { joinDate: event.target.value })} /></td>}{isColumnVisible("leaveDate") && <td><input type="date" aria-label="퇴사일" value={employee.leaveDate} onChange={(event) => updateEmployee(employee.id, { leaveDate: event.target.value })} /></td>}{isColumnVisible("days") && <td className="calculated">{row.days}일</td>}{isColumnVisible("probation") && <td><select aria-label="수습 기간" value={employee.probationMonths} onChange={(event) => updateEmployee(employee.id, { probationMonths: Number(event.target.value) })}>{[0, 1, 2, 3, 6, 12].map((value) => <option key={value} value={value}>{value ? `${value}개월` : "—"}</option>)}</select></td>}{isColumnVisible("annualSalary") && <td><WonInput className="money-input" ariaLabel="연봉" value={employee.annualSalary} onValueChange={(value) => updateEmployee(employee.id, { annualSalary: value })} /></td>}{isColumnVisible("basic") && <td><div className="basic-cell">{employee.manualBasic ? <WonInput className="money-input" ariaLabel="기본급 직접 입력" value={Number(monthly.basic ?? employee.basePay ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "basic", value)} /> : <b>{money(row.basic)}</b>}<label title="기본급 직접 입력"><input type="checkbox" checked={employee.manualBasic} onChange={(event) => { updateEmployee(employee.id, { manualBasic: event.target.checked }); if (event.target.checked && monthly.basic === undefined) updateMonthly(employee.id, "basic", employee.basePay || row.basic); }} />직접</label></div></td>}{(["meal", "car", "child"] as const).map((field) => isColumnVisible(field) && <td key={field}><div className="allowance-cell"><b>{money(row[field])}</b><input type="checkbox" aria-label={`${field} 지급`} checked={employee[field] > 0} onChange={(event) => setAllowance(employee.id, field, event.target.checked)} /></div></td>)}{(["incentive", "bonus"] as const).map((field) => isColumnVisible(field) && <td key={field}><WonInput className="money-input" ariaLabel={field === "incentive" ? "인센티브" : "상여금"} value={Number(monthly[field] ?? 0)} onValueChange={(value) => updateMonthly(employee.id, field, value)} /></td>)}{columns.extra && isColumnVisible("extra") && <td><WonInput className="money-input" ariaLabel="추가수당" value={Number(monthly.extra ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "extra", value)} /></td>}{columns.research && isColumnVisible("research") && <td><WonInput className="money-input" ariaLabel="연구수당" value={Number(monthly.research ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "research", value)} /></td>}{columns.severance && isColumnVisible("severance") && <td><WonInput className="money-input" ariaLabel="퇴직금" value={Number(monthly.severance ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "severance", value)} /></td>}<td className="total-cell">{money(row.total)}</td>{columns.welfare && isColumnVisible("welfare") && <td><WonInput className="money-input" ariaLabel="복지기금" value={Number(monthly.welfare ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "welfare", value)} /></td>}{isColumnVisible("note") && <td><input aria-label="비고" value={monthly.note ?? ""} onChange={(event) => updateMonthly(employee.id, "note", event.target.value)} placeholder="비고" /></td>}<td><button type="button" className="remove-row" aria-label={`${employee.name || "직원"} 삭제`} onClick={() => { if (confirm(`${employee.name || "이 직원"}을 명부에서 삭제할까요?`)) setEmployees((current) => current.filter((item) => item.id !== employee.id)); }}>×</button></td></tr>; })}{!rows.length && <tr><td colSpan={tableColumns.length} className="wage-empty">{run ? "해당 월 임금 대상자가 없습니다." : `${month}월 임금 작성하기를 눌러 HR 인사기록을 불러오세요.`}</td></tr>}</tbody></table><datalist id="wage-departments">{departments.map((value) => <option key={value} value={value} />)}</datalist><datalist id="wage-titles">{titles.map((value) => <option key={value} value={value} />)}</datalist></div></fieldset><footer><button disabled={Boolean(exporting)} type="button" onClick={() => void exportCurrent()}>{exporting === "month" ? "파일 만드는 중…" : "현재 월 엑셀 내려받기"}</button><button disabled={Boolean(exporting)} type="button" onClick={() => void exportYear()}>{exporting === "year" ? "파일 만드는 중…" : "1~12월 일괄 내려받기"}</button>{locked ? <button disabled={saving} className="payroll-footer-action edit" type="button" onClick={() => void compensationAction("REOPEN")}>수정하기</button> : <button disabled={saving || autoSaving || !employees.length} className="payroll-footer-action confirm" type="button" onClick={() => void compensationAction("CONFIRM")}>{saving ? "처리 중…" : "급여 확정"}</button>}<span>초안은 서버에 저장되고 확정 시 HR 급여관리로 반영됩니다.</span></footer></section>
+    <section className="panel wage-table-panel"><header><div><p>PAYROLL CALCULATION</p><h2>{year}년 {month}월 임금 계산 결과</h2></div><span>열 제목 오른쪽 경계를 드래그해 너비를 조정할 수 있습니다.</span></header><fieldset className="wage-table-editable" disabled={locked || saving}><div className="wage-table-scroll"><table style={{ width: tableWidth }}><colgroup>{tableColumns.map((column) => <col key={column.key} style={{ width: columnWidths[column.key] ?? DEFAULT_COLUMN_WIDTHS[column.key] }} />)}</colgroup><thead><tr>{tableColumns.map((column) => { const sortable = (["employee", "department", "joinDate"] as string[]).includes(column.key); const activeSort = sort?.key === column.key ? sort : null; return <th key={column.key} {...stickyProps(column.key)} aria-sort={activeSort ? activeSort.direction === "asc" ? "ascending" : "descending" : sortable ? "none" : undefined}><div className="wage-column-heading"><span>{column.label}</span>{sortable && <button type="button" className={`column-sort${activeSort ? " active" : ""}`} onClick={() => toggleSort(column.key as WageSortKey)} aria-label={`${column.label} ${activeSort?.direction === "asc" ? "내림차순" : "오름차순"} 정렬`}>{activeSort?.direction === "asc" ? "↑" : activeSort?.direction === "desc" ? "↓" : "↕"}</button>}</div><button type="button" className="column-resizer" aria-label={`${column.label || "작업"} 열 너비 조절`} onPointerDown={(event) => beginColumnResize(event, column.key)} /></th>; })}</tr></thead><tbody>{sortedRows.map((row) => { const employee = row.employee; const monthly = employee.monthly[key] ?? {}; return <tr key={employee.id} className={row.days ? "" : "inactive"}><td {...stickyProps("employee")}><input aria-label="성명" value={employee.name} onChange={(event) => updateEmployee(employee.id, { name: event.target.value })} placeholder="성명" /></td>{isColumnVisible("department") && <td {...stickyProps("department")}><input list="wage-departments" aria-label="부서" value={employee.department} onChange={(event) => updateEmployee(employee.id, { department: event.target.value })} placeholder="부서" /></td>}{isColumnVisible("title") && <td {...stickyProps("title")}><input list="wage-titles" aria-label="직책" value={employee.title} onChange={(event) => updateEmployee(employee.id, { title: event.target.value })} placeholder="직책" /></td>}{isColumnVisible("joinDate") && <td><input type="date" aria-label="입사일" value={employee.joinDate} onChange={(event) => updateEmployee(employee.id, { joinDate: event.target.value })} /></td>}{isColumnVisible("leaveDate") && <td><input type="date" aria-label="퇴사일" value={employee.leaveDate} onChange={(event) => updateEmployee(employee.id, { leaveDate: event.target.value })} /></td>}{isColumnVisible("days") && <td className="calculated">{row.days}일</td>}{isColumnVisible("probation") && <td><select aria-label="수습 기간" value={employee.probationMonths} onChange={(event) => updateEmployee(employee.id, { probationMonths: Number(event.target.value) })}>{[0, 1, 2, 3, 6, 12].map((value) => <option key={value} value={value}>{value ? `${value}개월` : "—"}</option>)}</select></td>}{isColumnVisible("annualSalary") && <td><WonInput className="money-input" ariaLabel="연봉" value={employee.annualSalary} onValueChange={(value) => updateEmployee(employee.id, { annualSalary: value })} /></td>}{isColumnVisible("basic") && <td><div className="basic-cell">{employee.manualBasic ? <WonInput className="money-input" ariaLabel="기본급 직접 입력" value={Number(monthly.basic ?? employee.basePay ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "basic", value)} /> : <b>{money(row.basic)}</b>}<label title="기본급 직접 입력"><input type="checkbox" checked={employee.manualBasic} onChange={(event) => { updateEmployee(employee.id, { manualBasic: event.target.checked }); if (event.target.checked && monthly.basic === undefined) updateMonthly(employee.id, "basic", employee.basePay || row.basic); }} />직접</label></div></td>}{(["meal", "car", "child"] as const).map((field) => isColumnVisible(field) && <td key={field}><div className="allowance-cell"><b>{money(row[field])}</b><input type="checkbox" aria-label={`${field} 지급`} checked={employee[field] > 0} onChange={(event) => setAllowance(employee.id, field, event.target.checked)} /></div></td>)}{(["incentive", "bonus"] as const).map((field) => isColumnVisible(field) && <td key={field}><WonInput className="money-input" ariaLabel={field === "incentive" ? "인센티브" : "상여금"} value={Number(monthly[field] ?? 0)} onValueChange={(value) => updateMonthly(employee.id, field, value)} /></td>)}{columns.extra && isColumnVisible("extra") && <td><WonInput className="money-input" ariaLabel="추가수당" value={Number(monthly.extra ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "extra", value)} /></td>}{columns.research && isColumnVisible("research") && <td><WonInput className="money-input" ariaLabel="연구수당" value={Number(monthly.research ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "research", value)} /></td>}{columns.annualLeave && isColumnVisible("annualLeave") && <td><WonInput className="money-input" ariaLabel="연차수당" value={Number(monthly.annualLeave ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "annualLeave", value)} /></td>}{columns.personalExpense && isColumnVisible("personalExpense") && <td><WonInput className="money-input" ariaLabel="개인비용지급" value={Number(monthly.personalExpense ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "personalExpense", value)} /></td>}{columns.personalExpense && isColumnVisible("personalExpenseNote") && <td><input aria-label="개인비용 사유" value={monthly.personalExpenseNote ?? ""} onChange={(event) => updateMonthly(employee.id, "personalExpenseNote", event.target.value)} /></td>}{columns.severance && isColumnVisible("severance") && <td><WonInput className="money-input" ariaLabel="퇴직금" value={Number(monthly.severance ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "severance", value)} /></td>}{columns.deduction && isColumnVisible("deduction") && <td><WonInput className="money-input" ariaLabel="공제" value={Number(monthly.deduction ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "deduction", value)} /></td>}{columns.deduction && isColumnVisible("deductionNote") && <td><input aria-label="공제 사유" value={monthly.deductionNote ?? ""} onChange={(event) => updateMonthly(employee.id, "deductionNote", event.target.value)} placeholder="공제 사유" /></td>}<td className="total-cell">{money(row.total)}</td>{columns.welfare && isColumnVisible("welfare") && <td><WonInput className="money-input" ariaLabel="복지기금" value={Number(monthly.welfare ?? 0)} onValueChange={(value) => updateMonthly(employee.id, "welfare", value)} /></td>}{isColumnVisible("note") && <td><input aria-label="비고" value={monthly.note ?? ""} onChange={(event) => updateMonthly(employee.id, "note", event.target.value)} placeholder="비고" /></td>}<td><button type="button" className="remove-row" aria-label={`${employee.name || "직원"} 삭제`} onClick={() => { if (confirm(`${employee.name || "이 직원"}을 명부에서 삭제할까요?`)) setEmployees((current) => current.filter((item) => item.id !== employee.id)); }}>×</button></td></tr>; })}{!rows.length && <tr><td colSpan={tableColumns.length} className="wage-empty">{run ? "해당 월 임금 대상자가 없습니다." : `${month}월 임금 작성하기를 눌러 HR 인사기록을 불러오세요.`}</td></tr>}</tbody></table><datalist id="wage-departments">{departments.map((value) => <option key={value} value={value} />)}</datalist><datalist id="wage-titles">{titles.map((value) => <option key={value} value={value} />)}</datalist></div></fieldset><footer><button disabled={Boolean(exporting)} type="button" onClick={() => void exportCurrent()}>{exporting === "month" ? "파일 만드는 중…" : "현재 월 엑셀 내려받기"}</button><button disabled={Boolean(exporting)} type="button" onClick={() => void exportYear()}>{exporting === "year" ? "파일 만드는 중…" : "1~12월 일괄 내려받기"}</button>{locked ? <button disabled={saving} className="payroll-footer-action edit" type="button" onClick={() => void compensationAction("REOPEN")}>수정하기</button> : <button disabled={saving || autoSaving || !employees.length} className="payroll-footer-action confirm" type="button" onClick={() => void compensationAction("CONFIRM")}>{saving ? "처리 중…" : "급여 확정"}</button>}<span>초안은 서버에 저장되고 확정 시 HR 급여관리로 반영됩니다.</span></footer></section>
     </div>
   </div>
   </div>;

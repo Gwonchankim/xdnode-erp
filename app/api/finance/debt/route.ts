@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { financeCurrentData } from "../../../finance-current-data";
-import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { authorizeErpRequest, isFinancePeriodLocked, writeErpAudit } from "../../../erp-platform";
 
 type Bindings = { DB: D1Database };
 const db = (env as unknown as Bindings).DB;
@@ -66,7 +66,7 @@ async function ensureSchema() {
 
 async function locked(period: string) {
   if (!validPeriod(period)) return false;
-  return (await db.prepare("SELECT status FROM finance_close_runs WHERE period = ?").bind(period).first<{ status: string }>())?.status === "CLOSED";
+  return isFinancePeriodLocked(db, period);
 }
 
 function sourceAccount(sourceAccountId: string) {

@@ -1,7 +1,7 @@
-// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-28.
+// Snapshot from Clobe tax invoices, bank accounts and journal ledger, refreshed 2026-08-31.
 // Sales/purchase values are supply values excluding VAT. Credit/cancellation invoices are netted.
 export const financeCurrentData = {
-  "asOf": "2026-08-28",
+  "asOf": "2026-08-31",
   "sourceSummary": {
     "salesInvoices": 1919,
     "purchaseInvoices": 567,
@@ -11944,8 +11944,8 @@ export const financeCurrentData = {
       "name": "ONE KB 사업자통장-기업자유",
       "type": "CHECKING",
       "currency": "KRW",
-      "balance": 9568659,
-      "krwBalance": 9568659
+      "balance": 82619926,
+      "krwBalance": 82619926
     },
     {
       "id": 162637,
@@ -12035,7 +12035,7 @@ export const financeCurrentData = {
       "type": "FX",
       "currency": "USD",
       "balance": 400.69,
-      "krwBalance": 554795
+      "krwBalance": 553072
     },
     {
       "id": 162645,
@@ -12044,8 +12044,8 @@ export const financeCurrentData = {
       "name": "ONE KB 사업자통장",
       "type": "CHECKING",
       "currency": "KRW",
-      "balance": 568323,
-      "krwBalance": 568323
+      "balance": 303752713,
+      "krwBalance": 303752713
     },
     {
       "id": 162646,
@@ -12084,35 +12084,47 @@ export const financeCurrentData = {
       "name": "KB수출입기업우대외화통장",
       "type": "FX",
       "currency": "USD",
-      "balance": 1740000,
-      "krwBalance": 2409204000
+      "balance": 1900000,
+      "krwBalance": 2622570000
     }
   ],
   "accountSummary": {
-    "checkingBalanceSum": 18264979,
+    "checkingBalanceSum": 394500636,
     "savingsBalanceSum": 0,
     "loanBalanceSum": 1768750005,
-    "fxBalanceSumKrw": 2409758795,
+    "fxBalanceSumKrw": 2623123072,
     "fundBalanceSumKrw": 0
   },
   "journalSummary": {
-    "lineCount": 18169,
-    "debitAmountKrw": 284954102708,
-    "creditAmountKrw": 284954092794,
-    "differenceKrw": 9914,
+    "lineCount": 18258,
+    "debitAmountKrw": 289223325427,
+    "creditAmountKrw": 289223325463,
+    "differenceKrw": 36,
     "checkingAccount": {
       "code": "10300",
-      "debitCount": 1942,
-      "creditCount": 1403,
-      "debitAmountKrw": 113384971480,
-      "creditAmountKrw": 111456259549,
-      "netChangeKrw": 1928711931
+      "debitCount": 1955,
+      "creditCount": 1413,
+      "debitAmountKrw": 115638540022,
+      "creditAmountKrw": 113112744434,
+      "netChangeKrw": 2525795588
     }
   },
   "balanceTrend": [
     {
+      "date": "2026-08-31",
+      "balance": 3017623708
+    },
+    {
+      "date": "2026-08-30",
+      "balance": 3017623708
+    },
+    {
+      "date": "2026-08-29",
+      "balance": 2947507508
+    },
+    {
       "date": "2026-08-28",
-      "balance": 2428023774
+      "balance": 2947507508
     },
     {
       "date": "2026-08-27",

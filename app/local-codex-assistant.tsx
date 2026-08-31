@@ -61,9 +61,32 @@ function rowsToAnalysis(fileName: string, rows: unknown[][]): FileAnalysis {
   return { fileName, rowCount: data.length, columns: headers, preview: data.slice(0, 30) };
 }
 
+function textToAnalysis(fileName: string, text: string): FileAnalysis {
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  if (!lines.length) throw new Error("파일에서 읽을 수 있는 텍스트를 찾지 못했습니다. 이미지형 PDF라면 텍스트가 포함된 원본을 사용해 주세요.");
+  return { fileName, rowCount: lines.length, columns: ["추출 텍스트"], preview: lines.slice(0, 30).map((line) => ({ "추출 텍스트": line })) };
+}
+
 async function analyzeFile(file: File): Promise<FileAnalysis> {
   const name = file.name.toLowerCase();
   if (name.endsWith(".xlsx")) return rowsToAnalysis(file.name, await readXlsxFile(file));
+  if (name.endsWith(".pdf")) {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.min.mjs";
+    const document = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const pages: string[] = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const content = await page.getTextContent();
+      pages.push(content.items.map((item) => "str" in item ? item.str : "").join(" "));
+    }
+    return textToAnalysis(file.name, pages.join("\n"));
+  }
+  if (name.endsWith(".docx")) {
+    const mammoth = await import("mammoth");
+    const result = await mammoth.extractRawText({ arrayBuffer: await file.arrayBuffer() });
+    return textToAnalysis(file.name, result.value);
+  }
   const raw = await file.text();
   if (name.endsWith(".json")) {
     const parsed = JSON.parse(raw);
@@ -227,7 +250,16 @@ export default function LocalCodexAssistant({ module }: { module: AssistantModul
         <div className="local-codex-assistant-body">
           <p className="local-codex-assistant-notice">모델은 `gpt-5.6-terra` · Medium으로 실행됩니다. 현재 ERP 데이터를 포함하려면 아래 동의를 켜야 하며, Codex 응답은 변경안을 제시할 뿐 적용은 항상 별도 확인이 필요합니다.</p>
           <label className="local-codex-data-consent"><input type="checkbox" checked={includeServerData} onChange={(event) => setIncludeServerData(event.target.checked)} disabled={submitting} /><span>현재 HR·임금 계산 데이터를 Codex 분석에 포함하는 데 동의합니다.</span></label>
-          <div className="local-codex-file"><label><span>분석할 파일</span><input type="file" accept=".xlsx,.csv,.json,.txt" onChange={handleFile} disabled={submitting} /></label>{fileStatus && <small>{fileStatus}</small>}{fileAnalysis && <button type="button" onClick={() => { setFileAnalysis(null); setFileStatus(""); }} disabled={submitting}>파일 제외</button>}</div>
+          <div className="local-codex-file">
+            <label className={`local-codex-file-picker${fileAnalysis ? " selected" : ""}${submitting ? " disabled" : ""}`}>
+              <input type="file" accept=".xlsx,.csv,.json,.txt,.pdf,.docx" onChange={handleFile} disabled={submitting} />
+              <span className="local-codex-file-icon" aria-hidden="true">⌁</span>
+              <span className="local-codex-file-copy"><b>{fileAnalysis ? fileAnalysis.fileName : "분석할 파일 첨부"}</b><small>{fileAnalysis ? `${fileAnalysis.rowCount.toLocaleString("ko-KR")}행 · ${fileAnalysis.columns.length}개 열` : "XLSX · CSV · JSON · TXT · PDF · DOCX"}</small></span>
+              <span className="local-codex-file-action">{fileAnalysis ? "분석 완료" : "파일 선택"}</span>
+            </label>
+            {fileStatus && <small className="local-codex-file-status" role="status">{fileStatus}</small>}
+            {fileAnalysis && <button type="button" onClick={() => { setFileAnalysis(null); setFileStatus(""); }} disabled={submitting}>파일 제외</button>}
+          </div>
           {module === "compensation" && <label className="local-codex-period"><span>임금 초안 대상 월</span><input type="month" value={period} onChange={(event) => setPeriod(event.target.value)} disabled={submitting} /></label>}
           <div className="local-codex-assistant-suggestions" aria-label="추천 질문">{suggestions.map((item) => <button type="button" key={item} onClick={() => setQuestion(item)} disabled={submitting}>{item}</button>)}</div>
           <form onSubmit={submit}><label htmlFor="local-codex-question">무엇을 도와드릴까요?</label><textarea id="local-codex-question" value={question} maxLength={2000} onChange={(event) => setQuestion(event.target.value)} placeholder="예: 올린 파일을 인사기록카드의 급여 기본값과 대조하고, 반영할 변경안을 만들어줘." disabled={submitting} /><div className="local-codex-assistant-form-footer"><span>{question.length.toLocaleString("ko-KR")} / 2,000</span><button type="submit" disabled={!question.trim() || submitting}>{submitting ? "Codex가 검토 중…" : "요청하기"}</button></div></form>

@@ -23,6 +23,11 @@ test("local Codex assistant is mounted only for HR and compensation and its brid
   assert.match(bridge, /MAX_QUESTION_LENGTH = 2000/);
   assert.match(component, /includeServerData/);
   assert.match(component, /analyzeFile/);
+  assert.match(component, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
+  assert.match(component, /mammoth/);
+  assert.match(component, /\.pdf,\.docx/);
+  assert.match(component, /local-codex-file-picker/);
+  assert.match(component, /분석할 파일 첨부/);
   assert.match(component, /UPDATE_HR_COMPENSATION_DEFAULTS/);
   assert.match(component, /CREATE_COMPENSATION_DRAFT/);
   assert.match(component, /내용 확인 후 반영/);

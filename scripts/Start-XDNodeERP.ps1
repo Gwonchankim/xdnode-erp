@@ -2,6 +2,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectPath = Split-Path -Parent $PSScriptRoot
 $Port = 3000
+$AssistantPort = 3110
 $Url = "http://localhost:$Port"
 
 function Test-LocalPort([int]$TestPort) {
@@ -63,6 +64,16 @@ if (-not (Test-LocalPort $Port)) {
     }
     Start-Sleep -Milliseconds 500
   }
+}
+
+if (-not (Test-LocalPort $AssistantPort)) {
+  $assistantLogPath = Join-Path $LogDir "codex-assistant.log"
+  Start-Process `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/c", "cd /d `"$ProjectPath`" && npm.cmd run assistant:bridge") `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $assistantLogPath `
+    -RedirectStandardError "$assistantLogPath.err" | Out-Null
 }
 
 if (-not (Test-LocalPort $Port)) {

@@ -42,3 +42,8 @@
 .wage-table-panel td.sticky-col { position: sticky; z-index: 1; }
 .wage-table-panel th.sticky-col { position: sticky; z-index: 3; }
 .wage-table-panel th.sticky-col-last, .wage-table-panel td.sticky-col-last { border-right: 1px solid #c4c4ca; }
+
+/* 표 헤더 오른쪽: 드래그 안내 아래에 마지막 저장 시각을 붙인다. 화면을 열면 저장된 임금안이
+   그대로 떠서, 이게 언제 것인지 모르면 오늘 고친 값인지 판단할 수 없다. */
+.wage-table-hint { display: grid; gap: 3px; justify-items: end; text-align: right; }
+.wage-table-hint .wage-saved-at { color: #6b7280; font-size: 11px; font-style: normal; white-space: nowrap; }

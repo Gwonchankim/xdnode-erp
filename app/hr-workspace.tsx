@@ -1678,9 +1678,9 @@ function EmployeeDirectory({ employees, organizations, query, onSelect, onAdd }:
         if (query && people.length === 0) return null;
         return <section className="panel department-panel" key={department}>
           <button type="button" className="department-heading" onClick={() => toggle(department)} aria-expanded={expanded.includes(department)}><span className={`chevron ${expanded.includes(department) ? "open" : ""}`}>›</span><div><strong>{department}</strong><small>재직 {people.length}명 · 실제 등록 인원</small></div><span className="dept-progress"><i style={{ width: "100%" }}></i></span><em>{expanded.includes(department) ? "접기" : "펼치기"}</em></button>
-          {expanded.includes(department) && <div className="data-table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>사번/ID</th><th>직위</th><th>직무</th><th>고용형태</th><th>입사일</th><th>조직장</th><th>상태</th></tr></thead><tbody>{people.map((employee) => {
+          {expanded.includes(department) && <div className="data-table-wrap"><table className="data-table employee-table"><thead><tr><th>직원</th><th>사번/ID</th><th className="employee-birth-column">생년월일</th><th>직위</th><th>직무</th><th>고용형태</th><th>입사일</th><th>조직장</th><th>상태</th></tr></thead><tbody>{people.map((employee) => {
             const isLeader = employee.id === organization?.leaderEmployeeId;
-            return <tr key={employee.id} className={isLeader ? "organization-leader-row" : ""}><td><button type="button" className="name-link" onClick={() => onSelect(employee.id)}><span>{employee.name.slice(0, 1)}</span>{employee.name}{isLeader && <em className="organization-leader-badge">조직장</em>}</button></td><td>{employee.id}</td><td>{employee.position}</td><td>{isLeader ? "조직장" : employee.jobTitle ?? "팀원"}</td><td>{employee.type}</td><td>{employee.joinDate}</td><td>{isLeader ? "" : leader?.name ?? "미지정"}</td><td><StatusPill value={employee.status} /></td></tr>;
+            return <tr key={employee.id} className={isLeader ? "organization-leader-row" : ""}><td><button type="button" className="name-link" onClick={() => onSelect(employee.id)}><span>{employee.name.slice(0, 1)}</span>{employee.name}{isLeader && <em className="organization-leader-badge">조직장</em>}</button></td><td>{employee.id}</td><td className="employee-birth-column">{employee.birth || "미입력"}</td><td>{employee.position}</td><td>{isLeader ? "조직장" : employee.jobTitle ?? "팀원"}</td><td>{employee.type}</td><td>{employee.joinDate}</td><td>{isLeader ? "" : leader?.name ?? "미지정"}</td><td><StatusPill value={employee.status} /></td></tr>;
           })}</tbody></table></div>}
         </section>;
       })}
@@ -1747,6 +1747,8 @@ function CatalogManager({ title, description, items, value, onValue, onAdd, onRe
 function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, onBack, onUpdate, onPersonnelAction, onRetirement }: { employee: Employee; employees: Employee[]; organizations: Organization[]; ranks: string[]; jobTitles: string[]; onBack: () => void; onUpdate: (id: string, patch: Partial<Employee>) => void; onPersonnelAction: () => void; onRetirement: () => void }) {
   const [selectedDepartment, setSelectedDepartment] = useState(employee.department);
   const [selectedJobTitle, setSelectedJobTitle] = useState(employee.jobTitle ?? "팀원");
+  // 내려가면 제목줄을 절반 높이로 접는다. 지원자·급여·퇴직 팝업과 같은 방식이다.
+  const [condensed, setCondensed] = useState(false);
   const selectedOrganization = organizations.find((organization) => organization.name === selectedDepartment);
   const isOrganizationLeader = selectedOrganization?.leaderEmployeeId === employee.id;
   const leader = employees.find((person) => person.id === selectedOrganization?.leaderEmployeeId);
@@ -1760,8 +1762,17 @@ function EmployeeDetail({ employee, employees, organizations, ranks, jobTitles, 
   // 목록을 대체하던 전체 페이지에서 겹쳐 뜨는 팝업으로 바꿨다. 배경을 눌러도 닫히고,
   // 곡률과 왼쪽 스크롤바는 지원자 팝업과 같은 규칙을 공유한다(public/hr-workspace.css).
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onBack(); }}>
-    <div className="employee-detail-modal detail-page" onMouseDown={(event) => event.stopPropagation()}>
-    <div className="modal-header"><div><p>EMPLOYEE RECORD</p><h2>인사기록 확인 및 수정</h2></div><button type="button" onClick={onBack} aria-label="닫기">×</button></div>
+    <div
+      className={`employee-detail-modal detail-page${condensed ? " condensed" : ""}`}
+      onMouseDown={(event) => event.stopPropagation()}
+      onScroll={(event) => {
+        const top = event.currentTarget.scrollTop;
+        setCondensed((current) => nextCondensed(current, top));
+      }}
+    >
+    {/* 제목줄이 접히면 이름이 적힌 검은 배너가 위로 밀려 올라가 누구의 기록인지 보이지 않는다.
+        그래서 접힌 동안에는 제목 옆에 이름을 붙여 둔다. */}
+    <div className="modal-header"><div><p>EMPLOYEE RECORD</p><h2>인사기록 확인 및 수정{condensed ? ` - ${employee.name}` : ""}</h2></div><button type="button" onClick={onBack} aria-label="닫기">×</button></div>
     <section className="profile-hero panel"><div className="profile-avatar">{employee.name.slice(0, 1)}</div><div className="profile-copy"><p>{employee.id}</p><h1>{employee.name}</h1><div><span>{employee.department}</span><b>·</b><span>{employee.position}</span><b>·</b><StatusPill value={employee.status} /></div></div><div className="profile-actions personnel-actions-stack"><button type="button" className="promote" onClick={onPersonnelAction}>인사 발령</button><button type="button" className="retirement-action" onClick={onRetirement}>퇴직</button></div></section>
     <div className="detail-grid">
       <form className="panel detail-card" onSubmit={submit}><div className="detail-card-heading"><div><p className="eyebrow">BASIC INFORMATION</p><h2>기본정보·급여 기준</h2></div><button type="submit" className="primary-button">변경사항 저장</button></div><div className="detail-form"><label><span>이름</span><input required name="name" defaultValue={employee.name} /></label><label><span>생년월일</span><input name="birth" type="date" defaultValue={employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-")} /></label><label><span>이메일</span><input name="email" defaultValue={employee.email} /></label><label><span>연락처</span><input name="phone" defaultValue={employee.phone} /></label><label className="wide"><span>주소</span><input name="address" defaultValue={employee.address} /></label><label><span>고용형태</span><select name="type" defaultValue={employee.type}><option>일반직4.5</option><option>일반직</option><option>계약직</option><option>인턴</option></select></label><label><span>소속 조직</span><select value={selectedDepartment} onChange={(event) => setSelectedDepartment(event.target.value)}>{organizations.map((organization) => <option key={organization.id}>{organization.name}</option>)}</select></label><label><span>조직장</span><input value={organizationLeaderName} disabled placeholder={isOrganizationLeader ? "본인이 조직장인 경우 공란" : "조직장 미지정"} /></label><label><span>직위</span><select name="position" defaultValue={employee.position}>{ranks.map((rank) => <option key={rank}>{rank}</option>)}</select></label><label><span>직무</span><select name="jobTitle" value={isOrganizationLeader ? "조직장" : selectedJobTitle} disabled={isOrganizationLeader} onChange={(event) => setSelectedJobTitle(event.target.value)}>{jobTitles.map((title) => <option key={title}>{title}</option>)}</select></label><label><span>입사일</span><input value={employee.joinDate} disabled /></label><label><span>연봉 · 1원 단위</span><WonInput name="annualSalary" ariaLabel="연봉" defaultValue={employee.annualSalary ?? 0} /></label><label><span>기본급 · 1원 단위</span><WonInput name="basePay" ariaLabel="기본급" defaultValue={employee.basePay ?? 0} /></label><label><span>식대 · 1원 단위</span><WonInput name="mealAllowance" ariaLabel="식대" defaultValue={employee.mealAllowance ?? 0} /></label><label><span>육아수당 · 1원 단위</span><WonInput name="childcareAllowance" ariaLabel="육아수당" defaultValue={employee.childcareAllowance ?? 0} /></label><label><span>자가운전수당 · 1원 단위</span><WonInput name="vehicleAllowance" ariaLabel="자가운전수당" defaultValue={employee.vehicleAllowance ?? 0} /></label></div></form>
@@ -2515,8 +2526,8 @@ function PayrollRecordModal({ record, locked, lockLabel, onClose, onSave }: {
       onSubmit={submit}
       onMouseDown={(event) => event.stopPropagation()}
       onScroll={(event) => {
-        const next = event.currentTarget.scrollTop > 24;
-        setCondensed((current) => (current === next ? current : next));
+        const top = event.currentTarget.scrollTop;
+        setCondensed((current) => nextCondensed(current, top));
       }}
     >
       <div className="modal-header">
@@ -2586,11 +2597,13 @@ function RecruitmentView({ applicants, recruiters, requisitions, query, onAdd, o
     .filter((applicant) => applicant.stage === SCREENING_PASSED_STAGE && interviewScheduleLabel(applicant))
     .slice()
     .sort((a, b) => interviewSortKey(a).localeCompare(interviewSortKey(b)));
-  // 면접 합격자. 처우가 저장된 뒤의 상태들을 입사예정일 순으로 모아 둔다.
+  // 면접 결과. 처우가 저장된 뒤의 상태들을 입사예정일 순으로 모아 둔다 — 수락도 거절도 함께 남는다.
   const passed = visible
     .filter((applicant) => OFFER_STAGES.includes(applicant.stage) && applicant.offer)
     .slice()
     .sort((a, b) => (a.offer?.startDate || "9999-99-99").localeCompare(b.offer?.startDate || "9999-99-99"));
+  // 입사 예정자. 처우 제안을 수락해 확정된 사람만이다 — 제안만 해 둔 사람은 여기 오지 않는다.
+  const joining = passed.filter((applicant) => ["ACCEPTED", "ONBOARDED"].includes(applicant.offer?.status ?? ""));
   // 절차가 끝난 사람은 위 지원 현황에서 빼고 맨 아래 "채용 종료" 표에만 둔다.
   // 진행 중인 사람만 위에 남아야 오늘 손댈 대상이 바로 보인다.
   const closed = visible
@@ -2608,22 +2621,23 @@ function RecruitmentView({ applicants, recruiters, requisitions, query, onAdd, o
     ].map((metric) => <div className="compact-metric" key={metric.label}><span className={`metric-accent ${metric.tone ?? "navy"}`}></span><p>{metric.label}</p><h2>{metric.value}</h2><small>{metric.note}</small></div>)}</section>
     <section className="panel table-panel">
       <div className="table-toolbar"><div><h2>지원 현황</h2><span>진행 중 {active.length}명 · 종료 {closed.length}명은 아래 채용 종료 표에서 봅니다</span></div><div><button type="button">공고 전체</button><button type="button">단계 필터</button></div></div>
-      <div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th>채용요청·TO</th><th>지원 직무</th><th>지원일</th><th>지원경로</th><th>경력</th><th>담당자</th><th>현재 단계</th><th>채용단계</th><th className="applicant-delete-column">삭제</th></tr></thead><tbody>{active.length ? active.map((applicant) => {
+      <div className="data-table-wrap"><table className="data-table applicant-table"><thead><tr><th>지원자</th><th className="applicant-phone-cell">연락처</th><th className="applicant-to-column">채용요청·TO</th><th>지원 직무</th><th>지원일</th><th>지원경로</th><th>경력</th><th className="applicant-owner-column">담당자</th><th className="applicant-stage-column">현재 단계</th><th>채용단계</th><th className="applicant-delete-column">삭제</th></tr></thead><tbody>{active.length ? active.map((applicant) => {
         const previous = previousApplicationsFor(applicant, applicants);
         const requisition = requisitions.find((item) => item.id === applicant.requisitionId);
-        return <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button>{previous.length > 0 && <em className="repeat-applicant-badge">재지원 {previous.length}건</em>}</td><td><span className={requisition ? "applicant-to-link" : "applicant-to-exception"}>{requisition?.title ?? "예외·미연결"}</span></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.source}</td><td>{applicant.experience || "미입력"}</td><td><select className="recruiter-cell-select" value={applicant.ownerId} onChange={(event) => onOwnerChange(applicant.id, event.target.value)}><option value="">미지정</option>{recruiters.map((recruiter) => <option value={recruiter.id} key={recruiter.id}>{recruiter.name}</option>)}</select></td><td><span className="applicant-current-stage">{currentStageOf(applicant)}</span></td><td><span className={`screening-stage ${recruitStageOf(applicant).toLowerCase()}`}>{recruitStageLabels[recruitStageOf(applicant)]}</span></td><td className="applicant-delete-column"><button type="button" className="delete-applicant-button" onClick={() => onDelete(applicant.id)} aria-label={`${applicant.name} 지원자 모든 정보 삭제`} title="지원자 모든 정보 삭제"><span aria-hidden="true">🗑</span></button></td></tr>;
-      }) : <tr><td colSpan={10} className="empty-cell">{closed.length ? "진행 중인 지원자가 없습니다. 종료된 인원은 아래 채용 종료 표에 있습니다." : "등록된 지원자가 없습니다."}</td></tr>}</tbody></table></div>
+        return <tr key={applicant.id}><td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button>{previous.length > 0 && <em className="repeat-applicant-badge">재지원 {previous.length}건</em>}</td><td className="applicant-phone-cell">{applicant.phone || "미입력"}</td><td className="applicant-to-column"><span className={requisition ? "applicant-to-link" : "applicant-to-exception"}>{requisition?.title ?? "예외·미연결"}</span></td><td>{applicant.role}</td><td>{applicant.applied}</td><td>{applicant.source}</td><td>{applicant.experience || "미입력"}</td><td className="applicant-owner-column"><select className="recruiter-cell-select" value={applicant.ownerId} onChange={(event) => onOwnerChange(applicant.id, event.target.value)}><option value="">미지정</option>{recruiters.map((recruiter) => <option value={recruiter.id} key={recruiter.id}>{recruiter.name}</option>)}</select></td><td className="applicant-stage-column"><span className="applicant-current-stage">{currentStageOf(applicant)}</span></td><td><span className={`screening-stage ${recruitStageOf(applicant).toLowerCase()}`}>{recruitStageLabels[recruitStageOf(applicant)]}</span></td><td className="applicant-delete-column"><button type="button" className="delete-applicant-button" onClick={() => onDelete(applicant.id)} aria-label={`${applicant.name} 지원자 모든 정보 삭제`} title="지원자 모든 정보 삭제"><span aria-hidden="true">🗑</span></button></td></tr>;
+      }) : <tr><td colSpan={11} className="empty-cell">{closed.length ? "진행 중인 지원자가 없습니다. 종료된 인원은 아래 채용 종료 표에 있습니다." : "등록된 지원자가 없습니다."}</td></tr>}</tbody></table></div>
     </section>
 
     <section className="panel table-panel interview-schedule-panel">
       <div className="table-toolbar"><div><h2>면접 전형 진행</h2><span>면접 일시 순 {interviewing.length}명</span></div></div>
       <div className="data-table-wrap"><table className="data-table">
-        <thead><tr><th>면접 일시</th><th>지원자</th><th>채용요청·TO</th><th>지원 직무</th><th>면접 유형</th><th>면접관</th><th>장소·링크</th><th>담당자</th></tr></thead>
+        <thead><tr><th>면접 일시</th><th>지원자</th><th>연락처</th><th>채용요청·TO</th><th>지원 직무</th><th>면접 유형</th><th>면접관</th><th>장소·링크</th><th>담당자</th></tr></thead>
         <tbody>{interviewing.length ? interviewing.map((applicant) => {
           const requisition = requisitions.find((item) => item.id === applicant.requisitionId);
           return <tr key={applicant.id}>
             <td><span className="interview-when"><strong>{applicant.interview?.date || "일자 미정"}</strong>{applicant.interview?.time && <em>{applicant.interview.time}</em>}</span></td>
             <td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button></td>
+            <td className="applicant-phone-cell">{applicant.phone || "미입력"}</td>
             <td><span className={requisition ? "applicant-to-link" : "applicant-to-exception"}>{requisition?.title ?? "예외·미연결"}</span></td>
             <td>{applicant.role}</td>
             <td>{applicant.interview?.type || "미정"}</td>
@@ -2631,12 +2645,35 @@ function RecruitmentView({ applicants, recruiters, requisitions, query, onAdd, o
             <td>{applicant.interview?.location || "미정"}</td>
             <td>{applicant.owner || "미지정"}</td>
           </tr>;
-        }) : <tr><td colSpan={8} className="empty-cell">면접 일정이 잡힌 지원자가 없습니다.</td></tr>}</tbody>
+        }) : <tr><td colSpan={9} className="empty-cell">면접 일정이 잡힌 지원자가 없습니다.</td></tr>}</tbody>
+      </table></div>
+    </section>
+
+    {/* 처우를 수락해 입사가 확정된 사람만 따로 본다. 아래 면접 결과 표에는 거절·타사 합격도 함께 남는다. */}
+    <section className="panel table-panel joining-applicant-panel">
+      <div className="table-toolbar"><div><h2>입사 예정자</h2><span>처우 제안 수락 · 입사예정일 순 {joining.length}명</span></div></div>
+      <div className="data-table-wrap"><table className="data-table">
+        <thead><tr><th>입사예정일</th><th>지원자</th><th>연락처</th><th>채용요청·TO</th><th>제안 직무</th><th>소속</th><th>고용형태</th><th>연봉</th><th>담당자</th></tr></thead>
+        <tbody>{joining.length ? joining.map((applicant) => {
+          const requisition = requisitions.find((item) => item.id === applicant.requisitionId);
+          const offer = applicant.offer;
+          return <tr key={applicant.id}>
+            <td><strong>{offer?.startDate || "미정"}</strong></td>
+            <td><button type="button" className="name-link" onClick={() => onSelect(applicant.id)}><span>{applicant.name.slice(0, 1)}</span>{applicant.name}</button></td>
+            <td className="applicant-phone-cell">{applicant.phone || "미입력"}</td>
+            <td><span className={requisition ? "applicant-to-link" : "applicant-to-exception"}>{requisition?.title ?? "예외·미연결"}</span></td>
+            <td>{offer?.proposedTitle || applicant.role}</td>
+            <td>{offer?.department || "미정"}</td>
+            <td>{offer?.employmentType || "미정"}</td>
+            <td>{offer ? `${offer.annualSalary.toLocaleString("ko-KR")}원` : "미정"}</td>
+            <td>{applicant.owner || "미지정"}</td>
+          </tr>;
+        }) : <tr><td colSpan={9} className="empty-cell">처우 제안을 수락한 지원자가 없습니다.</td></tr>}</tbody>
       </table></div>
     </section>
 
     <section className="panel table-panel passed-applicant-panel">
-      <div className="table-toolbar"><div><h2>면접 합격자</h2><span>입사예정일 순 {passed.length}명</span></div></div>
+      <div className="table-toolbar"><div><h2>면접 결과</h2><span>처우 제안 이후 · 입사예정일 순 {passed.length}명</span></div></div>
       <div className="data-table-wrap"><table className="data-table">
         <thead><tr><th>입사예정일</th><th>지원자</th><th>채용요청·TO</th><th>제안 직무</th><th>소속</th><th>고용형태</th><th>연봉</th><th>진행 상태</th><th>담당자</th></tr></thead>
         <tbody>{passed.length ? passed.map((applicant) => {
@@ -2653,7 +2690,7 @@ function RecruitmentView({ applicants, recruiters, requisitions, query, onAdd, o
             <td><span className="passed-status">{applicant.stage}</span></td>
             <td>{applicant.owner || "미지정"}</td>
           </tr>;
-        }) : <tr><td colSpan={9} className="empty-cell">면접 합격 처리된 지원자가 없습니다.</td></tr>}</tbody>
+        }) : <tr><td colSpan={9} className="empty-cell">처우를 제안한 지원자가 없습니다.</td></tr>}</tbody>
       </table></div>
     </section>
 
@@ -2934,8 +2971,8 @@ function ApplicantDetail({ applicant, recruiters, requisitions, organizations, o
       onSubmit={submit}
       onMouseDown={(event) => event.stopPropagation()}
       onScroll={(event) => {
-        const next = event.currentTarget.scrollTop > 24;
-        setCondensed((current) => (current === next ? current : next));
+        const top = event.currentTarget.scrollTop;
+        setCondensed((current) => nextCondensed(current, top));
       }}
     >
       <div className="modal-header"><div><p>APPLICANT PROFILE</p><h2>지원자 정보 확인 및 수정</h2></div><div className="modal-header-actions"><button type="submit" className="header-save-button">변경사항 저장</button><button type="button" onClick={onClose} aria-label="닫기">×</button></div></div>
@@ -3139,6 +3176,14 @@ function PersonnelActionModal({ employee, ranks, organizations, onClose, onSubmi
 type OnboardingTask = { id: string; employee_id: string; task_group: string; title: string; due_date: string; status: string };
 type LifecycleRetirementRequest = { id: string; employee_id: string; retirement_date: string; reason: string; status: string; checklist_json: string; completed_tasks: number; total_tasks: number };
 type LifecycleOnboardingCandidate = RecruitmentOffer & { name: string; email: string; phone: string };
+/* 팝업 제목줄은 내려가면 92px -> 46px 로 접힌다. 그런데 접히는 순간 위쪽 내용이 46px 줄어들어
+   브라우저의 스크롤 앵커링이 그만큼 scrollTop 을 되돌린다. 기준선이 하나면 그 되돌림이 다시
+   기준을 넘어 펼침 -> 접힘을 반복하며 깜빡였다. 접을 때와 펼 때의 기준을 46px 보다 넓게
+   벌려(56px / 8px) 되먹임이 기준을 다시 넘지 못하게 한다. CSS 의 overflow-anchor: none 과 한 쌍이다. */
+function nextCondensed(current: boolean, scrollTop: number) {
+  return current ? scrollTop > 8 : scrollTop > 56;
+}
+
 const safeJsonArray = (value: string) => { try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed.map(String) : []; } catch { return []; } };
 
 function LifecycleManagementView() {
@@ -3315,8 +3360,19 @@ function RetirementProcessModal({ request, person, tasks, onToggle, onClose }: {
   const completed = safeJsonArray(request.checklist_json);
   const effective = ["EFFECTIVE", "COMPLETED"].includes(request.status);
   const locked = request.status === "COMPLETED";
+  // 내려가면 제목줄을 절반 높이로 접는다. 지원자·급여 팝업과 같은 방식이다.
+  const [condensed, setCondensed] = useState(false);
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="employee-modal retirement-process-modal" role="dialog" aria-modal="true" aria-label={`${person?.name ?? request.employee_id} 퇴직 절차`}>
+    <section
+      className={`employee-modal retirement-process-modal${condensed ? " condensed" : ""}`}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${person?.name ?? request.employee_id} 퇴직 절차`}
+      onScroll={(event) => {
+        const top = event.currentTarget.scrollTop;
+        setCondensed((current) => nextCondensed(current, top));
+      }}
+    >
       <div className="modal-header">
         <div><p>OFFBOARDING</p><h2>{person?.name ?? request.employee_id} 퇴직 절차</h2></div>
         <button type="button" aria-label="닫기" onClick={onClose}>×</button>
@@ -3637,8 +3693,8 @@ function RetirementModal({ employee, onClose, onSubmit }: { employee: Employee; 
     onSubmit={submit}
     onMouseDown={(event) => event.stopPropagation()}
     onScroll={(event) => {
-      const next = event.currentTarget.scrollTop > 24;
-      setCondensed((current) => (current === next ? current : next));
+      const top = event.currentTarget.scrollTop;
+      setCondensed((current) => nextCondensed(current, top));
     }}
   ><div className="modal-header"><div><p>RETIREMENT PROCESS</p><h2>퇴직 절차 관리</h2></div><button type="button" onClick={onClose}>×</button></div><div className="candidate-banner"><span>{employee.name.slice(0, 1)}</span><div><strong>{employee.name}</strong><small>{employee.department} · {employee.position}</small></div><em>{employee.id}</em></div>{pendingApproval && <p className="optional-form-notice">기존 방식으로 생성된 퇴직 요청입니다. 현재 진행 상태를 확인해 주세요.</p>}{checklistMode && <p className="optional-form-notice">{employee.retirement?.status === "EFFECTIVE" ? "퇴직일이 지나 퇴직 상태가 반영되었습니다. 남은 정산·회수 업무는 입·퇴사 관리에서 계속 완료할 수 있습니다." : "퇴직 승인이 완료되었습니다. 퇴직일이 도래하면 재직·조직 명부에서 자동 제외되며, 체크리스트는 별도로 계속 관리됩니다."}</p>}<div className="retirement-modal-body"><div className="retirement-modal-main"><div className="retirement-fields"><label><span>퇴직일 *</span><input required disabled={checklistMode || pendingApproval} type="date" value={date} onChange={(event) => setDate(event.target.value)} /></label><label><span>퇴직사유 *</span><textarea required disabled={checklistMode || pendingApproval} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="퇴직 사유와 참고사항을 입력하세요."></textarea></label></div><div className="retirement-progress"><div><span>퇴직 절차 체크리스트</span><strong>{completedTaskIds.length}/{totalTasks} 완료</strong></div><div className="retirement-progress-track"><i style={{ width: `${progress}%` }}></i></div><small>{progress === 100 ? "모든 퇴직 절차를 완료했습니다." : `미완료 업무 ${totalTasks - completedTaskIds.length}건이 남아 있습니다.`}</small></div><div className="retirement-checklist-grid"><ChecklistGroup title="인사담당자 수행 업무" owner="HR OWNER" tasks={retirementChecklist.hr} /><ChecklistGroup title="퇴직자 수행 업무" owner="EMPLOYEE" tasks={retirementChecklist.employee} /></div></div>{checklistMode && employee.retirement?.requestId && <aside className="retirement-modal-side"><RetirementSettlementPanel requestId={employee.retirement.requestId} /></aside>}</div><div className="modal-actions"><button type="button" onClick={onClose}>취소</button><button type="submit" disabled={pendingApproval} className="primary-button">{pendingApproval ? "기존 요청 확인 중" : checklistMode ? "체크리스트 저장" : "퇴직 승인"}</button></div></form>{confirmation && <div className="retirement-confirmation-backdrop" role="presentation" onMouseDown={() => setConfirmation(null)}><section className="retirement-confirmation-dialog" role="alertdialog" aria-modal="true" aria-labelledby="retirement-confirmation-title" onMouseDown={(event) => event.stopPropagation()}><p>FINAL CONFIRMATION</p><h2 id="retirement-confirmation-title">{employee.name} 퇴직 처리 확인</h2><span>작성한 내용을 확인 후 퇴직 버튼을 클릭해 주세요.</span><dl><div><dt>퇴직일</dt><dd>{confirmation.date}</dd></div><div><dt>퇴직사유</dt><dd>{confirmation.reason}</dd></div><div><dt>체크리스트</dt><dd>{confirmation.completedTaskIds.length}/{totalTasks} 완료</dd></div></dl><div><button type="button" onClick={() => setConfirmation(null)}>돌아가기</button><button type="button" className="danger-confirm" onClick={() => onSubmit(confirmation)}>퇴직</button></div></section></div>}</div>;
 }

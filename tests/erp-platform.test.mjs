@@ -574,7 +574,9 @@ test("applicant popup owns screening and interview, and the list only reports st
   assert.match(workspace, /decision === "REJECT" \? SCREENING_REJECTED_STAGE : SCREENING_PENDING_STAGE/);
 
   // 목록은 채용단계(서류 결과)와 현재 단계(면접 일정)만 보여준다.
-  assert.match(workspace, /<th>현재 단계<\/th><th>채용단계<\/th>/);
+  // 열 너비는 자리 번호가 아니라 클래스로 잡는다 — 열을 끼워 넣어도 너비가 밀리지 않게.
+  assert.match(workspace, /<th className="applicant-stage-column">현재 단계<\/th><th>채용단계<\/th>/);
+  assert.match(styles, /\.applicant-table \.applicant-stage-column \{/);
   assert.doesNotMatch(workspace, /<th>채용 처리<\/th>/);
   assert.match(workspace, /PENDING: "서류 평가중", PASSED: "서류 합격", REJECTED: "탈락", INTERVIEW: "면접"/);
   // 사유가 무엇이든 탈락자는 채용단계에 "탈락" 하나로 묶고, 처우 단계까지 간 사람만 "면접"이다.
@@ -643,7 +645,15 @@ test("employee lifecycle opens each retirement in its own modal beside the onboa
   assert.match(workspace, /const \[openRetirementId, setOpenRetirementId\] = useState\(""\)/);
   assert.match(workspace, /onClick=\{\(\) => setOpenRetirementId\(request\.id\)\}/);
   assert.match(workspace, /function RetirementProcessModal\(/);
-  assert.match(workspace, /className="employee-modal retirement-process-modal" role="dialog" aria-modal="true"/);
+  assert.match(workspace, /className=\{`employee-modal retirement-process-modal\$\{condensed \? " condensed" : ""\}`\}/);
+  assert.match(workspace, /role="dialog"\s+aria-modal="true"/);
+  // 팝업 규칙 세 가지(곡률 9px, 안쪽 왼편 스크롤 막대, 접히는 제목줄)를 이 팝업도 따른다.
+  assert.match(styles, /\.retirement-process-modal \{[^}]*border-radius: 9px;[^}]*direction: rtl;/);
+  assert.match(styles, /\.retirement-process-modal\.condensed \.modal-header \{ min-height: 46px;/);
+  // 접히면 위쪽 내용이 46px 줄어 스크롤 앵커링이 기준선을 되넘나들며 깜빡였다.
+  // 앵커링을 끄고 접힘/펼침 기준을 벌려 둔 것을 함께 지킨다.
+  assert.match(styles, /\.payroll-record-modal \{ overflow-anchor: none; \}/);
+  assert.match(workspace, /function nextCondensed\(current: boolean, scrollTop: number\) \{\s*return current \? scrollTop > 8 : scrollTop > 56;/);
   // 급여자료에 손으로 적어 둔 퇴직금은 추정치와 나란히 보이고, 덮어쓰기 전에 확인을 받아야 한다.
   assert.match(workspace, /기입력된 퇴직금 금액/);
   assert.match(workspace, /estimate\.recordedSeverance > 0 && <tr className="recorded">/);

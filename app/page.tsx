@@ -27,6 +27,7 @@ import ApprovalCenter from "./approval-center";
 import OperationsWorkbench from "./operations-workbench";
 import DataGovernanceCenter from "./data-governance-center";
 import CompensationCalculator from "./compensation-calculator";
+import LocalCodexAssistant from "./local-codex-assistant";
 import { financeCurrentData } from "./finance-current-data";
 import { financeCurrentInsights } from "./finance-current-insights";
 import { financeHistoricalData } from "./finance-historical-data";
@@ -588,6 +589,7 @@ export default function Home() {
       <div className="hr-module-shell">
         <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
         <HRWorkspace requestedView={hrNavigation.view} navigationRequestKey={hrNavigation.requestKey} />
+        <LocalCodexAssistant module="hr" />
       </div>
     );
   }
@@ -597,6 +599,7 @@ export default function Home() {
       <div className="compensation-erp-shell">
         <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
         <CompensationCalculator />
+        <LocalCodexAssistant module="compensation" />
       </div>
     );
   }

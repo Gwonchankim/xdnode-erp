@@ -633,12 +633,12 @@ button { color: inherit; }
 .recruitment-page .applicant-table { min-width: 1180px; table-layout: auto; }
 .recruitment-page .applicant-table th,
 .recruitment-page .applicant-table td { padding-right: 14px; padding-left: 14px; white-space: nowrap; }
-.recruitment-page .applicant-table th:nth-child(2),
-.recruitment-page .applicant-table td:nth-child(2) { min-width: 230px; }
-.recruitment-page .applicant-table th:nth-child(6),
-.recruitment-page .applicant-table td:nth-child(6) { min-width: 130px; }
-.recruitment-page .applicant-table th:nth-child(8),
-.recruitment-page .applicant-table td:nth-child(8) { min-width: 160px; }
+/* 열 너비는 자리 번호가 아니라 클래스로 잡는다. nth-child 로 두면 열을 하나 끼워 넣을 때마다
+   너비가 통째로 한 칸씩 밀려 간격이 들쭉날쭉해진다(연락처 열을 넣었을 때 실제로 그랬다). */
+.recruitment-page .applicant-table .applicant-phone-cell { min-width: 132px; }
+.recruitment-page .applicant-table .applicant-to-column { min-width: 200px; }
+.recruitment-page .applicant-table .applicant-owner-column { min-width: 132px; }
+.recruitment-page .applicant-table .applicant-stage-column { min-width: 200px; }
 .recruitment-page .applicant-table th.applicant-delete-column,
 .recruitment-page .applicant-table td.applicant-delete-column { width: 64px; min-width: 64px; text-align: center; }
 .delete-applicant-button { width: 36px; height: 36px; display: inline-grid; place-items: center; padding: 0; color: #b42318; border: 1px solid #fecaca; border-radius: 11px; background: #fff; font: inherit; cursor: pointer; transition: background .15s ease, border-color .15s ease, transform .15s ease; }
@@ -1280,3 +1280,73 @@ button { color: inherit; }
 .closed-reason.decline { border-color: #fcd9a4; background: #fffaf0; color: #92400e; }
 .closed-reason.other { border-color: #d4d4d8; background: #f4f4f5; color: #52525b; }
 .closed-reason.join { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+
+/* 연락처는 줄바꿈되면 읽기 어려워 한 줄로 붙여 둔다. */
+.applicant-phone-cell { color: #52525b; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* 입사 예정자 — 처우를 수락해 확정된 사람만. 면접 결과 표 위에 놓아 확정분이 먼저 보이게 한다. */
+.joining-applicant-panel { margin-top: 24px; }
+.joining-applicant-panel .table-toolbar h2 { color: #166534; }
+
+/* 지원 현황 표의 좌우 여백을 열마다 같게 둔다. 담당자 선택 상자도 칸 폭에 맞춘다. */
+.recruitment-page .applicant-table th,
+.recruitment-page .applicant-table td { padding-right: 16px; padding-left: 16px; vertical-align: middle; }
+.recruitment-page .applicant-table .recruiter-cell-select { width: 100%; min-width: 0; }
+
+/* 생년월일은 줄바꿈되면 읽기 어려워 한 줄로 고정한다. 자리 번호가 아니라 클래스로 잡는다. */
+.employee-table .employee-birth-column { min-width: 108px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* 퇴직 절차 팝업은 체크리스트와 정산 계산기를 좌우로 나눠 쓰는데 680px에서는 정산 표가 글자
+   단위로 줄바꿈될 만큼 좁았다. 같은 좌우 2단 구조인 퇴직 승인 모달(.retirement-modal, 1240px)에
+   맞춰 폭을 넓히고, 정산 열에 최소 너비를 확보한다. */
+.retirement-process-modal { width: min(1120px, 100%); }
+
+/* 앞서 정한 팝업 규칙 세 가지를 그대로 따른다 —
+   1) 네 귀퉁이 곡률 9px, 2) 스크롤 막대는 안쪽 왼편에 화살표 없이,
+   3) 내려가면 제목줄이 절반으로 접히며 글자도 줄고 위에 고정된다.
+   본문만 스크롤하던 flex 구조로는 막대가 본문 안에 갇혀 다른 팝업과 위치가 달라진다.
+   그래서 스크롤 주체를 팝업 자신으로 옮기고 본문은 그대로 흐르게 둔다. */
+.retirement-process-modal { display: block; overflow-x: hidden; overflow-y: auto; border-radius: 9px;
+  direction: rtl; scrollbar-width: thin; scrollbar-color: #c7c7cc transparent; }
+.retirement-process-modal > * { direction: ltr; }
+.retirement-process-modal::-webkit-scrollbar { width: 10px; }
+.retirement-process-modal::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.retirement-process-modal::-webkit-scrollbar-track { margin: 10px 0; background: transparent; }
+.retirement-process-modal::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-color: #c7c7cc; background-clip: content-box; }
+.retirement-process-modal::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
+.retirement-process-modal .retirement-modal-body { flex: none; overflow: visible; }
+.retirement-process-modal .modal-header { position: sticky; top: 0; z-index: 5; background: #fff; transition: min-height .18s ease; }
+.retirement-process-modal.condensed .modal-header { min-height: 46px; box-shadow: 0 1px 0 rgba(9, 9, 11, .08); }
+.retirement-process-modal.condensed .modal-header p { display: none; }
+.retirement-process-modal.condensed .modal-header h2 { font-size: 16px; }
+.retirement-process-modal.condensed .modal-header button { font-size: 20px; }
+.retirement-process-modal .retirement-modal-body { grid-template-columns: minmax(0, 1fr) minmax(360px, 440px); }
+/* 넓어진 체크리스트 열은 한 줄짜리 항목이 가로로 늘어지기만 해서, 자리가 나면 2단으로 접는다. */
+.retirement-process-modal .retirement-modal-checklist { grid-template-columns: repeat(auto-fill, minmax(268px, 1fr)); align-content: start; }
+/* 정산 비교표 가운데 칸이 좁아 "125,000원"이 글자 단위로 쪼개졌다. 낱말 단위로만 끊는다. */
+.settlement-compare td:nth-child(2) { word-break: keep-all; }
+@media (max-width: 900px) {
+  .retirement-process-modal .retirement-modal-body { grid-template-columns: 1fr; }
+}
+
+/* 인사기록 팝업도 다른 팝업과 같이 제목줄이 접히게 한다. 이 팝업은 이름이 적힌 검은 배너가
+   제목줄 아래에 있어서, 접혀 배너가 밀려 올라가면 제목에 이름을 붙여 누구인지 알 수 있게 한다. */
+.employee-detail-modal .modal-header { transition: min-height .18s ease; }
+.employee-detail-modal.condensed .modal-header { min-height: 46px; box-shadow: 0 1px 0 rgba(9, 9, 11, .08); }
+.employee-detail-modal.condensed .modal-header p { display: none; }
+.employee-detail-modal.condensed .modal-header h2 { font-size: 16px; }
+.employee-detail-modal.condensed .modal-header button { font-size: 20px; }
+
+/* 이름이 적힌 검은 배너가 화면을 너무 많이 차지해 기본정보가 밀렸다. 높이를 2/3(180px -> 120px)로
+   줄인다. 아바타 64px + 위아래 여백 20px 씩이라 안쪽은 그대로 들어간다. */
+.profile-hero { min-height: 112px; padding: 14px 36px; }
+/* 배너 높이를 실제로 정하는 것은 세로로 쌓인 인사발령·퇴직 버튼이다. 같이 줄여야 2/3 가 된다. */
+.profile-actions button { height: 36px; }
+
+/* 제목줄이 접히면 위쪽 내용이 46px 줄어드는데, 브라우저의 스크롤 앵커링이 화면을 붙잡아 두려고
+   scrollTop 을 그만큼 되돌린다. 그 되돌림이 다시 접힘 기준을 넘나들며 깜빡임을 만들었다.
+   여기서는 앵커링을 끄고, 기준선은 hr-workspace.tsx 의 nextCondensed 가 넓게 벌려 잡는다. */
+.retirement-modal,
+.retirement-process-modal,
+.employee-detail-modal,
+.applicant-edit-modal,
+.payroll-record-modal { overflow-anchor: none; }

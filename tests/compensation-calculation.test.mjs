@@ -171,3 +171,36 @@ test("선택 열 토글은 일곱 개가 모두 저장된다", async () => {
   // 목록을 손으로 다시 적지 말고 defaults 의 키를 그대로 쓴다 — 그래야 빠뜨릴 수 없다.
   assert.match(source, /Object\.keys\(columnDefaults\)\.map/);
 });
+
+// 엑셀 내보내기는 화면 표와 같은 열을 담아야 한다. 예전에는 헤더 배열과 값 배열이 따로 있어
+// 열을 추가할 때 한쪽만 고쳐졌고(개인비용지급이 그렇게 빠졌다), 표시할 열 선택도 무시됐다.
+// 이제 열마다 이름과 값을 한 묶음으로 적고 두 조건으로 한 번에 거른다.
+test("엑셀 내보내기는 체크된 열만, 화면과 같은 기준으로 담는다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/compensation-calculator.tsx", import.meta.url), "utf8");
+  const start = source.indexOf("function sheetData");
+  const end = source.indexOf("async function exportCurrent", start);
+  const sheet = source.slice(start, end);
+
+  // 헤더와 값이 한 묶음이라 서로 어긋날 수 없다.
+  assert.match(sheet, /type SheetColumn = \{ key: string; label: string; money\?: boolean; value:/);
+  // 수당·표시 항목 체크를 그대로 따른다.
+  for (const field of ["extra", "research", "annualLeave", "personalExpense", "severance", "deduction", "welfare"]) {
+    assert.ok(sheet.includes(`columns.${field} ?`), `엑셀이 columns.${field} 를 보지 않습니다`);
+  }
+  // 표시할 열 선택에서 숨긴 열도 뺀다.
+  assert.match(sheet, /hiddenColumnSet\.has\(/);
+  // 개인비용지급은 금액과 사유가 짝으로 들어간다.
+  assert.match(sheet, /label: "개인비용지급"/);
+  assert.match(sheet, /label: "개인비용 사유"/);
+});
+
+// 임금계산기를 열면 저장된 임금안이 그대로 뜬다. 그게 언제 것인지 밝히지 않으면
+// 오늘 고친 값인지 판단할 수 없다.
+test("임금 계산 결과 표에 마지막 저장 시각을 보여준다", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../app/compensation-calculator.tsx", import.meta.url), "utf8");
+  assert.match(source, /className="wage-saved-at"/);
+  assert.match(source, /run\?\.updatedAt/);
+  assert.match(source, /마지막 저장 \$\{new Date\(run\.updatedAt\)\.toLocaleString\("ko-KR"/);
+});

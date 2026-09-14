@@ -204,3 +204,21 @@ test("임금 계산 결과 표에 마지막 저장 시각을 보여준다", asyn
   assert.match(source, /run\?\.updatedAt/);
   assert.match(source, /마지막 저장 \$\{new Date\(run\.updatedAt\)\.toLocaleString\("ko-KR"/);
 });
+
+test("첫 계약 지급률과 종료일을 넘기면 90% 고정 대신 그 비율로 구간을 나눈다", () => {
+  // 9/7 입사, 지급률 80%, 첫 계약 만료 12/6 (입사일 + 3개월 − 1일). 인사기록카드 값 그대로다.
+  const first = { joinDate: "2026-09-07", probationMonths: 3, probationRate: 0.8, probationEndDate: "2026-12-06", annualSalary: 33_000_000, meal: 200_000, car: 0, child: 0 };
+  const october = calculateCompensation(employee(first), 2026, 10, "round", columns);
+  assert.equal(october.probationApplied, true);
+  assert.equal(october.mixedProbation, false);
+  assert.equal(october.basic, 2_000_000); // 33,000,000 × 80% ÷ 12 − 식대 200,000
+  const december = calculateCompensation(employee(first), 2026, 12, "round", columns);
+  assert.equal(december.probationEnd?.toISOString().slice(0, 10), "2026-12-06");
+  assert.equal(december.mixedProbation, true); // 12/1~12/6 은 80%, 12/7~31 은 100%
+  const january = calculateCompensation(employee(first), 2027, 1, "round", columns);
+  assert.equal(january.probationApplied, false);
+  assert.equal(january.basic, 2_550_000); // 전환 뒤에는 기준 연봉 그대로
+  // 비율을 안 넘기면 예전처럼 90% 다.
+  const legacy = calculateCompensation(employee({ joinDate: "2026-09-07", probationMonths: 3, annualSalary: 33_000_000, meal: 200_000, car: 0, child: 0 }), 2026, 10, "round", columns);
+  assert.equal(legacy.basic, 2_275_000); // 33,000,000 × 90% ÷ 12 − 200,000
+});

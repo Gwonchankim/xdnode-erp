@@ -31,6 +31,10 @@ export type CompensationEmployee = {
   joinDate: string;
   leaveDate: string;
   probationMonths: number;
+  /** 수습·첫 계약 기간의 지급 비율(0~1). 없으면 예전 그대로 0.9 다. 회사는 첫 3개월 기간제 동안 사람마다 다른 비율을 준다. */
+  probationRate?: number;
+  /** 수습·첫 계약이 끝나는 날(YYYY-MM-DD). 있으면 입사일+개월수 대신 이 날짜를 쓴다 — 조기 전환한 사람 때문이다. */
+  probationEndDate?: string;
   annualSalary: number;
   basePay: number;
   manualBasic: boolean;
@@ -96,10 +100,10 @@ export function calculateCompensation(employee: CompensationEmployee, year: numb
   const start = join && join > monthStart ? join : monthStart;
   const end = leave && leave < monthEnd ? leave : monthEnd;
   const days = start > end ? 0 : Math.round((end.getTime() - start.getTime()) / DAY) + 1;
-  const endOfProbation = probationEnd(join, employee.probationMonths);
+  const endOfProbation = employee.probationEndDate ? parseDate(employee.probationEndDate) : probationEnd(join, employee.probationMonths);
   const probationDays = days && join && endOfProbation ? overlapDays(start, end, join, endOfProbation) : 0;
   const segments = days ? [
-    ...(probationDays ? [{ days: probationDays, rate: 0.9 }] : []),
+    ...(probationDays ? [{ days: probationDays, rate: employee.probationRate ?? 0.9 }] : []),
     ...(days - probationDays ? [{ days: days - probationDays, rate: 1 }] : []),
   ] : [];
   const allowanceMonthly = employee.meal + employee.car + employee.child;

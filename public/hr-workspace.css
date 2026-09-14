@@ -53,7 +53,7 @@ button { color: inherit; }
 .welcome-row h1, .module-hero h1 { margin: 0; }
 .welcome-row > div > p:last-child, .module-hero > div > p:last-child { margin: 8px 0 0; }
 .welcome-actions { display: flex; gap: 8px; }
-.metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.metric-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .metric-card { min-width: 0; text-align: left; cursor: pointer; transition: .2s ease; }
 .metric-card:hover { transform: translateY(-2px); border-color: #cfd7e7; box-shadow: 0 9px 24px rgba(38,54,87,.08); }
 .metric-top { display: flex; justify-content: space-between; align-items: center; }
@@ -83,10 +83,6 @@ button { color: inherit; }
 .queue-footer span b { color: var(--ink); }.queue-footer > div { height: 4px; flex: 1; overflow: hidden; border-radius: 4px; }.queue-footer > div i { display: block; height: 100%; }.queue-footer strong { color: var(--navy); }
 .date-strip { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; padding: 12px 16px 9px; }.date-strip button { height: 44px; border: 0; color: #737c8d; font-weight: 700; cursor: pointer; }.date-strip button span { display: block; margin-top: 3px; color: #a0a7b4; }.date-strip button.active span { color: #cbd5ee; }
 .agenda-list { padding: 0 16px 12px; }.agenda-list > div { min-height: 56px; display: flex; align-items: center; gap: 9px; border-bottom: 1px solid #eef0f4; }.agenda-list > div:last-child { border-bottom: 0; }.agenda-list time { width: 35px; color: #697287; font-weight: 700; }.agenda-line { width: 3px; height: 32px; border-radius: 3px; }.agenda-line.blue { background: var(--blue); }.agenda-line.purple { background: var(--purple); }.agenda-line.green { background: var(--green); }.agenda-list p { min-width: 0; flex: 1; margin: 0; }.agenda-list strong, .agenda-list small { display: block; }.agenda-list small { margin-top: 4px; color: #939aa9; }.agenda-list em { padding: 4px 6px; border-radius: 5px; color: #727b8f; background: #f2f4f7; font-style: normal; }
-.headcount-chart { padding: 16px 18px 9px; }.headcount-row { display: grid; grid-template-columns: 72px 1fr 62px; align-items: center; gap: 11px; min-height: 35px; }.headcount-row > span { color: #667084; font-size: 10px; }.headcount-row > div { height: 7px; overflow: hidden; border-radius: 5px; }.headcount-row > div i { display: block; height: 100%; border-radius: inherit; }.headcount-row strong { text-align: right; }.headcount-row strong small { color: #9aa1af; font-size: 9px; font-weight: 500; }
-.headcount-summary { display: grid; grid-template-columns: repeat(3, 1fr); margin: 2px 18px 16px; border: 1px solid var(--line); border-radius: 8px; background: #fafbfc; }.headcount-summary > div { padding: 10px 12px; border-right: 1px solid var(--line); }.headcount-summary > div:last-child { border: 0; }.headcount-summary span, .headcount-summary strong { display: block; }.headcount-summary span { color: #8d95a5; font-size: 8px; }.headcount-summary strong { margin-top: 3px; font-size: 15px; }.headcount-summary strong.accent { color: var(--red); }
-.donut-wrap { display: flex; align-items: center; gap: 28px; padding: 16px 22px 12px; }.donut { width: 116px; height: 116px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--navy) 0 87.5%, var(--blue) 87.5% 95.3%, #cfd8ec 95.3% 100%); }.donut::before { content: ""; grid-area: 1/1; width: 78px; height: 78px; border-radius: 50%; background: #fff; }.donut > div { z-index: 1; grid-area: 1/1; text-align: center; }.donut strong, .donut span { display: block; }.donut strong { font-size: 22px; }.donut span { margin-top: 2px; color: #939baa; font-size: 8px; }.donut-wrap ul { flex: 1; list-style: none; padding: 0; margin: 0; }.donut-wrap li { display: flex; align-items: center; gap: 8px; min-height: 30px; }.legend { width: 7px; height: 7px; border-radius: 50%; }.legend.navy { background: var(--navy); }.legend.blue { background: var(--blue); }.legend.pale { background: #cfd8ec; }.donut-wrap li p { flex: 1; display: flex; justify-content: space-between; margin: 0; color: #777f90; font-size: 9px; }.donut-wrap li strong { color: var(--ink); font-size: 9px; }
-.insight-note { display: flex; align-items: center; gap: 10px; margin: 0 18px 16px; padding: 10px 12px; border-radius: 8px; }.insight-note > span { width: 25px; height: 25px; display: grid; place-items: center; border-radius: 7px; color: var(--navy); background: #dce6fb; font-weight: 800; }.insight-note p { margin: 0; }.insight-note strong, .insight-note small { display: block; }.insight-note strong { color: #324979; font-size: 9.5px; }.insight-note small { margin-top: 3px; color: #7e8ba8; font-size: 8.5px; }.module-metrics { margin-bottom: 16px; }
 .compact-metric { position: relative; overflow: hidden; }.metric-accent { position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--navy); }.metric-accent.blue { background: var(--blue); }.metric-accent.green { background: var(--green); }.metric-accent.orange { background: var(--orange); }.metric-accent.red { background: var(--red); }.compact-metric p { margin: 0; }
 .table-panel { overflow: hidden; }.table-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line); }.table-toolbar h2 { display: inline; margin: 0 8px 0 0; }.table-toolbar span { color: #9199a9; font-size: 9px; }.table-toolbar > div:last-child { display: flex; gap: 6px; }.table-toolbar button, .table-footer button { min-width: 34px; height: 30px; padding: 0 10px; cursor: pointer; }.data-table-wrap { overflow-x: auto; }.data-table { width: 100%; border-collapse: collapse; min-width: 780px; }.data-table th { height: 42px; padding: 0 18px; text-align: left; border-bottom: 1px solid var(--line); font-weight: 700; }.data-table td { height: 54px; padding: 0 18px; border-bottom: 1px solid #edf0f4; }.data-table td:first-child { color: var(--ink); font-weight: 700; }.status-pill { display: inline-flex; align-items: center; height: 24px; padding: 0 9px; font-weight: 700; }.empty-cell { text-align: center; color: #939baa !important; height: 150px !important; }.table-footer { height: 54px; display: flex; align-items: center; justify-content: space-between; padding: 0 18px; color: #8c94a4; font-size: 9px; }.table-footer > div { display: flex; gap: 4px; }.table-footer button { padding: 0; }.table-footer button.current { color: #fff; border-color: var(--navy); background: var(--navy); }.table-footer button:disabled { opacity: .45; cursor: default; }
 
@@ -117,7 +113,8 @@ button { color: inherit; }
 
 .row-actions { display: flex; gap: 5px; min-width: 150px; }.row-actions button { height: 27px; padding: 0 9px; border-radius: 6px; font-weight: 700; cursor: pointer; }.row-actions button:disabled { opacity: .38; cursor: default; }.interview-action { color: #fff; border: 1px solid var(--navy); background: var(--navy); }.reject-action { color: #a64a50; border: 1px solid #edcdd0; background: #fff; }.applicant-table { min-width: 1020px; }
 .resume-drop { margin: 20px 24px 0; border: 1px dashed #cdd5e3; }.resume-drop label { min-height: 78px; display: flex; align-items: center; gap: 12px; padding: 12px 15px; cursor: pointer; }.resume-drop input { position: absolute; opacity: 0; pointer-events: none; }.resume-icon { width: 38px; height: 38px; flex: 0 0 auto; display: grid; place-items: center; font-size: 10px; font-weight: 900; }.resume-drop label > div { flex: 1; }.resume-drop strong, .resume-drop small { display: block; }.resume-drop strong { margin-bottom: 4px; }.resume-drop small { color: #8992a3; }.resume-drop em { height: 29px; display: grid; place-items: center; padding: 0 10px; border-radius: 6px; color: var(--navy); background: #e4eaf8; font-style: normal; font-weight: 700; }.resume-rerun { display: flex; align-items: center; gap: 12px; padding: 10px 15px 12px; border-top: 1px dashed #cdd5e3; }.resume-rerun > div { flex: 1; min-width: 0; }.resume-rerun strong { display: block; margin-bottom: 3px; font-size: 12px; }.resume-rerun small { display: block; color: #8992a3; }.resume-rerun button { flex: 0 0 auto; height: 32px; padding: 0 14px; border: 1px solid #cdd5e3; border-radius: 8px; background: #fff; color: var(--navy); font-weight: 700; cursor: pointer; }.resume-rerun button:hover { background: #eef2fb; }.resume-drop.analyzing { border-color: #bcb0e6; background: #f8f6ff; }.resume-drop.done { border-color: #9bcbb8; background: #f3fbf7; }.applicant-modal { max-height: 92vh; overflow-y: auto; }
-.applicant-detail-modal { width: min(620px, 100%); overflow: hidden; background: #fff; animation: modalUp .2s ease; }.applicant-profile { display: flex; align-items: center; gap: 14px; padding: 22px 24px; border-bottom: 1px solid var(--line); }.applicant-profile .profile-avatar { width: 52px; height: 52px; border-radius: 14px; font-size: 19px; }.applicant-profile > div:nth-child(2) { flex: 1; }.applicant-profile h2 { margin: 0 0 6px; font-size: 17px; }.applicant-profile p { margin: 0; color: #7d8596; }.applicant-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding: 20px 24px; }.applicant-facts div { min-width: 0; }.applicant-facts span, .applicant-facts strong { display: block; }.applicant-facts span { margin-bottom: 5px; color: #949baa; }.applicant-facts strong { overflow: hidden; text-overflow: ellipsis; }.resume-summary { margin: 0 24px 22px; padding: 15px; border-radius: 9px; }.resume-summary > span { color: var(--navy); font-weight: 800; }.resume-summary p { margin: 8px 0 12px; color: #5d687c; line-height: 1.65; }.resume-summary div { display: flex; flex-wrap: wrap; gap: 5px; }.resume-summary em { padding: 5px 7px; border-radius: 5px; color: #5f6e8d; background: #fff; font-style: normal; }
+.applicant-detail-modal { width: min(620px, 100%); overflow: hidden; background: #fff; animation: modalUp .2s ease; }.applicant-profile { display: flex; align-items: center; gap: 14px; padding: 22px 24px; border-bottom: 1px solid var(--line); }/* 자리 번호로 잡으면 앞의 요소를 하나 지울 때 규칙이 통째로 밀린다(아바타를 지웠을 때 실제로 그랬다). */
+.applicant-profile .applicant-profile-name { flex: 1; min-width: 0; }.applicant-profile h2 { margin: 0 0 6px; font-size: 17px; }.applicant-profile p { margin: 0; color: #7d8596; }.applicant-facts { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; padding: 20px 24px; }.applicant-facts div { min-width: 0; }.applicant-facts span, .applicant-facts strong { display: block; }.applicant-facts span { margin-bottom: 5px; color: #949baa; }.applicant-facts strong { overflow: hidden; text-overflow: ellipsis; }.resume-summary { margin: 0 24px 22px; padding: 15px; border-radius: 9px; }.resume-summary > span { color: var(--navy); font-weight: 800; }.resume-summary p { margin: 8px 0 12px; color: #5d687c; line-height: 1.65; }.resume-summary div { display: flex; flex-wrap: wrap; gap: 5px; }.resume-summary em { padding: 5px 7px; border-radius: 5px; color: #5f6e8d; background: #fff; font-style: normal; }
 .candidate-banner { display: flex; align-items: center; gap: 11px; margin: 18px 24px 0; padding: 12px 14px; border-radius: 9px; }.candidate-banner > span { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; font-size: 11px; font-weight: 800; }.candidate-banner > div { flex: 1; }.candidate-banner strong, .candidate-banner small { display: block; }.candidate-banner small { margin-top: 3px; color: #858e9e; }.candidate-banner em { color: #8d95a5; font-style: normal; }.form-grid label.wide { grid-column: 1 / -1; }
 
 .settings-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); }.settings-nav { height: max-content; overflow: hidden; padding: 8px; }.settings-nav button { width: 100%; height: 43px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; border: 0; border-radius: 7px; color: #657084; background: transparent; cursor: pointer; }.settings-nav button:hover, .settings-nav button.active { color: var(--navy); background: #edf1fa; font-weight: 700; }.settings-nav button span { color: #9ca3b0; font-size: 16px; }.settings-content { min-height: 480px; overflow: hidden; }.setting-list { padding: 4px 20px 20px; }.setting-toggle { width: 100%; min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0; border: 0; border-bottom: 1px solid var(--line); text-align: left; background: transparent; cursor: pointer; }.setting-toggle > div strong, .setting-toggle > div span { display: block; }.setting-toggle > div strong { margin-bottom: 5px; }.setting-toggle > div span { color: #8c94a3; }.setting-toggle > i { width: 36px; height: 20px; flex: 0 0 auto; padding: 2px; border-radius: 12px; background: #ccd1da; transition: background .18s ease; }.setting-toggle > i em { display: block; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); transition: transform .18s ease; }.setting-toggle > i.on { background: var(--navy); }.setting-toggle > i.on em { transform: translateX(16px); }.permission-list, .data-settings { padding: 8px 20px 20px; }.permission-list > div { min-height: 66px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid var(--line); }.permission-list p { flex: 1; margin: 0; }.permission-list strong, .permission-list small { display: block; }.permission-list small { margin-top: 4px; color: #8d95a5; }.permission-list em { padding: 5px 8px; border-radius: 5px; color: var(--navy); background: #edf1fa; font-style: normal; }.data-settings > div { min-height: 82px; display: grid; grid-template-columns: 180px 1fr auto; align-items: center; gap: 16px; border-bottom: 1px solid var(--line); }.data-settings span { color: #848d9e; }.data-settings button { height: 30px; padding: 0 10px; border: 1px solid #dce1e9; border-radius: 6px; color: #596277; background: #fff; cursor: pointer; }
@@ -218,7 +215,7 @@ button { color: inherit; }
 .catalog-panel form input { min-width: 0; height: 36px; flex: 1; padding: 0 10px; border: 1px solid #d9dfe9; outline: 0; }
 .catalog-panel form button { height: 36px; padding: 0 11px; font-weight: 700; cursor: pointer; }
 
-@media (max-width: 1180px) {.search-box { width: 190px; }.dashboard-grid { grid-template-columns: 1fr; }.schedule-panel { grid-row: auto; }.metric-grid { grid-template-columns: repeat(2, 1fr); }.detail-grid, .organization-layout { grid-template-columns: 1fr; }.payroll-summary { grid-template-columns: 1fr 1fr; }
+@media (max-width: 1180px) {.search-box { width: 190px; }.dashboard-grid { grid-template-columns: 1fr; }.schedule-panel { grid-row: auto; }.metric-grid { grid-template-columns: repeat(3, 1fr); }.detail-grid, .organization-layout { grid-template-columns: 1fr; }.payroll-summary { grid-template-columns: 1fr 1fr; }
 }
 @media (max-width: 840px) {
   .sidebar { height: auto; }.brand { height: 62px; }.main-nav { display: flex; overflow-x: auto; padding: 8px; }.nav-group { display: contents; }.nav-group > p, .sidebar-footer { display: none; }.nav-item { width: auto; min-width: max-content; }.topbar { top: var(--erp-nav-height, 66px); height: auto; min-height: 62px; padding: 10px 14px; }.breadcrumbs, .search-box kbd, .top-actions .outline-button { display: none; }.search-box { width: min(42vw, 260px); }.welcome-row, .module-hero { align-items: flex-start; flex-direction: column; }.metric-grid { grid-template-columns: 1fr 1fr; }.notification-panel { top: calc(var(--erp-nav-height, 66px) + 62px); width: min(390px, 100%); }.form-grid { grid-template-columns: 1fr; max-height: 55vh; overflow-y: auto; }.profile-hero { align-items: flex-start; flex-wrap: wrap; }.profile-actions { width: 100%; }.settings-layout { grid-template-columns: 1fr; }.settings-nav { display: flex; overflow-x: auto; }.settings-nav button { min-width: max-content; }.department-heading { grid-template-columns: 22px 1fr 50px; }.department-heading .dept-progress { display: none; }.organization-list { grid-template-columns: 1fr; }
@@ -586,6 +583,8 @@ button { color: inherit; }
 .applicant-screening-block, .applicant-interview-block { margin: 0 24px 18px; padding: 16px 18px; border: 1px solid #e4e4e7; border-radius: 18px; background: #fafafa; }
 .applicant-screening-block .detail-card-heading, .applicant-interview-block .detail-card-heading { min-height: 0; padding: 0 0 12px; }
 .applicant-screening-hint { margin: 0; color: #52525b; font-size: 11px; line-height: 1.55; }
+/* 처우 제안 저장이 거부됐을 때 팝업 안에 남는 사유. 토스트와 달리 사라지지 않는다. */
+.applicant-screening-hint.offer-error { color: #b91c1c; font-weight: 600; }
 .applicant-screening-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 .applicant-screening-actions button { min-width: 88px; height: 40px; padding: 0 14px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; color: #3f3f46; font-size: 12px; font-weight: 700; cursor: pointer; }
 .applicant-interview-block .form-grid { padding: 0; }
@@ -646,18 +645,14 @@ button { color: inherit; }
 .delete-applicant-button span { font-family: "Segoe UI Symbol", sans-serif; font-size: 15px; filter: grayscale(1); }
 .recruitment-page .name-link { white-space: nowrap; }
 .applicant-edit-modal { width: min(1000px, calc(100vw - 36px)); max-height: 92vh; overflow-y: auto; }
-.applicant-edit-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(320px, .8fr); gap: 0; }
-.applicant-edit-fields, .applicant-special-notes { min-width: 0; padding: 24px; }
+.applicant-edit-fields { min-width: 0; padding: 24px; }
 .applicant-edit-fields { border-right: 1px solid #e4e4e7; }
-.applicant-edit-fields .detail-card-heading,
-.applicant-special-notes .detail-card-heading { margin-bottom: 18px; }
-.applicant-edit-fields .detail-card-heading h3,
-.applicant-special-notes .detail-card-heading h3 { margin: 4px 0 0; font-size: 18px; }
+.applicant-edit-fields .detail-card-heading { margin-bottom: 18px; }
+.applicant-edit-fields .detail-card-heading h3 { margin: 4px 0 0; font-size: 18px; }
 .applicant-edit-fields .form-note { display: grid; gap: 8px; margin-top: 14px; }
 .applicant-edit-fields .form-note span { color: #52525b; font-size: 10px; font-weight: 800; }
 .applicant-edit-fields .form-note textarea,
-.applicant-special-notes > textarea { width: 100%; min-height: 120px; padding: 14px; resize: vertical; border: 1px solid #d4d4d8; border-radius: 14px; background: #fff; font: inherit; font-size: 11px; line-height: 1.6; }
-.applicant-special-notes > small { display: block; margin: 8px 0 16px; color: #71717a; font-size: 9.5px; line-height: 1.5; }
+.applicant-screening-block > textarea { width: 100%; min-height: 120px; padding: 14px; resize: vertical; border: 1px solid #d4d4d8; border-radius: 14px; background: #fff; font: inherit; font-size: 11px; line-height: 1.6; }
 .applicant-note-history { display: grid; gap: 8px; max-height: 280px; overflow-y: auto; }
 .applicant-note-history article { padding: 12px; border: 1px solid #e4e4e7; border-radius: 13px; background: #fafafa; }
 .applicant-note-history article p { margin: 0 0 8px; color: #3f3f46; font-size: 10.5px; line-height: 1.55; white-space: pre-wrap; }
@@ -670,7 +665,6 @@ button { color: inherit; }
 .applicant-edit-footer button:not(.primary-button):not(.outline-button) { color: #52525b; border: 1px solid #d4d4d8; background: #fff; }
 @media (max-width: 900px) {
   .recruitment-page { padding-right: 16px; padding-left: 16px; }
-  .applicant-edit-layout { grid-template-columns: 1fr; }
   .applicant-edit-fields { border-right: 0; border-bottom: 1px solid #e4e4e7; }
   .applicant-edit-footer { align-items: stretch; flex-direction: column; }
   .applicant-edit-footer > div:last-child { flex-wrap: wrap; }
@@ -830,7 +824,7 @@ button { color: inherit; }
 .requisition-status.open, .requisition-status.filled { color: #fff; background: #18181b; }
 .requisition-status.submitted { color: #9a3412; background: #ffedd5; }
 .requisition-status.rejected, .requisition-status.closed { color: #991b1b; background: #fee2e2; }
-.applicant-to-link, .applicant-to-exception { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 9px; border-radius: 9px; font-size: 11px; font-weight: 800; }
+.applicant-to-link, .applicant-to-exception, .applicant-to-closed { display: inline-block; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 6px 9px; border-radius: 9px; font-size: 11px; font-weight: 800; }
 .applicant-to-link { color: #fff; background: #18181b; }
 .applicant-to-exception { color: #71717a; background: #f4f4f5; }
 @media (max-width: 720px) { .requisition-hero-actions { width: 100%; }.requisition-hero-actions .primary-button { flex: 1; } }
@@ -994,7 +988,6 @@ button { color: inherit; }
 
 /* Dense rows and tables */
 .data-table td, .data-table th { font-size: 13px !important; }
-.headcount-row span, .headcount-row strong { font-size: 12px !important; }
 .queue-footer span, .queue-footer strong { font-size: 12px !important; }
 .date-strip button { font-size: 12px !important; }
 .status-pill { font-size: 11px !important; }
@@ -1002,8 +995,6 @@ button { color: inherit; }
 
 /* 지원자 상세 팝업 --------------------------------------------------------- */
 /* 서류 심사는 특이사항 기록 바로 아래에 와야 해서 둘을 오른쪽 열로 묶었다. */
-.applicant-edit-side { display: flex; flex-direction: column; min-width: 0; }
-.applicant-edit-side .applicant-screening-block { margin: 0 24px 24px; }
 
 /* 스크롤 막대를 팝업 안쪽 왼편에 두고 위·아래 화살표를 없앤다. 컨테이너에 rtl 을 주면
    막대가 왼쪽으로 가므로 자식들은 다시 ltr 로 되돌려 글자 방향은 그대로 둔다. */
@@ -1057,7 +1048,7 @@ button { color: inherit; }
 
 /* 면접 합격자 표. 탈락자 표 바로 위에 놓인다. */
 .passed-applicant-panel { margin-top: 24px; }
-.passed-status { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 1px solid #bbf7d0; border-radius: 999px; background: #f0fdf4; color: #15803d; font-size: 11px; font-weight: 700; }
+.passed-status { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 999px; background: #f4f4f5; color: #52525b; font-size: 11px; font-weight: 700; white-space: nowrap; }
 
 /* 모듈 상단 제목 영역 -------------------------------------------------------
    눈금(EYEBROW)·제목·설명을 세로로 쌓아 두니 실측 145px 이라 표가 화면에 거의
@@ -1217,27 +1208,15 @@ button { color: inherit; }
 .timeline-who strong { color: #18181b; font-size: 12px; }
 .timeline-who small { overflow: hidden; color: #71717a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 
-.dashboard-people-grid { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); margin-bottom: 20px; }
-.dashboard-people-grid .panel { padding: 16px 18px; }
 .dashboard-mini-table { margin-top: 10px; font-size: 11px; }
 .dashboard-mini-table th { color: #71717a; font-weight: 700; white-space: nowrap; }
 .dashboard-mini-table td { white-space: nowrap; }
 .dashboard-mini-table td strong { color: #18181b; }
-.headcount-leaving { margin-left: 5px; color: #b91c1c; font-size: 10px; font-style: normal; }
 /* 지표 카드 설명은 "가장 이른 퇴사일 …(D-3)" 처럼 한 줄을 넘긴다. 잘라내지 않고 접는다. */
 .dashboard-page .metric-card small { overflow: visible; line-height: 1.5; text-overflow: clip; white-space: normal; }
 .dashboard-page .metric-card { align-content: start; }
 
 /* 인사 일정을 입사·퇴사·면접 세 박스로 나눈다. 구분별 색으로 왼쪽 띠를 준다. */
-.dashboard-event-grid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); margin-bottom: 20px; }
-.dashboard-event-panel { position: relative; overflow: hidden; padding: 16px 18px; }
-.dashboard-event-panel::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; }
-.dashboard-event-panel.join::before { background: #16a34a; }
-.dashboard-event-panel.leave::before { background: #dc2626; }
-.dashboard-event-panel.interview::before { background: #4f46e5; }
-.dashboard-event-panel .section-heading h2 em { margin-left: 6px; color: #71717a; font-size: 12px; font-style: normal; font-weight: 700; }
-.dashboard-event-panel .people-timeline > li > button { grid-template-columns: 62px minmax(0, 1fr); }
-.dashboard-event-panel .empty-cell { margin-top: 10px; }
 
 /* 면접 합격 뒤의 처우 제안 단계. 면접 박스와 분리해 "제안 → 수락/거절" 순서가 보이게 한다. */
 .applicant-offer-block { margin: 0 24px 24px; padding: 16px 18px; border: 1px solid #e4e4e7; border-radius: 14px; background: #fff; }
@@ -1246,7 +1225,7 @@ button { color: inherit; }
 .applicant-offer-steps > .primary-button { justify-self: start; }
 .applicant-offer-response-actions { display: flex; flex-wrap: wrap; gap: 8px; padding-left: 14px; border-left: 2px solid #ececee; }
 .applicant-offer-steps button:disabled { opacity: .45; cursor: not-allowed; }
-.offer-response-modal { width: min(720px, calc(100vw - 36px)); max-height: 92vh; overflow-y: auto; border-radius: 9px; }
+.offer-response-modal { width: min(720px, calc(100vw - 36px)); max-height: 92vh; overflow-y: auto; }
 
 /* 제안 수락·거절은 같은 무게의 결정이라 크기·모양을 똑같이 두고 색으로만 가른다. */
 .applicant-offer-response-actions { padding-left: 0; border-left: 0; }
@@ -1258,7 +1237,6 @@ button { color: inherit; }
 .offer-decision.decline:hover:not(:disabled) { background: #b91c1c; }
 .offer-decision:disabled { opacity: .45; cursor: not-allowed; }
 /* 오퍼 회신 대기 — 확정 전이라 입사(초록)와 구분되는 주황 계열로 둔다. */
-.dashboard-event-panel.offer::before { background: #d97706; }
 .timeline-kind.offer { border: 1px solid #fcd9a4; background: #fffaf0; color: #92400e; }
 
 /* 처우 수락·거절 팝업의 여러 줄 입력. 폭을 주지 않으면 textarea 가 브라우저 기본값(약 20자)으로
@@ -1294,6 +1272,7 @@ button { color: inherit; }
 
 /* 생년월일은 줄바꿈되면 읽기 어려워 한 줄로 고정한다. 자리 번호가 아니라 클래스로 잡는다. */
 .employee-table .employee-birth-column { min-width: 108px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.employee-table .employee-phone-column { min-width: 118px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* 퇴직 절차 팝업은 체크리스트와 정산 계산기를 좌우로 나눠 쓰는데 680px에서는 정산 표가 글자
    단위로 줄바꿈될 만큼 좁았다. 같은 좌우 2단 구조인 퇴직 승인 모달(.retirement-modal, 1240px)에
@@ -1350,3 +1329,374 @@ button { color: inherit; }
 .employee-detail-modal,
 .applicant-edit-modal,
 .payroll-record-modal { overflow-anchor: none; }
+
+/* 면접 전형 진행 표는 세 갈래를 한 표에 담는다. 손댈 일이 남은 "결과 입력 대기"를 가장 눈에 띄게,
+   이미 끝난 "면접 합격"은 차분하게 둬 아직 진행 중인 사람과 헷갈리지 않게 한다. */
+.interview-track-column { width: 116px; }
+.interview-track { display: inline-flex; padding: 7px 10px; border: 1px solid transparent; border-radius: 10px; font-size: 11px; font-weight: 800; white-space: nowrap; }
+.interview-track.awaiting { color: #92400e; border-color: #fcd34d; background: #fffbeb; }
+.interview-track.scheduled { color: #3730a3; border-color: #c7d2fe; background: #eef2ff; }
+.interview-track.passed { color: #fff; border-color: #18181b; background: #18181b; }
+.interview-track-row.passed > td { background: #fafafa; }
+.interview-track-row.awaiting > td { background: #fffdf5; }
+
+/* 합격 안내 메시지. 처우 제안 값으로 자동 작성되고 손으로 고칠 수 있는 초안이라,
+   저장되는 입력칸과 헷갈리지 않도록 흰 카드로 따로 떼어 둔다. */
+.offer-message-block { margin-top: 14px; padding: 14px; border: 1px solid #e4e4e7; border-radius: 14px; background: #fff; }
+.offer-message-heading { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.offer-message-heading strong { font-size: 12px; }
+.offer-message-heading span { color: #71717a; font-size: 10px; }
+.offer-message-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.offer-message-controls label { min-width: 0; display: grid; gap: 5px; color: #71717a; font-size: 10px; font-weight: 800; }
+.offer-message-controls input[type="date"], .offer-message-controls input[type="number"] { min-width: 0; height: 36px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 10px; background: #fff; font: inherit; font-size: 11px; }
+.offer-message-controls input:disabled { color: #a1a1aa; background: #f4f4f5; }
+.offer-message-toggle { display: flex; align-items: center; gap: 8px; align-self: end; height: 36px; }
+.offer-message-toggle input { width: 16px; height: 16px; }
+.offer-message-text { width: 100%; min-width: 0; padding: 12px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; color: #18181b; font: inherit; font-size: 11px; line-height: 1.7; resize: vertical; }
+.offer-message-text:focus { border-color: #18181b; outline: 2px solid rgba(24, 24, 27, .12); outline-offset: 1px; }
+.offer-message-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; }
+.offer-message-actions button { height: 36px; padding: 0 14px; display: inline-flex; align-items: center; border: 1px solid #d4d4d8; border-radius: 11px; background: #fff; color: #3f3f46; font-size: 11px; font-weight: 800; text-decoration: none; cursor: pointer; }
+.offer-message-actions .primary-button { color: #fff; border-color: #18181b; background: #18181b; }
+.offer-message-notice { color: #52525b; font-size: 10px; font-style: normal; }
+
+/* 입사 안내문의 선택 서류. 서류명이 길어 한 줄에 하나씩 세로로 쌓는다. */
+.offer-message-docs { display: grid; gap: 8px; margin-bottom: 10px; }
+.offer-message-docs > span { color: #71717a; font-size: 10px; font-weight: 800; }
+.offer-message-docs .offer-message-toggle { height: auto; align-self: auto; }
+.offer-message-docs .offer-message-toggle > span { color: #3f3f46; font-size: 11px; font-weight: 600; line-height: 1.5; }
+
+/* 상자 안 글을 직접 고칠 수 있다는 안내. 자동 작성이라 손대면 안 되는 줄 알기 쉬워서 적어 둔다. */
+.offer-message-editable { display: block; margin: 0 0 6px; color: #71717a; font-size: 10px; }
+
+/* 기본 문구 편집 모드. 쓸 수 있는 자리(토큰)를 눈에 띄게 늘어놓고, 기본 문구를 고쳐 둔 경우 표시한다. */
+.offer-message-tokens { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.offer-message-tokens code { padding: 4px 8px; border: 1px solid #d4d4d8; border-radius: 8px; background: #f4f4f5; color: #3f3f46; font-size: 10px; font-weight: 700; }
+.offer-message-saved-mark { margin-left: auto; padding: 3px 8px; border-radius: 8px; background: #eef2ff; color: #3730a3; font-size: 10px; font-style: normal; font-weight: 800; }
+.offer-message-actions button:disabled { cursor: not-allowed; opacity: .45; }
+
+/* 면접 결과 표의 진행 상태. 아래 채용 종료 표의 "종료 구분"과 같은 색 어휘를 쓴다 —
+   같은 사람이 두 표에 모두 나오므로 색이 어긋나면 다른 상태로 읽힌다.
+   회신을 기다리는 "채용 제안 준비"만 손댈 일이 남았다는 뜻으로 따로 둔다. */
+.passed-status.waiting { border-color: #c7d2fe; background: #eef2ff; color: #3730a3; }
+.passed-status.join { border-color: #bbf7d0; background: #f0fdf4; color: #166534; }
+.passed-status.decline { border-color: #fcd9a4; background: #fffaf0; color: #92400e; }
+.passed-status.other { border-color: #d4d4d8; background: #f4f4f5; color: #52525b; }
+
+/* 채용 페이지의 나머지 표(면접 전형 진행·입사 예정자·면접 결과)도 지원 현황과 같은 리듬으로 맞춘다.
+   같은 열(연락처·채용요청·TO·담당자)이 표마다 다른 너비면 위아래로 훑을 때 어긋나 보인다.
+   너비는 자리 번호가 아니라 클래스로 잡는다 — 열을 끼워 넣어도 밀리지 않게. */
+.recruitment-page .table-panel .data-table th,
+.recruitment-page .table-panel .data-table td { padding-right: 14px; padding-left: 14px; white-space: nowrap; }
+.recruitment-page .table-panel .data-table .applicant-phone-cell { min-width: 132px; }
+.recruitment-page .table-panel .data-table .applicant-to-column { min-width: 200px; }
+.recruitment-page .table-panel .data-table .applicant-owner-column { min-width: 132px; }
+.recruitment-page .table-panel .data-table .applicant-status-column { min-width: 148px; }
+
+/* 종료된 공고. 연결은 살아 있으므로 제목은 그대로 보여 주되, 아직 뽑는 자리로 오해하지 않도록
+   진행 중인 공고(검은 칩)와 다르게 테두리만 있는 모양으로 둔다. */
+.applicant-to-closed { color: #52525b; background: #fff; border: 1px dashed #a1a1aa; padding: 5px 8px; }
+
+/* 상단 이름 바. 연락처는 상세를 열지 않아도 바로 보이도록 이름 아래에 둔다. */
+.applicant-profile-contact { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; }
+.applicant-profile-contact span { color: #71717a; font-size: 10px; font-weight: 800; }
+.applicant-profile-contact em { margin-left: 5px; color: #18181b; font-size: 11.5px; font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; }
+/* 상세 버튼은 이름 바로 오른편에 붙인다. 이름 줄에 들어가므로 h2 아래 여백은 줄 전체가 갖는다. */
+.applicant-profile-title { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.applicant-profile-title h2 { margin: 0; }
+.applicant-fields-open { height: 28px; padding: 0 11px; border: 1px solid #d4d4d8; border-radius: 9px; background: #fff; color: #3f3f46; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.applicant-fields-open:hover { border-color: #18181b; color: #18181b; }
+
+/* 지원 정보 상세 팝업. 앞서 정한 팝업 규칙(곡률 9px, 안쪽 왼편 스크롤 막대)을 따른다. */
+.applicant-fields-modal { width: min(760px, 100%); max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; border-radius: 9px; background: #fff; animation: modalUp .2s ease; }
+.applicant-fields-modal .applicant-edit-fields { flex: 1; overflow-x: hidden; overflow-y: auto; border-right: 0; padding: 18px 24px 22px;
+  direction: rtl; scrollbar-width: thin; scrollbar-color: #c7c7cc transparent; }
+.applicant-fields-modal .applicant-edit-fields > * { direction: ltr; }
+.applicant-fields-modal .applicant-edit-fields::-webkit-scrollbar { width: 10px; }
+.applicant-fields-modal .applicant-edit-fields::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.applicant-fields-modal .applicant-edit-fields::-webkit-scrollbar-track { margin: 10px 0; background: transparent; }
+.applicant-fields-modal .applicant-edit-fields::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-color: #c7c7cc; background-clip: content-box; }
+.applicant-fields-modal .modal-actions { justify-content: space-between; }
+.applicant-fields-hint { color: #71717a; font-size: 10px; }
+
+/* 서류 심사 + 특이사항 기록을 한 카드로 합쳤다. 카드 안쪽 리듬을 다시 잡는다 —
+   메모칸이 들어오면서 기존의 좁은 여백(16px 18px)으로는 답답했다. */
+.applicant-screening-block { padding: 18px 20px 20px; }
+.applicant-note-count { color: #71717a; font-size: 10px; font-weight: 800; }
+.applicant-screening-block > .applicant-screening-hint { margin-bottom: 12px; }
+.applicant-screening-block .applicant-note-history { max-height: 220px; }
+/* 합불 버튼은 메모 아래에 둔다. 위쪽과 선을 그어 "기록"과 "처리"를 갈라 놓는다. */
+.applicant-screening-block .applicant-screening-actions { margin-top: 14px; padding-top: 14px; border-top: 1px solid #e4e4e7; }
+
+/* 팝업 안 카드의 제목 영역이 70~92px 로 두꺼워 내용이 아래로 밀렸다. h3 의 기본 상하 여백이
+   대부분이었으므로 이를 없애고 절반(~35px)으로 맞춘다. 세 카드가 같은 두께를 쓴다. */
+.applicant-screening-block .detail-card-heading,
+.applicant-interview-block .detail-card-heading,
+.applicant-offer-block .detail-card-heading { min-height: 0; margin-bottom: 0; padding: 0 0 10px; }
+.applicant-screening-block .detail-card-heading h3,
+.applicant-interview-block .detail-card-heading h3,
+.applicant-offer-block .detail-card-heading h3 { margin: 0; font-size: 15px; line-height: 1.45; }
+
+/* 첫 카드가 위쪽 이름 바에 붙어 답답했다. 카드 사이 간격(18px)과 같은 만큼 띄운다. */
+.applicant-screening-block { margin-top: 18px; }
+/* 결과 태그는 버튼줄로 내려왔다. 되돌리기 버튼과 세로 가운데를 맞춘다. */
+.applicant-screening-actions { align-items: center; }
+
+/* 지원 정보 상세는 3열 2행으로 세운다. 여덟 칸을 두 줄에 우겨넣던 때보다 훑기 쉽다. */
+.applicant-fields-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.applicant-fields-grid label.wide { grid-column: auto; }
+/* 경력 칸의 AI 분석 버튼. 라벨 줄 오른쪽 끝에 붙인다. */
+.applicant-career-label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.applicant-career-analyze { height: 26px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 8px; background: #fff; color: #3f3f46; font-size: 10px; font-weight: 800; cursor: pointer; }
+.applicant-career-analyze:hover:not(:disabled) { border-color: #18181b; color: #18181b; }
+.applicant-career-analyze:disabled { cursor: not-allowed; opacity: .45; }
+.applicant-career-message { margin: 8px 0 0; color: #52525b; font-size: 10px; line-height: 1.5; }
+
+/* 채용단계 열. 서류 합격 뒤를 면접일 유무로 갈랐다. 손댈 일이 남은 「면접일 미정」을 눈에 띄게 두고,
+   일정이 잡힌 「면접 예정」은 면접 전형 진행 표와 같은 색을 써서 두 화면이 어긋나 보이지 않게 한다. */
+.screening-stage.interview_pending { border-color: #fcd34d; background: #fffbeb; color: #92400e; }
+.screening-stage.interview_scheduled { border-color: #c7d2fe; background: #eef2ff; color: #3730a3; }
+
+/* 면접 준비(질문지)와 면접 뒤(결과)를 나란히 둔다. 왼쪽에서 오른쪽으로 순서대로 쓰게 된다. */
+.applicant-interview-split { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+.applicant-interview-pane { min-width: 0; display: flex; flex-direction: column; }
+.applicant-interview-pane .form-note { flex: 1; display: grid; gap: 8px; }
+.applicant-interview-pane .form-note span { color: #52525b; font-size: 10px; font-weight: 800; }
+.applicant-interview-pane textarea { width: 100%; min-height: 190px; padding: 12px; border: 1px solid #d4d4d8; border-radius: 12px; background: #fff; font: inherit; font-size: 11px; line-height: 1.65; resize: vertical; }
+/* 역제안 칸을 질문 생성 버튼 왼쪽에 둔다. 질문을 만들기 직전에 적는 값이라 버튼 옆이 자연스럽다. */
+.applicant-interview-pane-actions { display: flex; align-items: flex-end; gap: 10px; margin-top: 8px; }
+.applicant-interview-pane-actions .applicant-counter-proposal { flex: 1; min-width: 0; display: grid; gap: 5px; }
+.applicant-interview-pane-actions .applicant-counter-proposal > span { color: #52525b; font-size: 10px; font-weight: 800; }
+.applicant-interview-pane-actions .applicant-counter-proposal input { width: 100%; min-width: 0; height: 34px; padding: 0 11px; border: 1px solid #d4d4d8; border-radius: 11px; background: #fff; font: inherit; font-size: 11px; }
+.applicant-interview-pane-actions button { min-width: 120px; height: 34px; padding: 0 12px; border-radius: 11px; font-size: 11px; font-weight: 800; }
+.applicant-interview-pane-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.applicant-interview-pane .applicant-screening-hint { margin-top: 8px; }
+@media (max-width: 900px) { .applicant-interview-split { grid-template-columns: 1fr; } }
+
+/* 면접 박스: 제목줄 아래 첫 입력칸이 선에 붙어 답답해 여백을 준다.
+   일정 저장 버튼을 없애고 「변경사항 저장」으로 합쳤으므로, 그만큼 질문지·결과를 위로 올리고
+   비어 있던 세로 공간을 메모 칸 높이로 돌린다. */
+.applicant-interview-block > .form-grid { margin-top: 14px; }
+.applicant-interview-block .applicant-interview-split { margin-top: 16px; }
+.applicant-interview-block .applicant-interview-pane textarea { min-height: 300px; }
+
+/* 역제안 칸. 잠그지 않고 눈에 띄게만 한다 — 실제 역제안은 면접 전날에도 들어왔고,
+   면접일이 아직 없는 지원자도 있어 시각으로 막으면 정상 입력을 놓친다. */
+.applicant-counter-proposal > span { display: flex; align-items: center; gap: 6px; }
+.applicant-counter-badge { padding: 2px 7px; border-radius: 999px; font-size: 9px; font-style: normal; font-weight: 800; }
+.applicant-counter-proposal.today .applicant-counter-badge { background: #eef2ff; color: #3730a3; }
+.applicant-counter-proposal.today input { border-color: #c7d2fe; background: #f8faff; }
+/* 면접 시각 30분 전부터. 10~20분 일찍 시작되는 일이 잦아 미리 진하게 켜 둔다. */
+.applicant-counter-proposal.soon .applicant-counter-badge { background: #fffbeb; color: #92400e; }
+.applicant-counter-proposal.soon input { border-color: #fcd34d; background: #fffdf5; box-shadow: 0 0 0 3px rgba(252, 211, 77, .18); }
+/* 면접이 지났고 역제안도 비어 있으면 물러난다. */
+.applicant-counter-proposal.past > span { color: #a1a1aa; }
+.applicant-counter-proposal.past input { background: #fafafa; }
+
+
+/* 근로계약서 작성 팝업. 인사기록 팝업 위에 겹쳐 뜨고, 양식(.form-grid)의 좌우 여백 24px 에 맞춘다. */
+.detail-card-actions { display: flex; align-items: center; gap: 8px; }
+.contract-hint { display: block; margin: -4px 24px 10px; color: #71717a; font-size: 10px; }
+.contract-preview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 18px; margin: 0 24px 12px; padding: 12px 14px; border: 1px solid #e4e4e7; border-radius: 12px; background: #fafafa; font-size: 11px; }
+.contract-preview div { display: flex; justify-content: space-between; gap: 8px; min-width: 0; }
+.contract-preview span { color: #71717a; }
+.contract-preview strong { font-weight: 800; color: #18181b; }
+.contract-warning { margin: 0 24px 12px; color: #b45309; font-size: 11px; }
+
+/* 대시보드 「정규직 전환 예정」. 3개월 첫 계약 만료를 넘기면 계약 없는 근로가 되므로 상태색을 진하게 둔다. */
+.renewal-panel { margin-bottom: 20px; padding: 18px 20px 14px; }
+.renewal-panel .section-heading .renewal-hint { color: #71717a; font-size: 11px; }
+.renewal-table td { vertical-align: middle; }
+.renewal-dday { margin-left: 5px; color: #8b93a2; font-size: 10px; font-style: normal; }
+.renewal-state { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.renewal-state.soon { border: 1px solid #c7d2fe; background: #eef2ff; color: #3730a3; }
+.renewal-state.due { border: 1px solid #fcd9a4; background: #fffaf0; color: #92400e; }
+.renewal-state.overdue { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; }
+.renewal-actions { display: flex; gap: 6px; }
+.renewal-actions button { height: 30px; padding: 0 10px; border: 1px solid #d4d4d8; border-radius: 9px; background: #fff; color: #3f3f46; font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.renewal-actions .primary-button { color: #fff; border-color: #18181b; background: #18181b; }
+
+/* 인사문서 재직자/퇴사자 전환. 목록 위에 두어 어느 쪽을 보고 있는지 늘 보이게 한다. */
+.document-scope { display: flex; gap: 6px; padding: 8px 7px 2px; }
+.document-scope button { flex: 1; height: 30px; border: 1px solid #d4d4d8; border-radius: 9px; background: #fff; color: #3f3f46; font-size: 11px; font-weight: 700; cursor: pointer; }
+.document-scope button.active { color: #fff; border-color: #18181b; background: #18181b; }
+.document-scope-note { margin: 0; padding: 10px 13px; border-radius: 12px; background: #fef2f2; color: #991b1b; font-size: 11px; }
+
+/* 면접 질문지·면접 결과 상자 정렬. 오른쪽 라벨(grid)이 flex:1 로 늘어나며 남는 높이를 글자 행에 나눠 주는 바람에
+   오른쪽 상자만 10px 내려가 있었다. 남는 높이를 아래로 보내고, 두 상자를 위 줄에 조금 더 붙인다. */
+.applicant-interview-pane .form-note { align-content: start; }
+.applicant-interview-block .applicant-interview-split { margin-top: 8px; }
+.applicant-interview-block .applicant-interview-pane .form-note { padding-top: 6px; }
+
+/* 사이드바 「준비 중」 접힘 그룹. 흐리게 두어 핵심 메뉴와 구분한다. */
+.nav-collapsed-toggle { color: #8b93a2; }
+.nav-collapsed-toggle .nav-icon { background: transparent; border: 1px dashed #d4d4d8; color: #a1a1aa; font-weight: 900; }
+.nav-collapsed-toggle:hover { color: #3f3f46; }
+.nav-collapsed-toggle.open { color: #52525b; }
+
+/* 입·퇴사 관리: 입사 예정 / 입사 완료 두 표의 소제목과 연락처 열 */
+.lifecycle-table-title { margin: 14px 0 8px; color: #3f3f46; font-size: 12px; font-weight: 800; }
+.lifecycle-table-title:first-of-type { margin-top: 0; }
+.lifecycle-table-title em { margin-left: 6px; color: #71717a; font-size: 11px; font-style: normal; font-weight: 700; }
+.lifecycle-onboarding-table .lifecycle-phone-cell { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.lifecycle-onboarding-table .lifecycle-completed-at { display: block; margin-top: 4px; color: #71717a; font-size: 9px; }
+
+/* 채용요청·TO 칸을 눌러 그 자리에서 바꾼다. 버튼이지만 예전 배지 모양을 그대로 쓴다. */
+.applicant-to-column button { font: inherit; line-height: inherit; cursor: pointer; }
+.applicant-to-column button.applicant-to-link, .applicant-to-column button.applicant-to-exception { border: 0; }
+.applicant-to-column button:disabled { cursor: default; }
+.applicant-to-column button:not(:disabled):hover { outline: 2px solid rgba(24, 24, 27, .18); outline-offset: 1px; }
+.applicant-to-select { max-width: 190px; height: 30px; padding: 0 8px; border: 1px solid #18181b; border-radius: 9px; background: #fff; font: inherit; font-size: 11px; font-weight: 700; }
+
+/* 지원 정보 상세의 경력 상세·이력서 요약. .form-note span 의 display:block 이 라벨의 flex 를 덮어 버튼이 글자에 붙어 있었다. */
+.applicant-edit-fields .form-note span.applicant-career-label { display: flex; align-items: center; justify-content: flex-start; gap: 12px; }
+.applicant-edit-fields .form-note { margin-top: 6px; }
+.applicant-edit-fields .form-note textarea.applicant-career-text { min-height: 220px; }
+
+/* 처우 확정·거절, 입사 정보 수정 팝업도 큰 팝업과 같은 규칙을 따른다: 곡률 28px(.employee-modal 공통),
+   스크롤 막대는 팝업 안쪽 왼편(rtl → 자식 ltr), 제목줄은 내려가면 92px→46px 로 접히고 눈금 글자는 사라진다. */
+.onboarding-edit-modal { max-height: 92vh; overflow-y: auto; }
+.offer-response-modal,
+.onboarding-edit-modal { direction: rtl; scrollbar-width: thin; scrollbar-color: #c7c7cc transparent; }
+.offer-response-modal > *,
+.onboarding-edit-modal > * { direction: ltr; }
+.offer-response-modal::-webkit-scrollbar,
+.onboarding-edit-modal::-webkit-scrollbar { width: 10px; }
+.offer-response-modal::-webkit-scrollbar-button,
+.onboarding-edit-modal::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.offer-response-modal::-webkit-scrollbar-track,
+.onboarding-edit-modal::-webkit-scrollbar-track { margin: 10px 0; background: transparent; }
+.offer-response-modal::-webkit-scrollbar-thumb,
+.onboarding-edit-modal::-webkit-scrollbar-thumb { border: 3px solid transparent; border-radius: 999px; background-color: #c7c7cc; background-clip: content-box; }
+.offer-response-modal::-webkit-scrollbar-thumb:hover,
+.onboarding-edit-modal::-webkit-scrollbar-thumb:hover { background-color: #a1a1aa; }
+.offer-response-modal .modal-header,
+.onboarding-edit-modal .modal-header { position: sticky; top: 0; z-index: 5; background: #fff; transition: min-height .18s ease; }
+.offer-response-modal.condensed .modal-header,
+.onboarding-edit-modal.condensed .modal-header { min-height: 46px; box-shadow: 0 1px 0 rgba(9, 9, 11, .08); }
+.offer-response-modal.condensed .modal-header p,
+.onboarding-edit-modal.condensed .modal-header p { display: none; }
+.offer-response-modal.condensed .modal-header h2,
+.onboarding-edit-modal.condensed .modal-header h2 { font-size: 16px; }
+.offer-response-modal.condensed .modal-header button,
+.onboarding-edit-modal.condensed .modal-header button { font-size: 20px; }
+
+/* ── HR 통합 대시보드 개편 ─────────────────────────────────────────────────────
+   12칸 격자 위에 처리 대기함 → 지표 → 일정/채용 → 인원 흐름/조직 → 구성/최근 입사/급여 순으로 놓는다.
+   차트는 hr-dashboard-charts.tsx 가 데이터로 그리고, 여기서는 크기·색·여백만 정한다. */
+.dash-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 20px; }
+.dash-grid > .span-12 { grid-column: span 12; }
+.dash-grid > .span-7 { grid-column: span 7; }
+.dash-grid > .span-5 { grid-column: span 5; }
+.dash-grid > .span-4 { grid-column: span 4; }
+.dash-panel { min-width: 0; padding: 18px 20px 16px; }
+.dash-panel .section-heading { flex-wrap: wrap; gap: 8px 14px; padding-bottom: 12px; }
+.dash-panel .section-heading h2 em { margin-left: 6px; color: #71717a; font-size: 12px; font-style: normal; font-weight: 700; }
+.dash-hint, .renewal-panel .renewal-hint { color: #71717a; font-size: 11px; }
+.dash-empty { margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: #f4f4f5; color: #52525b; font-size: 12px; }
+.dash-footnote { margin: 12px 0 0; color: #71717a; font-size: 11px; line-height: 1.5; }
+.dash-subtitle { margin: 14px 0 6px; color: #52525b; font-size: 11px; font-weight: 800; }
+.dash-welcome { margin-bottom: 24px; }
+.dash-basis { color: #52525b; font-size: 12px; }
+.dash-critical-badge { margin-left: 8px; padding: 2px 8px; border-radius: 999px; border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; font-size: 11px; font-weight: 800; vertical-align: middle; }
+.renewal-panel.compact { padding-bottom: 14px; }
+.renewal-panel.compact .dash-empty { margin-top: 10px; padding: 8px 12px; }
+/* 지표 카드 — 메모는 두 줄까지, 전월 대비 증감은 아이콘 옆에 */
+.metric-card > small { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.45; }
+.metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.metric-delta { color: #52525b; font-size: 11px; font-style: normal; font-weight: 700; }
+/* 처리 대기함 */
+.dash-inbox-list { display: grid; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; }
+.dash-inbox-list > li > button { width: 100%; display: grid; grid-template-columns: 46px 96px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid #ececee; border-radius: 12px; background: #fff; font: inherit; text-align: left; cursor: pointer; }
+.dash-inbox-list > li > button:hover { border-color: #d4d4d8; background: #fafafa; }
+.dash-inbox-list > li.critical > button { border-color: #fecaca; background: #fffafa; }
+.dash-priority { display: grid; place-items: center; height: 22px; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.dash-priority.critical { border: 1px solid #fecaca; background: #fef2f2; color: #991b1b; }
+.dash-priority.warning { border: 1px solid #fcd9a4; background: #fffaf0; color: #92400e; }
+.dash-priority.info { border: 1px solid #e4e4e7; background: #f4f4f5; color: #52525b; }
+.dash-kind { overflow: hidden; color: #52525b; font-size: 11px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.dash-inbox-body { display: grid; gap: 2px; min-width: 0; }
+.dash-inbox-body strong { color: #18181b; font-size: 12px; }
+.dash-inbox-body small { overflow: hidden; color: #71717a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-open { color: #52525b; font-size: 11px; font-weight: 700; white-space: nowrap; }
+/* 일정 필터 칩 */
+.dash-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dash-chips.kinds { margin-top: 12px; }
+.dash-chips button { height: 26px; padding: 0 10px; border: 1px solid #e4e4e7; border-radius: 999px; background: #fff; color: #52525b; font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.dash-chips button em { margin-left: 4px; color: #a1a1aa; font-style: normal; }
+.dash-chips button.active { border-color: #18181b; background: #18181b; color: #fff; }
+.dash-chips button.active em { color: #d4d4d8; }
+.dash-timeline-list > li > button { grid-template-columns: 62px 72px minmax(0, 1fr); }
+.timeline-kind.renewal { border: 1px solid #ddd6fe; background: #f5f3ff; color: #5b21b6; }
+/* 채용 파이프라인 · 충원 미터 */
+.dash-requisitions { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.dash-requisitions > li { display: grid; grid-template-columns: minmax(0, 1fr) 150px; align-items: center; gap: 12px; padding: 9px 0; border-top: 1px solid #f4f4f5; }
+.dash-requisitions > li:first-child { border-top: 0; }
+.dash-requisitions > li.filled { opacity: .6; }
+.dash-requisitions strong { display: block; overflow: hidden; color: #18181b; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-requisitions small { display: block; overflow: hidden; color: #71717a; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-meter { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.dash-meter-track { height: 8px; overflow: hidden; border-radius: 4px; background: #e4e4e7; }
+.dash-meter-track i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: #18181b; }
+.dash-meter span { color: #18181b; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.dash-meter span small { color: #71717a; font-size: 10px; font-weight: 600; }
+/* 가로 막대 · 구성 막대 · 범례 */
+.dash-bars { display: grid; gap: 6px; }
+.dash-bar-row { display: grid; grid-template-columns: 88px minmax(0, 1fr) 76px; align-items: center; gap: 10px; min-height: 22px; }
+.dash-bar-label { overflow: hidden; color: #52525b; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.dash-bar-track { height: 12px; overflow: hidden; border-radius: 0 4px 4px 0; background: #f4f4f5; }
+.dash-bar-track i { display: block; height: 100%; border-radius: 0 4px 4px 0; background: #18181b; transition: width .2s ease; }
+.dash-bar-value { color: #18181b; font-size: 12px; text-align: right; white-space: nowrap; }
+.dash-bar-value small { margin-left: 1px; color: #71717a; font-size: 10px; font-weight: 600; }
+.dash-bar-value em { margin-left: 5px; color: #991b1b; font-size: 10px; font-style: normal; font-weight: 700; }
+.dash-composition { display: grid; gap: 12px; padding-top: 12px; }
+.dash-composition-bar { display: flex; gap: 2px; height: 18px; overflow: hidden; border-radius: 6px; background: #f4f4f5; }
+.dash-composition-bar span { display: block; min-width: 4px; }
+.dash-legend { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dash-legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto 40px; align-items: center; gap: 8px; font-size: 12px; }
+.dash-legend li i { width: 10px; height: 10px; border-radius: 50%; }
+.dash-legend li span { overflow: hidden; color: #52525b; text-overflow: ellipsis; white-space: nowrap; }
+.dash-legend li strong { color: #18181b; }
+.dash-legend li em { color: #71717a; font-size: 11px; font-style: normal; text-align: right; }
+.dash-legend.inline { display: flex; gap: 14px; }
+.dash-legend.inline li { display: flex; gap: 6px; }
+/* 12개월 입·퇴사 SVG */
+.dash-flow { margin: 8px 0 0; }
+.dash-flow svg { width: 100%; height: auto; display: block; }
+.dash-grid-line, .dash-flow .dash-grid { stroke: #ececee; stroke-width: 1; }
+.dash-baseline { stroke: #d4d4d8; stroke-width: 1; }
+.dash-tick, .dash-axis { fill: #71717a; font-size: 10px; font-family: inherit; }
+.dash-axis.current { fill: #18181b; font-weight: 800; }
+.dash-value { fill: #18181b; font-size: 10px; font-weight: 800; font-family: inherit; }
+.dash-flow figcaption { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.dash-table-view summary { color: #52525b; font-size: 11px; font-weight: 700; cursor: pointer; }
+.dash-table-view table { margin-top: 8px; }
+/* 급여 단계 */
+.dash-payroll-head { display: grid; gap: 2px; margin: 12px 0 10px; }
+.dash-payroll-head strong { color: #18181b; font-size: 18px; }
+.dash-payroll-head span { color: #71717a; font-size: 11px; }
+.dash-stepper { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dash-stepper li { display: grid; gap: 4px; justify-items: center; padding: 8px 4px; border-radius: 10px; background: #f4f4f5; color: #71717a; font-size: 11px; font-weight: 700; }
+.dash-stepper li i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #e4e4e7; color: #52525b; font-size: 11px; font-style: normal; font-weight: 800; }
+.dash-stepper li.done { color: #18181b; }
+.dash-stepper li.done i { background: #18181b; color: #fff; }
+.dash-stepper li.current { background: #18181b; color: #fff; }
+.dash-stepper li.current i { background: #fff; color: #18181b; }
+.dash-confirm-strip { align-items: center; gap: 10px; background: #fffaf0; }
+.dash-confirm-strip span { flex: 1; color: #92400e; font-size: 12px; }
+@media (max-width: 1180px) {
+  .dash-grid > .span-7, .dash-grid > .span-5, .dash-grid > .span-4 { grid-column: span 6; }
+}
+@media (max-width: 720px) {
+  .dash-grid > .span-7, .dash-grid > .span-5, .dash-grid > .span-4 { grid-column: span 12; }
+  .dash-inbox-list > li > button { grid-template-columns: 46px minmax(0, 1fr); }
+  .dash-inbox-list .dash-kind, .dash-inbox-list .dash-open { display: none; }
+}
+
+/* 급여월 현황의 상태 칸 — 누르면 셀렉트로 바뀌어 검토 요청·마감 잠금을 그 자리에서 고른다. */
+.payroll-status-cell { white-space: nowrap; }
+.payroll-status-button { padding: 0; border: 0; border-radius: 999px; background: none; font: inherit; cursor: pointer; }
+.payroll-status-button:hover .status-pill, .payroll-status-button:focus-visible .status-pill { box-shadow: 0 0 0 2px #d4d4d8; }
+.payroll-status-button:disabled { cursor: progress; opacity: .6; }
+.payroll-status-select { max-width: 160px; }
+.payroll-status-notice { margin: 0 24px 12px; padding: 10px 12px; border-radius: 12px; background: #f4f4f5; color: #18181b; font-size: 12px; }
+.payroll-status-notice.error { background: #fef2f2; color: #991b1b; }

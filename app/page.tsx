@@ -509,6 +509,7 @@ export default function Home() {
   const [financePeriod, setFinancePeriod] = useState<{ year: "2024" | "2025" | "2026"; label: string; requestKey: number }>({ year: "2026", label: "2026년 8월", requestKey: 0 });
   const [financeWorkspaceRequest, setFinanceWorkspaceRequest] = useState<{ view: FinanceWorkspaceView; requestKey: number }>({ view: "overview", requestKey: 0 });
   const [salesCreateRequestKey, setSalesCreateRequestKey] = useState(0);
+  const [compensationAssistantModule, setCompensationAssistantModule] = useState<"compensation" | "sales">("compensation");
   const [toast, setToast] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -598,8 +599,8 @@ export default function Home() {
     return (
       <div className="compensation-erp-shell">
         <ERPTopNavigation active={active} onChange={(module) => { setActive(module); setSearch(""); }} onOpenAlert={openAlert} openRequestKey={alertRequestKey} />
-        <CompensationCalculator />
-        <LocalCodexAssistant module="compensation" />
+        <CompensationCalculator onAssistantModuleChange={setCompensationAssistantModule} />
+        <LocalCodexAssistant module={compensationAssistantModule} />
       </div>
     );
   }
@@ -652,6 +653,8 @@ export default function Home() {
         {active === "sales" && <SalesWorkspace search={search} createRequestKey={salesCreateRequestKey} />}
         {active === "hr" && <HrDashboard search={search} />}
       </main>
+
+      {active === "sales" && <LocalCodexAssistant module="sales" />}
 
       {toast && <div className="toast"><span>✓</span>{toast}</div>}
     </div>

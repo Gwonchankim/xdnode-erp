@@ -26,6 +26,12 @@ type EmployeeRecordRow = {
   meal_allowance: number;
   childcare_allowance: number;
   vehicle_allowance: number;
+  /** 첫 계약(3개월 기간제) 동안 기준 연봉의 몇 %를 주는지. 처우 제안 때 정해 입사 전환으로 넘어오고, 여기서 고칠 수 있다. */
+  first_term_pay_percent: number | null;
+  /** 3개월 첫 계약이 끝나 기간의 정함이 없는 계약을 맺은 날. 비어 있으면 아직 전환 전이다. */
+  regular_contract_date: string | null;
+  /** 첫 계약 근무평가와 결정(JSON). 대시보드의 전환 패널에서 기록한다. */
+  first_term_review_json: string | null;
   updated_at: number;
 };
 
@@ -54,6 +60,9 @@ async function ensureSchema() {
       meal_allowance INTEGER NOT NULL DEFAULT 0,
       childcare_allowance INTEGER NOT NULL DEFAULT 0,
       vehicle_allowance INTEGER NOT NULL DEFAULT 0,
+      first_term_pay_percent INTEGER NOT NULL DEFAULT 100,
+      regular_contract_date TEXT NOT NULL DEFAULT '',
+      first_term_review_json TEXT,
       updated_at INTEGER NOT NULL
   )`).run();
   const columns = await db.prepare("PRAGMA table_info(hr_employee_records)").all<{ name: string }>();
@@ -68,6 +77,9 @@ async function ensureSchema() {
     ["meal_allowance", "INTEGER NOT NULL DEFAULT 0"],
     ["childcare_allowance", "INTEGER NOT NULL DEFAULT 0"],
     ["vehicle_allowance", "INTEGER NOT NULL DEFAULT 0"],
+    ["first_term_pay_percent", "INTEGER NOT NULL DEFAULT 100"],
+    ["regular_contract_date", "TEXT NOT NULL DEFAULT ''"],
+    ["first_term_review_json", "TEXT"],
   ].filter(([name]) => !existing.has(name));
   for (const [name, definition] of additions) {
     await db.prepare(`ALTER TABLE hr_employee_records ADD COLUMN ${name} ${definition}`).run();
@@ -88,7 +100,6 @@ function toRecord(row: EmployeeRecordRow) {
     phone: row.phone,
     address: row.address,
     department: row.department,
-    manager: row.manager,
     type: row.employment_type,
     joinDate: row.join_date,
     position: row.position,
@@ -101,6 +112,9 @@ function toRecord(row: EmployeeRecordRow) {
     mealAllowance: row.meal_allowance,
     childcareAllowance: row.childcare_allowance,
     vehicleAllowance: row.vehicle_allowance,
+    firstTermPayPercent: row.first_term_pay_percent ?? 100,
+    regularContractDate: row.regular_contract_date ?? "",
+    firstTermReview: parseJson(row.first_term_review_json, null),
     updatedAt: row.updated_at,
   };
 }
@@ -114,7 +128,7 @@ export async function GET() {
   await applyDueOnboarding(db);
   const result = await db.prepare(`SELECT employee_id, name, birth, email, phone, address,
     department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json,
-    annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance, updated_at
+    annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance, first_term_pay_percent, regular_contract_date, first_term_review_json, updated_at
     FROM hr_employee_records ORDER BY employee_id`).all<EmployeeRecordRow>();
 
   // 퇴직일과 사유는 retirement_json 이 아니라 hr_retirement_requests 에 있다. 화면은 employee.retirement
@@ -165,7 +179,6 @@ export async function PUT(request: Request) {
     phone: stringValue("phone"),
     address: stringValue("address"),
     department: stringValue("department"),
-    manager: stringValue("manager"),
     type: stringValue("type"),
     joinDate: stringValue("joinDate"),
     position: stringValue("position"),
@@ -178,6 +191,9 @@ export async function PUT(request: Request) {
     mealAllowance: 0,
     childcareAllowance: 0,
     vehicleAllowance: 0,
+    firstTermPayPercent: 100,
+    regularContractDate: /^\d{4}-\d{2}-\d{2}$/.test(stringValue("regularContractDate")) ? stringValue("regularContractDate") : "",
+    firstTermReview: body.firstTermReview && typeof body.firstTermReview === "object" ? body.firstTermReview as Record<string, unknown> : null,
     updatedAt: Date.now(),
   };
   for (const [source, target] of [["annualSalary", "annualSalary"], ["basePay", "basePay"], ["mealAllowance", "mealAllowance"], ["childcareAllowance", "childcareAllowance"], ["vehicleAllowance", "vehicleAllowance"]] as const) {
@@ -185,17 +201,25 @@ export async function PUT(request: Request) {
     if (!Number.isFinite(value) || value < 0) return Response.json({ error: "연봉·기본급과 수당은 0원 이상으로 입력해 주세요." }, { status: 400 });
     record[target] = Math.round(value);
   }
+  // 첫 계약 지급률. 비워 보내면 100 으로 두고, 값이 있으면 1~100 정수여야 한다.
+  if (body.firstTermPayPercent !== undefined && body.firstTermPayPercent !== null && body.firstTermPayPercent !== "") {
+    const percent = Number(body.firstTermPayPercent);
+    if (!Number.isInteger(percent) || percent < 1 || percent > 100) return Response.json({ error: "첫 계약 지급률은 1~100 사이의 정수로 입력해 주세요." }, { status: 400 });
+    record.firstTermPayPercent = percent;
+  }
 
   const before = await db.prepare(`SELECT employee_id, name, birth, email, phone, address,
     department, manager, employment_type, join_date, position, job_title, status, history_json, retirement_json,
-    annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance, updated_at
+    annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance, first_term_pay_percent, regular_contract_date, first_term_review_json, updated_at
     FROM hr_employee_records WHERE employee_id = ?`).bind(employeeId).first<EmployeeRecordRow>();
 
+  // manager 컬럼은 예전에 조직장 이름을 스냅샷으로 담던 자리다. 조직장은 hr_organization_leaders 가 기준이라 화면에 주지도,
+  // 덮어쓰지도 않는다. 새 행에는 빈값을 넣고 기존 값은 그대로 둔다(NOT NULL 제약 때문에 컬럼 자체는 남긴다).
   await db.prepare(`INSERT INTO hr_employee_records
     (employee_id, name, birth, email, phone, address, department, manager, employment_type, join_date,
       position, job_title, status, history_json, retirement_json, annual_salary, base_pay, meal_allowance,
-      childcare_allowance, vehicle_allowance, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      childcare_allowance, vehicle_allowance, first_term_pay_percent, regular_contract_date, first_term_review_json, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(employee_id) DO UPDATE SET
       name = excluded.name,
       birth = excluded.birth,
@@ -203,7 +227,6 @@ export async function PUT(request: Request) {
       phone = excluded.phone,
       address = excluded.address,
       department = excluded.department,
-      manager = excluded.manager,
       employment_type = excluded.employment_type,
       join_date = excluded.join_date,
       position = excluded.position,
@@ -216,11 +239,14 @@ export async function PUT(request: Request) {
       meal_allowance = excluded.meal_allowance,
       childcare_allowance = excluded.childcare_allowance,
       vehicle_allowance = excluded.vehicle_allowance,
+      first_term_pay_percent = excluded.first_term_pay_percent,
+      regular_contract_date = excluded.regular_contract_date,
+      first_term_review_json = excluded.first_term_review_json,
       updated_at = excluded.updated_at`)
     .bind(record.employeeId, record.name, record.birth, record.email, record.phone, record.address,
-      record.department, record.manager, record.type, record.joinDate, record.position, record.jobTitle,
+      record.department, "", record.type, record.joinDate, record.position, record.jobTitle,
       record.status, JSON.stringify(record.history), record.retirement ? JSON.stringify(record.retirement) : null,
-      record.annualSalary, record.basePay, record.mealAllowance, record.childcareAllowance, record.vehicleAllowance, record.updatedAt)
+      record.annualSalary, record.basePay, record.mealAllowance, record.childcareAllowance, record.vehicleAllowance, record.firstTermPayPercent, record.regularContractDate, record.firstTermReview ? JSON.stringify(record.firstTermReview) : null, record.updatedAt)
     .run();
 
   await writeErpAudit(db, {

@@ -47,3 +47,6 @@
    그대로 떠서, 이게 언제 것인지 모르면 오늘 고친 값인지 판단할 수 없다. */
 .wage-table-hint { display: grid; gap: 3px; justify-items: end; text-align: right; }
 .wage-table-hint .wage-saved-at { color: #6b7280; font-size: 11px; font-style: normal; white-space: nowrap; }
+
+/* 첫 계약 지급률. 수습 개월 옆에 비율을 붙여 90% 고정이 아님을 보이게 한다. */
+.probation-rate { margin-left: 4px; color: #6b7280; font-size: 10px; font-weight: 700; }

@@ -3,6 +3,8 @@ $ErrorActionPreference = "Stop"
 $ProjectPath = Split-Path -Parent $PSScriptRoot
 $Port = 3000
 $AssistantPort = 3110
+$ResumeBridgePort = 3120
+$ClaudeAssistantPort = 3130
 $Url = "http://localhost:$Port"
 
 function Test-LocalPort([int]$TestPort) {
@@ -74,6 +76,28 @@ if (-not (Test-LocalPort $AssistantPort)) {
     -WindowStyle Hidden `
     -RedirectStandardOutput $assistantLogPath `
     -RedirectStandardError "$assistantLogPath.err" | Out-Null
+}
+
+# 이력서 분석용 Claude CLI 다리. Worker 안에서는 프로세스를 띄울 수 없어 여기서 같이 올린다.
+if (-not (Test-LocalPort $ResumeBridgePort)) {
+  $resumeLogPath = Join-Path $LogDir "claude-resume-bridge.log"
+  Start-Process `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/c", "cd /d `"$ProjectPath`" && npm.cmd run resume:bridge") `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $resumeLogPath `
+    -RedirectStandardError "$resumeLogPath.err" | Out-Null
+}
+
+# HR·임금계산 보조 어시스턴트(Claude CLI). Codex 다리(3110)는 되돌릴 수 있도록 남겨 둔다.
+if (-not (Test-LocalPort $ClaudeAssistantPort)) {
+  $claudeAssistantLogPath = Join-Path $LogDir "claude-assistant.log"
+  Start-Process `
+    -FilePath "cmd.exe" `
+    -ArgumentList @("/c", "cd /d `"$ProjectPath`" && npm.cmd run assistant:claude") `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $claudeAssistantLogPath `
+    -RedirectStandardError "$claudeAssistantLogPath.err" | Out-Null
 }
 
 if (-not (Test-LocalPort $Port)) {

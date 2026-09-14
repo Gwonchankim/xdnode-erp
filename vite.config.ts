@@ -24,8 +24,11 @@ export default defineConfig(async ({ command, mode }) => {
   const localRuntimeVars = Object.fromEntries(
     ["CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_MODEL",
       "LOCAL_ERP_USER_EMAIL", "LOCAL_ERP_USER_NAME",
-      // 이력서 분석을 로컬 LLM 으로 돌릴 때 쓴다. 없으면 Workers AI 로 간다.
-      "LOCAL_LLM_BASE_URL", "LOCAL_LLM_MODEL",
+      // 이력서 분석은 Claude CLI 다리 하나만 쓴다(scripts/claude-resume-bridge.mjs).
+      // 값이 없으면 http://127.0.0.1:3120 을 쓴다.
+      "CLAUDE_BRIDGE_URL",
+      // HR·임금계산·영업 AI 어시스턴트 다리(scripts/claude-assistant-bridge.mjs). 값이 없으면 http://127.0.0.1:3130 을 쓴다.
+      "CLAUDE_ASSISTANT_BRIDGE_URL",
       // 영업 구글 시트 동기화용 OAuth 자격증명과 대상 스프레드시트 ID.
       "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET", "GOOGLE_OAUTH_REFRESH_TOKEN", "GOOGLE_SALES_SHEET_ID"]
       .map((key) => [key, fileEnv[key]] as const)

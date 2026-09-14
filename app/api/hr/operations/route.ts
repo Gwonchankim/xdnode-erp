@@ -224,7 +224,9 @@ export async function GET(request: Request) {
         ...estimate,
       };
     }));
-  return Response.json({ personnelActions: actions.results, lifecycleTasks: lifecycle.results, leaveRequests: leaves.results, attendanceRecords: attendance.results, payrollRuns: payrollRuns.results, retirementRequests: retirements.results, retirementSettlements: settlements.results, severanceEstimates });
+  return Response.json({ personnelActions: actions.results, lifecycleTasks: lifecycle.results, leaveRequests: leaves.results, attendanceRecords: attendance.results, payrollRuns: payrollRuns.results, retirementRequests: retirements.results, retirementSettlements: settlements.results, severanceEstimates ,
+    // HR 첫 화면이 이 응답을 같이 쓰므로 호출자의 권한도 여기서 알려 준다. 대시보드가 역할별로 배치를 바꾸는 데 쓴다.
+    principal: { employeeId: authorization.principal.employeeId, roles: authorization.principal.roles } });
 }
 
 export async function POST(request: Request) {

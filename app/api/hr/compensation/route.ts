@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { FIXED_TERM_MONTHS, fixedTermEndDate } from "../../../hr-employment-contract";
 import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
 import { applyDueRetirements } from "../../../hr-retirements";
 import { ensureEmployeeRosterSeeded } from "../../../hr-employee-roster";
@@ -17,6 +18,7 @@ type EmployeeRow = {
   employee_id: string; name: string; birth: string; department: string; position: string; job_title: string;
   join_date: string; retirement_json: string | null; base_pay: number; meal_allowance: number;
   childcare_allowance: number; vehicle_allowance: number; annual_salary: number;
+  first_term_pay_percent: number | null; regular_contract_date: string | null;
 };
 
 const periodPattern = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -78,6 +80,7 @@ async function ensureSchema() {
     ["annual_salary", "INTEGER NOT NULL DEFAULT 0"],
     ["base_pay", "INTEGER NOT NULL DEFAULT 0"], ["meal_allowance", "INTEGER NOT NULL DEFAULT 0"],
     ["childcare_allowance", "INTEGER NOT NULL DEFAULT 0"], ["vehicle_allowance", "INTEGER NOT NULL DEFAULT 0"],
+    ["first_term_pay_percent", "INTEGER NOT NULL DEFAULT 100"], ["regular_contract_date", "TEXT NOT NULL DEFAULT ''"],
   ].filter(([name]) => !existing.has(name))) await db.prepare(`ALTER TABLE hr_employee_records ADD COLUMN ${name} ${definition}`).run();
   const runColumns = await db.prepare("PRAGMA table_info(hr_compensation_runs)").all<{ name: string }>();
   if (!runColumns.results.some((column) => column.name === "settings_json")) {
@@ -112,7 +115,8 @@ async function hrPayrollSnapshots(period: string) {
   const start = `${period}-01`;
   const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
   const employees = await db.prepare(`SELECT employee_id, name, birth, department, position, job_title, join_date,
-    retirement_json, annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance FROM hr_employee_records
+    retirement_json, annual_salary, base_pay, meal_allowance, childcare_allowance, vehicle_allowance,
+    first_term_pay_percent, regular_contract_date FROM hr_employee_records
     WHERE NULLIF(replace(join_date, '.', '-'), '') IS NOT NULL
       AND replace(join_date, '.', '-') <= ?
       AND (
@@ -123,12 +127,26 @@ async function hrPayrollSnapshots(period: string) {
           AND replace(json_extract(retirement_json, '$.date'), '.', '-') BETWEEN ? AND ?)
       )
     ORDER BY department, name`).bind(end, start, start, end).all<EmployeeRow>();
+  // 첫 계약(3개월 기간제) 지급률이 100% 미만이면 엔진의 수습 구간 계산에 태운다 — 월 경계 일할까지 엔진이 맞춘다.
+  // 종료일은 입사일 + 3개월 − 1일이고, 그 전에 정규직 전환을 기록했으면 전환 전날까지만 줄여 준다.
+  const dayBefore = (iso: string) => { const d = new Date(`${iso}T00:00:00Z`); d.setUTCDate(d.getUTCDate() - 1); return d.toISOString().slice(0, 10); };
+  const firstTermOf = (employee: EmployeeRow) => {
+    const percent = employee.first_term_pay_percent ?? 100;
+    if (!(percent > 0 && percent < 100) || employee.annual_salary <= 0) return null;
+    let end = fixedTermEndDate(employee.join_date.replaceAll(".", "-"));
+    if (!end) return null;
+    if (employee.regular_contract_date && employee.regular_contract_date <= end) end = dayBefore(employee.regular_contract_date);
+    return { rate: percent / 100, end };
+  };
   return employees.results.map((employee) => ({
     id: employee.employee_id, name: employee.name, department: employee.department,
     title: employee.job_title || employee.position, birthDate: employee.birth === "미입력" ? "" : employee.birth.replaceAll(".", "-"),
     joinDate: employee.join_date.replaceAll(".", "-"),
     leaveDate: safeJson<{ date?: string }>(employee.retirement_json ?? "", {}).date?.replaceAll(".", "-") ?? "",
-    probationMonths: 0, annualSalary: employee.annual_salary, basePay: employee.base_pay, manualBasic: true,
+    ...(firstTermOf(employee)
+      ? { probationMonths: FIXED_TERM_MONTHS, probationRate: firstTermOf(employee)!.rate, probationEndDate: firstTermOf(employee)!.end, manualBasic: false }
+      : { probationMonths: 0, manualBasic: true }),
+    annualSalary: employee.annual_salary, basePay: employee.base_pay,
     meal: employee.meal_allowance, car: employee.vehicle_allowance, child: employee.childcare_allowance, monthly: {},
   }));
 }

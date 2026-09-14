@@ -73,6 +73,10 @@ export async function ensureMasterImpactSchema(db: D1Database) {
 }
 
 export async function ensureMasterImpactCaseSchema(db: D1Database) {
+  // 케이스는 영향평가(erp_master_impact_assessments)를 참조한다. 그 테이블은 위의
+  // ensureMasterImpactSchema 가 만드는데, 케이스 라우트는 그 함수를 부르지 않아
+  // 조회 시점에 테이블이 없어 500 이 났다. 의존 관계를 여기서 명시한다.
+  await ensureMasterImpactSchema(db);
   await ensureErpPlatformSchema(db);
   await db.batch([
     db.prepare(`CREATE TABLE IF NOT EXISTS erp_master_impact_cases (

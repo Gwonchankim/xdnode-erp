@@ -102,7 +102,7 @@ async function state() {
     db.prepare("SELECT * FROM hr_recruitment_requisitions ORDER BY created_at DESC").all<RequisitionRow>(),
     db.prepare(`SELECT a.requisition_id,
       COUNT(DISTINCT a.id) AS applicant_count,
-      COUNT(DISTINCT CASE WHEN o.status = 'ACCEPTED' THEN a.id END) AS filled_count
+      COUNT(DISTINCT CASE WHEN o.status IN ('ACCEPTED', 'ONBOARDED') THEN a.id END) AS filled_count
       FROM hr_applicants a LEFT JOIN hr_offer_requests o ON o.applicant_id = a.id
       WHERE TRIM(a.requisition_id) <> '' GROUP BY a.requisition_id`).all<CountRow>(),
     db.prepare("SELECT employee_id FROM hr_recruiters ORDER BY created_at, employee_id").all<{ employee_id: string }>(),

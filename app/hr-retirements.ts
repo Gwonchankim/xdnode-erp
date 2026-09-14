@@ -5,11 +5,44 @@ type DueRetirement = {
   reason: string;
 };
 
+type PendingRetirement = {
+  employee_id: string;
+  retirement_date: string;
+  reason: string;
+  department: string;
+  position: string;
+  history_json: string;
+};
+
+// 퇴직 예정자의 인사이력에 "퇴직 예정 · 예정일" 항목을 채운다. 퇴직 요청을 만들 때도 같은 항목을
+// 넣지만(app/api/hr/operations/route.ts), 그 처리를 붙이기 전에 만들어 둔 요청들은 이력이 비어
+// 있었다. 인사기록을 읽는 경로마다 이 함수를 거치므로 여기서 한 번 보정하면 옛 기록도 채워진다.
+async function backfillPendingRetirementHistory(db: D1Database, now: number, koreaDate: string) {
+  const pending = await db.prepare(`SELECT request.employee_id, request.retirement_date, request.reason,
+      record.department, record.position, record.history_json
+    FROM hr_retirement_requests request
+    JOIN hr_employee_records record ON record.employee_id = request.employee_id
+    WHERE request.status IN ('SUBMITTED', 'IN_PROGRESS', 'READY') AND request.retirement_date > ?`)
+    .bind(koreaDate).all<PendingRetirement>();
+  for (const row of pending.results) {
+    const date = row.retirement_date.replaceAll("-", ".");
+    let history: Array<{ date?: string; type?: string; detail?: string }>;
+    try { history = JSON.parse(row.history_json || "[]") as typeof history; }
+    catch { history = []; }
+    if (!Array.isArray(history)) history = [];
+    if (history.some((item) => item.type === "퇴직 예정" && item.date === date)) continue;
+    const detail = `${row.department || "소속 미상"} ${row.position || ""} 퇴직 예정 · ${row.reason}`.replace(/\s+/g, " ").trim();
+    await db.prepare("UPDATE hr_employee_records SET history_json = ?, updated_at = ? WHERE employee_id = ?")
+      .bind(JSON.stringify([...history, { date, type: "퇴직 예정", detail }]), now, row.employee_id).run();
+  }
+}
+
 export async function applyDueRetirements(db: D1Database, now = Date.now()) {
   const table = await db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'hr_retirement_requests'")
     .first<{ name: string }>();
   if (!table) return 0;
   const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  await backfillPendingRetirementHistory(db, now, koreaDate);
   const due = await db.prepare(`SELECT id, employee_id, retirement_date, reason FROM hr_retirement_requests
     WHERE retirement_date <= ? AND (status IN ('IN_PROGRESS', 'READY') OR (status = 'EFFECTIVE'
       AND completed_tasks = total_tasks AND total_tasks > 0

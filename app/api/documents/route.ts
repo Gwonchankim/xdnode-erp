@@ -152,6 +152,45 @@ export async function POST(request: Request) {
   return Response.json({ document }, { status: 201 });
 }
 
+// 이미 등록된 문서의 분류만 바꾼다. 원본 파일과 등록 이력은 건드리지 않는다.
+export async function PATCH(request: Request) {
+  await ensureSchema();
+  let body: { id?: unknown; category?: unknown };
+  try {
+    body = await request.json() as { id?: unknown; category?: unknown };
+  } catch {
+    return Response.json({ error: "요청 내용을 읽을 수 없습니다." }, { status: 400 });
+  }
+  const id = typeof body.id === "string" ? body.id.trim() : "";
+  const category = typeof body.category === "string" ? body.category.trim().slice(0, 60) : "";
+  if (!id || !category) return Response.json({ error: "문서와 분류가 필요합니다." }, { status: 400 });
+
+  const row = await db.prepare("SELECT * FROM erp_documents WHERE id = ? AND deleted_at IS NULL").bind(id).first<DocumentRow>();
+  if (!row || !allowedModules.has(row.module as ErpModule)) return Response.json({ error: "수정할 문서를 찾을 수 없습니다." }, { status: 404 });
+  const authorization = await authorizeErpRequest(db, row.module as ErpModule, "write");
+  if (authorization.response) return authorization.response;
+  if (row.category === category) return Response.json({ document: toDocument(row) });
+
+  // 버전은 (대상, 분류)별로 매겨진다. 분류를 옮기면 옮겨간 분류 기준으로 번호를 다시 받아야
+  // 같은 분류 안에서 번호가 겹치지 않는다.
+  const latest = await db.prepare(`SELECT MAX(version) AS version FROM erp_documents
+    WHERE module = ? AND entity_type = ? AND entity_id = ? AND category = ? AND deleted_at IS NULL`)
+    .bind(row.module, row.entity_type, row.entity_id, category).first<{ version: number | null }>();
+  const version = (latest?.version ?? 0) + 1;
+
+  await db.prepare("UPDATE erp_documents SET category = ?, version = ? WHERE id = ?").bind(category, version, id).run();
+  await writeErpAudit(db, {
+    principal: authorization.principal,
+    module: row.module as ErpModule,
+    action: "DOCUMENT_CATEGORY_CHANGED",
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    before: { documentId: id, fileName: row.file_name, category: row.category, version: row.version },
+    after: { documentId: id, fileName: row.file_name, category, version },
+  });
+  return Response.json({ document: toDocument({ ...row, category, version }) });
+}
+
 export async function DELETE(request: Request) {
   await ensureSchema();
   const body = await request.json() as { id?: unknown };

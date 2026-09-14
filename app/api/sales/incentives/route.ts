@@ -17,6 +17,26 @@ type Result = { id: string; period: string; employee_id: string; opportunity_id:
 
 async function ensureSchema() {
   await db.batch([
+    // 이 두 테이블은 아래 인덱스가 참조하는데, 예전에는 여기서 만들지 않고 다른 라우트가
+    // 먼저 실행되기를 기대하고 있었다. D1 배치는 원자적이라 테이블이 없으면 배치 전체가
+    // 실패했고, 그래서 인센티브 화면과 이를 참조하는 월마감 화면이 통째로 500 을 냈다.
+    // sales_incentive_results 는 애초에 어떤 라우트도 만들지 않았다(정의는
+    // drizzle/0009_greedy_gravity.sql 에만 있었다).
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_incentive_rules (
+      id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL DEFAULT 'DRAFT',
+      effective_from TEXT NOT NULL DEFAULT '', effective_to TEXT NOT NULL DEFAULT '', rules_json TEXT NOT NULL DEFAULT '{}',
+      approved_by TEXT NOT NULL DEFAULT '', approved_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS sales_incentive_results (
+      id TEXT PRIMARY KEY NOT NULL, period TEXT NOT NULL, employee_id TEXT NOT NULL, opportunity_id TEXT NOT NULL,
+      rule_id TEXT NOT NULL, rule_version INTEGER NOT NULL, recognized_revenue INTEGER NOT NULL,
+      recognized_cost INTEGER NOT NULL, payout_amount INTEGER NOT NULL, calculation_json TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'DRAFT', sales_confirmed_at INTEGER, finance_reviewed_at INTEGER,
+      representative_approved_at INTEGER, payroll_ref TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_incentive_period_employee ON sales_incentive_results(period, employee_id)"),
+    db.prepare("CREATE INDEX IF NOT EXISTS idx_sales_incentive_status ON sales_incentive_results(status)"),
     db.prepare(`CREATE TABLE IF NOT EXISTS sales_incentive_validations (
       id TEXT PRIMARY KEY NOT NULL, rule_id TEXT NOT NULL, validation_type TEXT NOT NULL, result TEXT NOT NULL,
       evidence_document_id TEXT NOT NULL, note TEXT NOT NULL, reviewed_by TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`),

@@ -16,7 +16,7 @@ const supportedApplySources = new Set(["hiworks-employees", "payroll-excel-2025-
 const employeeAliases: Record<string, string[]> = {
   employeeId: ["사번", "id", "employeeid", "아이디"], name: ["이름", "성명", "name"], birth: ["생년월일", "birth"], email: ["이메일", "email", "메일"],
   phone: ["연락처", "휴대전화", "휴대폰", "phone"], address: ["주소", "address"], department: ["부서", "조직", "소속조직", "department"], manager: ["조직장", "직속리더", "manager"],
-  employmentType: ["고용형태", "근로형태", "type", "employmenttype"], joinDate: ["입사일", "joindate"], position: ["직급", "position"], jobTitle: ["직책", "jobtitle"], status: ["상태", "재직상태", "status"],
+  employmentType: ["고용형태", "근로형태", "type", "employmenttype"], joinDate: ["입사일", "joindate"], position: ["직위", "직급", "position"], jobTitle: ["직책", "jobtitle"], status: ["상태", "재직상태", "status"],
 };
 const payrollAliases: Record<string, string[]> = {
   id: ["id", "급여id"], yearMonth: ["급여월", "년월", "yearmonth"], employeeName: ["이름", "성명", "employee", "employeename"], annualSalary: ["연봉", "annualsalary"],

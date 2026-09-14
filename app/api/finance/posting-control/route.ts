@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { createApprovalRequest } from "../../../approval-engine";
-import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { authorizeErpRequest, blockedFinancePeriods, writeErpAudit } from "../../../erp-platform";
 import { ensureFinanceImportMappingSchema } from "../../../finance-import-mapping";
 import { ensureFinancePostingSchema } from "../../../finance-posting";
 
@@ -17,15 +17,6 @@ async function ensureSchemas() { await ensureFinanceImportMappingSchema(db); awa
 async function addEvent(batchId: string, action: string, fromStatus: string, toStatus: string, actor: string, note: string, snapshot: unknown = {}) {
   await db.prepare(`INSERT INTO finance_posting_events (id,batch_id,action,from_status,to_status,actor_employee_id,note,snapshot_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)`)
     .bind(crypto.randomUUID(), batchId, action, fromStatus, toStatus, actor, note, JSON.stringify(snapshot), Date.now()).run();
-}
-async function blockedPeriods(periods: string[]) {
-  if (!periods.length) return [] as string[]; const unique = [...new Set(periods)]; const placeholders = unique.map(() => "?").join(",");
-  const rows = await db.prepare(`SELECT period,status FROM finance_close_runs WHERE period IN (${placeholders})`).bind(...unique).all<{ period: string; status: string }>().catch(() => ({ results: [] })); const states = new Map(rows.results.map((row) => [row.period, row.status])); const currentPeriod = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
-  // SUBMITTED is blocked too: the close approval decision is made against a frozen ledger snapshot
-  // (see close/route.ts submit + api/approvals/route.ts's FINANCE_CLOSE_RUN drift re-check). Letting
-  // new postings land in a submitted-but-not-yet-approved period would approve a different ledger
-  // than the one the approver actually reviewed.
-  return unique.filter((period) => ["CLOSED", "SUBMITTED"].includes(states.get(period) ?? "") || (!states.has(period) && period !== currentPeriod));
 }
 async function view(selectedBatchId = "") {
   const [candidates, batches, taxCodes, closed] = await Promise.all([
@@ -74,7 +65,7 @@ async function createDraft(validationId: string, actor: string) {
     if (!validDate(date) || !sourceKey) throw new Error(`행 ${row.row_number}: 전표일과 원천 전표번호가 필요합니다.`);
     const key = `${date}:${sourceKey}`; const group = groups.get(key) ?? { date, sourceKey, description: text(value.description), reference: text(value.sourceReference), rows: [] }; group.rows.push({ row, value }); groups.set(key, group);
   }
-  const periods = [...groups.values()].map((group) => group.date.slice(0, 7)); const locked = await blockedPeriods(periods); if (locked.length) throw new Error(`마감 또는 미개방 회계기간은 초안을 만들 수 없습니다: ${locked.join(", ")}`);
+  const periods = [...groups.values()].map((group) => group.date.slice(0, 7)); const locked = await blockedFinancePeriods(db, periods); if (locked.length) throw new Error(`마감 또는 미개방 회계기간은 초안을 만들 수 없습니다: ${locked.join(", ")}`);
   let totalDebit = 0, totalCredit = 0, lineCount = 0; for (const group of groups.values()) { const debit = group.rows.reduce((sum, item) => sum + Number(item.value.debitAmount || 0), 0); const credit = group.rows.reduce((sum, item) => sum + Number(item.value.creditAmount || 0), 0); if (debit !== credit) throw new Error(`${group.date} 전표 ${group.sourceKey}: 차변·대변 ${Math.abs(debit - credit).toLocaleString("ko-KR")}원 불일치`); totalDebit += debit; totalCredit += credit; lineCount += group.rows.length; }
   if (!groups.size || totalDebit !== totalCredit) throw new Error("전기 초안 전체 차변·대변이 일치하지 않습니다.");
   const batchId = crypto.randomUUID(); const now = Date.now(); const sortedPeriods = [...new Set(periods)].sort(); const batchNumber = `IMP-DRAFT-${batchId.slice(0, 8).toUpperCase()}`;
@@ -96,7 +87,7 @@ async function assertReady(batchId: string, expectedStatus: string) {
   const [vouchers, lines] = await Promise.all([db.prepare("SELECT * FROM finance_posting_vouchers WHERE batch_id=?").bind(batchId).all<Row>(), db.prepare("SELECT line.* FROM finance_posting_lines line JOIN finance_posting_vouchers voucher ON voucher.id=line.voucher_id WHERE voucher.batch_id=?").bind(batchId).all<Row>()]);
   if (!vouchers.results.length || lines.results.length !== Number(batch.line_count)) throw new Error("전표 또는 분개 행 수가 초안 생성 시점과 다릅니다.");
   const unbalanced = vouchers.results.filter((row) => Number(row.total_debit) !== Number(row.total_credit)); if (unbalanced.length || Number(batch.total_debit) !== Number(batch.total_credit)) throw new Error("차변·대변이 일치하지 않는 전표가 있습니다.");
-  const locked = await blockedPeriods(vouchers.results.map((row) => String(row.period))); if (locked.length) throw new Error(`마감 또는 미개방 회계기간은 처리할 수 없습니다: ${locked.join(", ")}`);
+  const locked = await blockedFinancePeriods(db, vouchers.results.map((row) => String(row.period))); if (locked.length) throw new Error(`마감 또는 미개방 회계기간은 처리할 수 없습니다: ${locked.join(", ")}`);
   const pendingTax = lines.results.filter((row) => row.tax_review_status !== "REVIEWED"); if (pendingTax.length) throw new Error(`세금 검토가 완료되지 않은 분개 ${pendingTax.length}행이 있습니다.`);
   const invalidAccount = await db.prepare(`SELECT COUNT(*) AS count FROM finance_posting_lines line JOIN finance_posting_vouchers voucher ON voucher.id=line.voucher_id LEFT JOIN finance_master_accounts account ON account.id=line.account_id AND account.status='ACTIVE' WHERE voucher.batch_id=? AND account.id IS NULL`).bind(batchId).first<{ count: number }>(); if (Number(invalidAccount?.count ?? 0)) throw new Error("비활성 또는 존재하지 않는 계정과목이 포함되어 있습니다.");
   const invalidTax = await db.prepare(`SELECT COUNT(*) AS count FROM finance_posting_lines line JOIN finance_posting_vouchers voucher ON voucher.id=line.voucher_id LEFT JOIN finance_master_tax_codes tax ON tax.id=line.tax_code_id AND tax.status='ACTIVE' WHERE voucher.batch_id=? AND line.tax_code_id<>'' AND tax.id IS NULL`).bind(batchId).first<{ count: number }>(); if (Number(invalidTax?.count ?? 0)) throw new Error("비활성 또는 존재하지 않는 세금코드가 포함되어 있습니다.");
@@ -111,7 +102,7 @@ async function postBatch(batchId: string, actor: string) {
 }
 
 async function createReversal(originalBatchId: string, reversalDate: string, reason: string, actor: string) {
-  if (!validDate(reversalDate) || reason.length < 5) throw new Error("수정분개 일자와 5자 이상의 사유를 입력해 주세요."); if ((await blockedPeriods([reversalDate.slice(0, 7)])).length) throw new Error("마감 또는 미개방 기간에는 수정분개를 만들 수 없습니다.");
+  if (!validDate(reversalDate) || reason.length < 5) throw new Error("수정분개 일자와 5자 이상의 사유를 입력해 주세요."); if ((await blockedFinancePeriods(db, [reversalDate.slice(0, 7)])).length) throw new Error("마감 또는 미개방 기간에는 수정분개를 만들 수 없습니다.");
   const original = await db.prepare("SELECT * FROM finance_posting_batches WHERE id=? AND status='POSTED'").bind(originalBatchId).first<Row>(); if (!original) throw new Error("전기 완료된 원배치만 수정분개할 수 있습니다."); if (await db.prepare("SELECT id FROM finance_posting_batches WHERE reversal_of_batch_id=?").bind(originalBatchId).first()) throw new Error("이미 수정분개 배치가 존재합니다.");
   const [vouchers, lines] = await Promise.all([db.prepare("SELECT * FROM finance_posting_vouchers WHERE batch_id=? ORDER BY id").bind(originalBatchId).all<Row>(), db.prepare(`SELECT line.* FROM finance_posting_lines line JOIN finance_posting_vouchers voucher ON voucher.id=line.voucher_id WHERE voucher.batch_id=? ORDER BY voucher.id,line.line_number`).bind(originalBatchId).all<Row>()]); const batchId = crypto.randomUUID(); const now = Date.now();
   await db.prepare(`INSERT INTO finance_posting_batches (id,batch_number,source_type,reversal_of_batch_id,status,period_from,period_to,voucher_count,line_count,total_debit,total_credit,difference_amount,reason,prepared_by,created_at,updated_at) VALUES (?,?,'REVERSAL',?,'DRAFT',?,?,?,?,?,?,0,?,?,?,?)`).bind(batchId, `REV-DRAFT-${batchId.slice(0, 8).toUpperCase()}`, originalBatchId, reversalDate.slice(0, 7), reversalDate.slice(0, 7), vouchers.results.length, lines.results.length, Number(original.total_credit), Number(original.total_debit), reason, actor, now, now).run();

@@ -267,6 +267,10 @@ async function computeControls(period: string): Promise<CloseControl[]> {
     .bind(period).first<TieOutRow>();
   const inventoryTieOut = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = 'INVENTORY' AND period = ?")
     .bind(period).first<TieOutRow>();
+  const debtTieOut = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = 'DEBT' AND period = ?")
+    .bind(period).first<TieOutRow>();
+  const bankTieOut = await db.prepare("SELECT * FROM finance_tie_out_checks WHERE check_type = 'BANK' AND period = ?")
+    .bind(period).first<TieOutRow>();
   const controls: CloseControl[] = [
     { key: "APPROVED_OPENING_BALANCE", category: "STATEMENT", title: "승인된 2026 개시잔액",
       status: ledgerSnapshot.openingSetId ? "PASS" : "FAIL",
@@ -301,6 +305,20 @@ async function computeControls(period: string): Promise<CloseControl[]> {
         : inventoryTieOut.difference_reason === "STRUCTURAL" ? `차이 ${inventoryTieOut.difference_amount.toLocaleString("ko-KR")}원 · 구조적 차이로 확인됨: ${inventoryTieOut.note}`
         : `차이 ${inventoryTieOut.difference_amount.toLocaleString("ko-KR")}원 · 사유 미확인`,
       count: tieOutPasses(inventoryTieOut) ? 0 : 1 },
+    { key: "DEBT_TIE_OUT", category: "STATEMENT", title: "차입금 보조부 ↔ 원장 대사",
+      status: tieOutPasses(debtTieOut) ? "PASS" : "FAIL",
+      message: !debtTieOut ? "이번 마감월의 차입금 대사를 아직 계산하지 않았습니다."
+        : debtTieOut.difference_amount === 0 ? `보조부·원장 잔액 일치 (${debtTieOut.gl_account_code} ${debtTieOut.gl_account_name})`
+        : debtTieOut.difference_reason === "STRUCTURAL" ? `차이 ${debtTieOut.difference_amount.toLocaleString("ko-KR")}원 · 구조적 차이로 확인됨: ${debtTieOut.note}`
+        : `차이 ${debtTieOut.difference_amount.toLocaleString("ko-KR")}원 · 사유 미확인`,
+      count: tieOutPasses(debtTieOut) ? 0 : 1 },
+    { key: "BANK_BALANCE_TIE_OUT", category: "STATEMENT", title: "은행계정조정표(보통예금 잔액 대사)",
+      status: tieOutPasses(bankTieOut) ? "PASS" : "FAIL",
+      message: !bankTieOut ? "이번 마감월의 은행계정조정표를 아직 계산하지 않았습니다."
+        : bankTieOut.difference_amount === 0 ? `보조부·원장 잔액 일치 (${bankTieOut.gl_account_code} ${bankTieOut.gl_account_name})`
+        : bankTieOut.difference_reason === "STRUCTURAL" ? `차이 ${bankTieOut.difference_amount.toLocaleString("ko-KR")}원 · 구조적 차이로 확인됨: ${bankTieOut.note}`
+        : `차이 ${bankTieOut.difference_amount.toLocaleString("ko-KR")}원 · 사유 미확인`,
+      count: tieOutPasses(bankTieOut) ? 0 : 1 },
     { key: "BANK_RECONCILIATION", category: "BANK", title: "원화 은행거래 대사",
       status: bankTotal > 0 && bankPending === 0 ? "PASS" : "FAIL",
       message: bankTotal ? `${bankTotal}건 중 미대사 ${bankPending}건` : "해당 월 은행 거래 원문이 없습니다.", count: bankPending },

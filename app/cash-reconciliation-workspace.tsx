@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { financeCurrentData } from "./finance-current-data";
+
+const currentPeriod = financeCurrentData.asOf.slice(0, 7);
+type TieOutBreakdownItem = { label: string; direction: "IN" | "OUT"; count: number; amount: number };
+type TieOutCheck = { check_type: string; period: string; as_of: string; gl_account_code: string; gl_account_name: string;
+  subsidiary_amount: number; gl_amount: number; difference_amount: number; difference_reason: string; note: string;
+  reviewed_by: string; reviewed_at: number | null; breakdown_json: string };
 
 type MatchItem = {
   id: string; matchGroupId: string; bankTransactionId: string; sourceType: string; sourceId: string;
@@ -47,6 +54,15 @@ export default function CashReconciliationWorkspace() {
   const [filter, setFilter] = useState("PENDING");
   const [query, setQuery] = useState("");
   const [manualSources, setManualSources] = useState<Record<string, string>>({});
+  const [tieOut, setTieOut] = useState<TieOutCheck | null>(null);
+  const [tieOutBusy, setTieOutBusy] = useState(false);
+  const [tieOutMessage, setTieOutMessage] = useState("");
+  const [tieOutReason, setTieOutReason] = useState<"STRUCTURAL" | "UNCONFIRMED">("STRUCTURAL");
+  const [tieOutNote, setTieOutNote] = useState("");
+  const tieOutBreakdown = useMemo<TieOutBreakdownItem[]>(() => {
+    if (!tieOut?.breakdown_json) return [];
+    try { return JSON.parse(tieOut.breakdown_json) as TieOutBreakdownItem[]; } catch { return []; }
+  }, [tieOut]);
 
   async function load() {
     setLoading(true);
@@ -73,6 +89,43 @@ export default function CashReconciliationWorkspace() {
       });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/finance/tie-out", { cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { checks?: TieOutCheck[]; error?: string };
+        if (!response.ok) throw new Error(payload.error || "은행계정조정표를 불러오지 못했습니다.");
+        if (!cancelled) setTieOut(payload.checks?.find((item) => item.check_type === "BANK") ?? null);
+      })
+      .catch((error: unknown) => { if (!cancelled) setTieOutMessage(error instanceof Error ? error.message : "은행계정조정표를 불러오지 못했습니다."); });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function recomputeTieOut() {
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "RECOMPUTE", checkType: "BANK", period: tieOut?.period ?? currentPeriod }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "은행계정조정표를 다시 계산하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutNote(""); setTieOutMessage("은행계정조정표를 다시 계산했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "은행계정조정표를 다시 계산하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
+
+  async function reviewTieOut(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!tieOut) return;
+    setTieOutBusy(true); setTieOutMessage("");
+    try {
+      const response = await fetch("/api/finance/tie-out", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "REVIEW", checkType: "BANK", period: tieOut.period, reason: tieOutReason, note: tieOutNote }) });
+      const result = await response.json() as { check?: TieOutCheck; error?: string };
+      if (!response.ok) throw new Error(result.error || "차이 사유를 저장하지 못했습니다.");
+      setTieOut(result.check ?? null); setTieOutMessage("차이 사유를 저장했습니다.");
+    } catch (error) { setTieOutMessage(error instanceof Error ? error.message : "차이 사유를 저장하지 못했습니다."); }
+    finally { setTieOutBusy(false); }
+  }
 
   const visibleTransactions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -134,6 +187,38 @@ export default function CashReconciliationWorkspace() {
       <article><small>대사율</small><strong>{data?.stats.reconciliationRate ?? 0}%</strong><span>{data?.stats.resolvedCount ?? 0}건 해결</span></article>
       <article><small>미대사 거래</small><strong>{data?.stats.pendingCount ?? 0}건</strong><span>부분 대사 포함</span></article>
       <article><small>미분류 우선검토</small><strong>{data?.stats.unclassifiedPendingCount ?? 0}건</strong><span>계정 없는 입출금</span></article>
+    </section>
+
+    <section className="panel payable-control-panel">
+      <header><div><p>SUBSIDIARY ↔ LEDGER TIE-OUT</p><h3>은행계정조정표(보통예금 잔액 대사)</h3></div><span>{tieOut ? `${tieOut.period} · 원장 기준일 ${tieOut.as_of}` : "아직 계산되지 않음"}</span></header>
+      {tieOutMessage && <div className="finance-control-message" role="status">{tieOutMessage}</div>}
+      <div className="payable-plan-editor">
+        <p>이카운트 IMPORT 원장과의 대사 · 자동 계산</p>
+        <h3>{tieOut ? (tieOut.difference_amount === 0 ? "잔액 일치" : `차이 ${won(tieOut.difference_amount)}`) : "대사 미실행"}</h3>
+        <dl>
+          <div><dt>보조부(Clobe 스냅샷 은행성 자산)</dt><dd>{won(tieOut?.subsidiary_amount ?? 0)}</dd></div>
+          <div><dt>원장 잔액</dt><dd>{won(tieOut?.gl_amount ?? 0)}</dd></div>
+          <div><dt>계정</dt><dd>{tieOut?.gl_account_code ? `${tieOut.gl_account_code} ${tieOut.gl_account_name}` : "매핑 대기"}</dd></div>
+        </dl>
+        <small>보조부 금액은 Clobe 스냅샷의 체크·자유예금 + 외화예금(원화환산) 합계이며, 스냅샷이 갱신되지 않으면 이 대사도 함께 갱신되지 않습니다.</small>
+        {tieOutBreakdown.length > 0 && <div className="cash-tie-out-breakdown">
+          <p>미기입예금·미결제출금 후보(위 자금 대사 원장의 미매칭 은행 거래 기준, {tieOut?.period} 수집분)</p>
+          {tieOutBreakdown.map((item) => <div key={item.direction}><span>{item.label}</span><b className={item.direction === "IN" ? "in" : "out"}>{item.count}건 · {won(item.amount)}</b></div>)}
+        </div>}
+        {tieOut && !tieOutBreakdown.length && <small>해당 기간은 Clobe 은행 거래 원문이 수집되지 않아 항목별 세부 내역을 제공하지 않습니다 — 위 대사 원장의 수집 범위({data?.coverage.startDate}–{data?.coverage.endDate})를 벗어난 기간입니다.</small>}
+        <button type="button" onClick={() => void recomputeTieOut()} disabled={tieOutBusy}>{tieOutBusy ? "계산 중…" : "지금 다시 계산"}</button>
+        {tieOut && tieOut.difference_amount !== 0 && (
+          tieOut.reviewed_at
+            ? <p>{tieOut.difference_reason === "STRUCTURAL" ? "구조적 차이로 확인됨" : "미확인 차이로 기록됨"} · {tieOut.note}</p>
+            : <form onSubmit={reviewTieOut}>
+                <div className="payable-plan-fields">
+                  <label>차이 사유<select value={tieOutReason} onChange={(event) => setTieOutReason(event.target.value as "STRUCTURAL" | "UNCONFIRMED")}><option value="STRUCTURAL">구조적 차이(설명 가능, 월마감 차단 안 함)</option><option value="UNCONFIRMED">미확인(월마감 차단)</option></select></label>
+                </div>
+                <label>설명<textarea rows={2} minLength={5} value={tieOutNote} onChange={(event) => setTieOutNote(event.target.value)} placeholder="예: 은행 마감 이후 입금분으로 익영업일 반영 예정" /></label>
+                <button type="submit" disabled={tieOutBusy || tieOutNote.trim().length < 5}>{tieOutBusy ? "저장 중…" : "사유 저장"}</button>
+              </form>
+        )}
+      </div>
     </section>
 
     <section className="panel cash-reconciliation-ledger">

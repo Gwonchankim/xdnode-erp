@@ -56,6 +56,19 @@ async function ensureSchema() {
     db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_master_tax_code ON finance_master_tax_codes(code)"),
     db.prepare("CREATE INDEX IF NOT EXISTS idx_finance_master_change_status_created ON finance_master_change_requests(status, created_at)"),
   ]);
+
+  // CREATE TABLE IF NOT EXISTS 는 이미 있는 테이블에 컬럼을 더해 주지 않는다. 옛 버전이 만든
+  // finance_master_accounts 에는 나중에 추가된 statement_line·liquidity 가 없어서, 이 두 컬럼을
+  // 읽는 조회가 통째로 500 을 냈다. app/api/hr/employee-records/route.ts 와 같은 방식으로 보강한다.
+  const accountColumns = await db.prepare("PRAGMA table_info(finance_master_accounts)").all<{ name: string }>();
+  const existingAccountColumns = new Set(accountColumns.results.map((column) => column.name));
+  const accountAdditions = [
+    ["statement_line", "TEXT NOT NULL DEFAULT ''"],
+    ["liquidity", "TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existingAccountColumns.has(name));
+  for (const [name, definition] of accountAdditions) {
+    await db.prepare(`ALTER TABLE finance_master_accounts ADD COLUMN ${name} ${definition}`).run();
+  }
 }
 
 async function seedAuthoritativeData(employeeId: string) {

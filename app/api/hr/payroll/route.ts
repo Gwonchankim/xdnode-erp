@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { companyEmployees } from "../../../hr-company-data";
 import { payrollSeedRecords } from "../../../payroll-seed-data";
 import { createApprovalRequest } from "../../../approval-engine";
-import { authorizeErpRequest, writeErpAudit } from "../../../erp-platform";
+import { authorizeErpRequest, safeJson, writeErpAudit } from "../../../erp-platform";
 
 type HrBindings = { DB: D1Database };
 const db = (env as unknown as HrBindings).DB;
@@ -31,12 +31,16 @@ type PayrollRow = {
   non_taxable: number;
   welfare_fund: number;
   notes: string;
+  personal_expense: number;
+  deduction_detail_json: string | null;
   source_sheet: string;
   source_row: number;
 };
 
 type PayrollSummaryRow = {
   year_month: string;
+  /** 그 달 임금안의 상태. 빈 문자열이면 임금계산에 아직 없는 달이다. */
+  compensation_status: string;
   employee_count: number;
   gross_pay: number;
   deductions: number;
@@ -105,6 +109,16 @@ async function ensureSchema() {
       evidence_required INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`),
   ]);
+  // 급여대장의 항목별 공제(국민연금·건강보험·소득세 등)를 그대로 담아 두는 칸. 뒤늦게 붙여서
+  // CREATE TABLE 로는 기존 테이블에 생기지 않으므로 여기서 확인하고 추가한다.
+  const payrollColumns = await db.prepare("PRAGMA table_info(hr_payroll_records)").all<{ name: string }>();
+  if (!payrollColumns.results.some((column) => column.name === "deduction_detail_json")) {
+    await db.prepare("ALTER TABLE hr_payroll_records ADD COLUMN deduction_detail_json TEXT NOT NULL DEFAULT '{}'").run();
+  }
+  // 업무에 쓴 개인 비용을 되돌려 주는 실비. 지급 항목이라 지급총액에 들어간다.
+  if (!payrollColumns.results.some((column) => column.name === "personal_expense")) {
+    await db.prepare("ALTER TABLE hr_payroll_records ADD COLUMN personal_expense INTEGER NOT NULL DEFAULT 0").run();
+  }
   const expenseColumns = await db.prepare("PRAGMA table_info(finance_expense_requests)").all<{ name: string }>();
   const existing = new Set(expenseColumns.results.map((column) => column.name));
   for (const [name, definition] of [
@@ -112,13 +126,27 @@ async function ensureSchema() {
   ].filter(([name]) => !existing.has(name))) await db.prepare(`ALTER TABLE finance_expense_requests ADD COLUMN ${name} ${definition}`).run();
 }
 
+/**
+ * 급여관리 월 목록(hr_payroll_runs)을 급여기록에서 다시 집계한다.
+ *
+ * 새 달을 여기서 마음대로 만들지 않는다. 급여관리에 달이 올라오는 길은 하나뿐이다 —
+ * 임금계산 탭에서 그 달을 "확정"하는 것. 예전에는 급여기록에 행만 있으면 (원본 시트 임포트 포함)
+ * 달이 저절로 생겨서, 아직 작성 중인 달까지 급여관리에 금액이 떠 있었다.
+ *
+ * 이미 등록된 달은 그대로 두고 합계만 갱신한다. 확정한 뒤 임금계산에서 "수정하기"로 다시 열어도
+ * 목록에서 사라지지 않고 자리를 지킨다(화면이 "수정 중"으로 표시한다).
+ */
 async function syncPayrollRuns() {
   const now = Date.now();
   await db.prepare(`INSERT INTO hr_payroll_runs
     (period, status, employee_count, gross_pay, deductions, net_pay, prepared_by, reviewed_by, approved_by,
       locked_at, reopened_reason, created_at, updated_at)
-    SELECT year_month, 'DRAFT', COUNT(*), COALESCE(SUM(gross_pay), 0), COALESCE(SUM(deductions), 0),
-      COALESCE(SUM(net_pay), 0), '', '', '', NULL, '', ?, ? FROM hr_payroll_records GROUP BY year_month
+    SELECT r.year_month, 'DRAFT', COUNT(*), COALESCE(SUM(r.gross_pay), 0), COALESCE(SUM(r.deductions), 0),
+      COALESCE(SUM(r.net_pay), 0), '', '', '', NULL, '', ?, ?
+    FROM hr_payroll_records r
+    WHERE EXISTS (SELECT 1 FROM hr_compensation_runs c WHERE c.period = r.year_month AND c.status = 'CONFIRMED')
+       OR EXISTS (SELECT 1 FROM hr_payroll_runs p WHERE p.period = r.year_month)
+    GROUP BY r.year_month
     ON CONFLICT(period) DO UPDATE SET employee_count = excluded.employee_count, gross_pay = excluded.gross_pay,
       deductions = excluded.deductions, net_pay = excluded.net_pay, updated_at = excluded.updated_at`)
     .bind(now, now).run();
@@ -189,6 +217,7 @@ function toRecord(row: PayrollRow) {
     incentive: row.incentive,
     bonus: row.bonus,
     annualLeavePay: row.annual_leave_pay,
+    personalExpense: row.personal_expense,
     retirementPay: row.retirement_pay,
     deductions: row.deductions,
     grossPay: row.gross_pay,
@@ -199,6 +228,8 @@ function toRecord(row: PayrollRow) {
     nonTaxable: row.non_taxable,
     welfareFund: row.welfare_fund,
     notes: row.notes,
+    // 급여대장의 항목별 공제. 열 제목을 눌렀을 때 화면이 그대로 펼쳐 보여 준다.
+    deductionDetail: safeJson<Record<string, number>>(String(row.deduction_detail_json ?? ""), {}),
     sourceSheet: row.source_sheet,
     sourceRow: row.source_row,
   };
@@ -242,11 +273,15 @@ export async function GET(request: Request) {
     });
   }
 
+  // 임금계산 상태를 같이 내려보낸다. 목록에 있는데 임금안이 DRAFT 면 확정 뒤 다시 연 "수정 중"이다.
   const result = await db.prepare(`SELECT r.year_month, COUNT(*) AS employee_count,
     COALESCE(SUM(r.gross_pay), 0) AS gross_pay, COALESCE(SUM(r.deductions), 0) AS deductions,
-    COALESCE(SUM(r.net_pay), 0) AS net_pay, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at
+    COALESCE(SUM(r.net_pay), 0) AS net_pay, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at,
+    COALESCE(c.status, '') AS compensation_status
     FROM hr_payroll_records r JOIN hr_payroll_runs p ON p.period = r.year_month
-    GROUP BY r.year_month, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at ORDER BY r.year_month DESC`).all<PayrollSummaryRow>();
+    LEFT JOIN hr_compensation_runs c ON c.period = r.year_month
+    GROUP BY r.year_month, p.status, p.prepared_by, p.reviewed_by, p.approved_by, p.locked_at, c.status
+    ORDER BY r.year_month DESC`).all<PayrollSummaryRow>();
 
   return Response.json({ summaries: result.results.map((summary) => ({
     yearMonth: summary.year_month,
@@ -259,6 +294,7 @@ export async function GET(request: Request) {
     reviewedBy: summary.reviewed_by,
     approvedBy: summary.approved_by,
     lockedAt: summary.locked_at,
+    compensationStatus: summary.compensation_status,
   })) });
 }
 
@@ -266,26 +302,75 @@ export async function POST(request: Request) {
   await ensureSchema();
   const authorization = await authorizeErpRequest(db, "hr", "write");
   if (authorization.response) return authorization.response;
-  const body = await request.json() as { id?: unknown; deductions?: unknown };
+  const body = await request.json() as {
+    id?: unknown; deductions?: unknown; pay?: unknown; deductionDetail?: unknown; notes?: unknown;
+  };
   const id = typeof body.id === "string" ? body.id.trim() : "";
-  const deductions = Math.round(Number(body.deductions));
-  if (!id || !Number.isFinite(deductions) || deductions < 0) {
-    return Response.json({ error: "공제액은 0 이상의 정수로 입력해 주세요." }, { status: 400 });
+  if (!id) return Response.json({ error: "급여 기록을 찾을 수 없습니다." }, { status: 400 });
+
+  // 공제는 항목별 내역(국민연금·건강보험·산재보험 …)으로 받는 것이 기본이고, 합계는 그 합이다.
+  // 항목 없이 총액만 보내던 예전 호출도 그대로 받는다.
+  const detailInput = body.deductionDetail && typeof body.deductionDetail === "object" && !Array.isArray(body.deductionDetail)
+    ? body.deductionDetail as Record<string, unknown> : null;
+  const detail: Record<string, number> = {};
+  if (detailInput) {
+    for (const [label, value] of Object.entries(detailInput)) {
+      const name = label.trim();
+      const amount = Math.round(Number(value));
+      if (!name || !Number.isFinite(amount) || amount === 0) continue;
+      detail[name] = (detail[name] ?? 0) + amount;
+    }
   }
+  const deductions = detailInput ? Object.values(detail).reduce((sum, value) => sum + value, 0) : Math.round(Number(body.deductions));
+  if (!Number.isFinite(deductions)) {
+    return Response.json({ error: "공제액을 숫자로 입력해 주세요." }, { status: 400 });
+  }
+
   await seedPayrollRecords();
   await syncPayrollRuns();
   const before = await db.prepare("SELECT * FROM hr_payroll_records WHERE id = ?").bind(id).first<PayrollRow>();
   if (!before) return Response.json({ error: "급여 기록을 찾을 수 없습니다." }, { status: 404 });
-  if (deductions > before.gross_pay) return Response.json({ error: "공제액이 지급총액을 초과할 수 없습니다." }, { status: 400 });
   const run = await db.prepare("SELECT status FROM hr_payroll_runs WHERE period = ?").bind(before.year_month).first<{ status: string }>();
   if (run && !["DRAFT", "REVIEW"].includes(run.status)) {
     return Response.json({ error: "승인 또는 마감된 급여월은 공제값을 수정할 수 없습니다. 먼저 작성 중으로 되돌려 주세요." }, { status: 409 });
   }
-  const netPay = before.gross_pay - deductions;
-  await db.prepare("UPDATE hr_payroll_records SET deductions = ?, net_pay = ? WHERE id = ?").bind(deductions, netPay, id).run();
+
+  // 지급 항목이 오면 그 값으로 갈아 끼우고, 오지 않은 항목은 기존 값을 그대로 둔다.
+  // 지급총액은 따로 받지 않고 항목의 합으로만 만든다 — 합과 총액이 어긋나는 행이 생기지 않게.
+  const PAY_FIELDS = [
+    ["basePay", "base_pay"], ["mealAllowance", "meal_allowance"], ["childcareAllowance", "childcare_allowance"],
+    ["vehicleAllowance", "vehicle_allowance"], ["incentive", "incentive"], ["bonus", "bonus"],
+    ["annualLeavePay", "annual_leave_pay"], ["personalExpense", "personal_expense"], ["retirementPay", "retirement_pay"],
+    ["nonTaxable", "non_taxable"], ["welfareFund", "welfare_fund"], ["cardUsage", "card_usage"],
+    ["personalPurchase", "personal_purchase"], ["annualSalary", "annual_salary"],
+  ] as const;
+  const GROSS_FIELDS = new Set(["base_pay", "meal_allowance", "childcare_allowance", "vehicle_allowance",
+    "incentive", "bonus", "annual_leave_pay", "personal_expense", "retirement_pay"]);
+  const payInput = body.pay && typeof body.pay === "object" && !Array.isArray(body.pay)
+    ? body.pay as Record<string, unknown> : null;
+  const next: Record<string, number> = {};
+  for (const [key, column] of PAY_FIELDS) {
+    const raw = payInput?.[key];
+    const value = raw === undefined ? Number((before as unknown as Record<string, number>)[column]) : Math.round(Number(raw));
+    if (!Number.isFinite(value)) return Response.json({ error: `${key} 값을 숫자로 입력해 주세요.` }, { status: 400 });
+    next[column] = value;
+  }
+  const grossPay = [...GROSS_FIELDS].reduce((sum, column) => sum + next[column], 0);
+  const netPay = grossPay - deductions;
+  const notes = typeof body.notes === "string" ? body.notes : before.notes;
+
+  await db.prepare(`UPDATE hr_payroll_records SET base_pay = ?, meal_allowance = ?, childcare_allowance = ?,
+      vehicle_allowance = ?, incentive = ?, bonus = ?, annual_leave_pay = ?, personal_expense = ?, retirement_pay = ?,
+      non_taxable = ?, welfare_fund = ?, card_usage = ?, personal_purchase = ?, annual_salary = ?,
+      deductions = ?, deduction_detail_json = ?, gross_pay = ?, net_pay = ?, notes = ? WHERE id = ?`)
+    .bind(next.base_pay, next.meal_allowance, next.childcare_allowance, next.vehicle_allowance,
+      next.incentive, next.bonus, next.annual_leave_pay, next.personal_expense, next.retirement_pay,
+      next.non_taxable, next.welfare_fund, next.card_usage, next.personal_purchase, next.annual_salary,
+      deductions, detailInput ? JSON.stringify(detail) : String(before.deduction_detail_json ?? "{}"),
+      grossPay, netPay, notes, id).run();
   await syncPayrollRuns();
   const after = await db.prepare("SELECT * FROM hr_payroll_records WHERE id = ?").bind(id).first<PayrollRow>();
-  await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_DEDUCTIONS_SET", entityType: "payrollRecord", entityId: id, before: toRecord(before), after: after ? toRecord(after) : null });
+  await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_RECORD_UPDATED", entityType: "payrollRecord", entityId: id, before: toRecord(before), after: after ? toRecord(after) : null });
   return Response.json({ record: after ? toRecord(after) : null });
 }
 
@@ -305,8 +390,10 @@ export async function PUT(request: Request) {
   if (!before) return Response.json({ error: "급여월을 찾을 수 없습니다." }, { status: 404 });
   const currentStatus = String(before.status ?? "DRAFT");
   const allowedTransitions: Record<string, string[]> = {
-    DRAFT: ["DRAFT", "REVIEW"],
-    REVIEW: ["DRAFT", "REVIEW", "APPROVED"],
+    // 결재선을 태울 사람이 한 명뿐이라 작성 중에서 바로 마감 잠금까지 갈 수 있게 열어 둔다.
+    // 검토 요청·승인 결재는 남겨 두되 거쳐 갈 의무는 없다.
+    DRAFT: ["DRAFT", "REVIEW", "LOCKED"],
+    REVIEW: ["DRAFT", "REVIEW", "APPROVED", "LOCKED"],
     APPROVED: ["DRAFT", "APPROVED", "LOCKED"],
     LOCKED: ["DRAFT", "LOCKED"],
   };
@@ -324,7 +411,7 @@ export async function PUT(request: Request) {
     const netPay = Number(before.net_pay ?? 0);
     const approval = await createApprovalRequest(db, authorization.principal, {
       module: "hr", requestType: "PAYROLL_RUN", title: `${period} 급여 승인`,
-      description: `${Number(before.employee_count ?? 0)}명 · 기록상 지급액 ${netPay.toLocaleString("ko-KR")}원`,
+      description: `${Number(before.employee_count ?? 0)}명 · 실 지급액 ${netPay.toLocaleString("ko-KR")}원`,
       targetEntityType: "PAYROLL_RUN", targetEntityId: period, amount: netPay,
       metadata: { period, employeeCount: Number(before.employee_count ?? 0), grossPay: Number(before.gross_pay ?? 0), deductions: Number(before.deductions ?? 0), netPay },
     }) as { id: string; status: string; autoApproved?: boolean };
@@ -336,7 +423,6 @@ export async function PUT(request: Request) {
     await writeErpAudit(db, { principal: authorization.principal, module: "hr", action: "PAYROLL_APPROVAL_SUBMITTED", entityType: "payrollRun", entityId: period, before, after: approval });
     return Response.json({ item: before, approvalSubmitted: true, approvalId: approval.id }, { status: 202 });
   }
-  if (status === "LOCKED" && before.status !== "APPROVED") return Response.json({ error: "승인 완료된 급여월만 마감 잠금할 수 있습니다." }, { status: 409 });
   const payrollExpenseId = `payroll:${period}`;
   if (status === "LOCKED") {
     const koreaDate = new Date(now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -344,8 +430,8 @@ export async function PUT(request: Request) {
     const result = await db.batch([
       db.prepare(`UPDATE hr_payroll_runs SET status = 'LOCKED', prepared_by = CASE WHEN prepared_by = '' THEN ? ELSE prepared_by END,
         reviewed_by = CASE WHEN reviewed_by = '' THEN ? ELSE reviewed_by END, approved_by = ?, locked_at = ?, updated_at = ?
-        WHERE period = ? AND status = 'APPROVED'`)
-        .bind(authorization.principal.employeeId, authorization.principal.employeeId, authorization.principal.employeeId, now, now, period),
+        WHERE period = ? AND status = ?`)
+        .bind(authorization.principal.employeeId, authorization.principal.employeeId, authorization.principal.employeeId, now, now, period, currentStatus),
       db.prepare(`INSERT INTO finance_expense_requests
         (id, request_kind, title, vendor, amount, requested_date, due_date, account_code, account_name,
           payment_method, memo, source_type, source_id, status, requester_employee_id, approved_by, approved_at,
@@ -376,8 +462,17 @@ export async function PUT(request: Request) {
     if (approvalAuthorization.response) return approvalAuthorization.response;
     const reopenedReason = typeof body.reopenedReason === "string" ? body.reopenedReason.trim() : "";
     if (!reopenedReason) return Response.json({ error: "승인·마감된 급여월을 다시 열려면 사유가 필요합니다." }, { status: 400 });
-    const projectAllocation = await db.prepare(`SELECT COUNT(*) AS count FROM finance_project_allocations
-      WHERE source_type = 'PAYROLL_RUN' AND source_id = ?`).bind(period).first<{ count: number }>();
+    // finance_project_allocations 는 재무 "프로젝트·원가센터" 화면이 처음 열릴 때 만들어진다.
+    // 그 화면을 한 번도 열지 않은 환경에서는 테이블이 없어 이 조회가 통째로 500 을 냈고,
+    // 그 탓에 승인·마감된 급여월을 다시 여는 것 자체가 막혀 있었다.
+    // 테이블이 없다는 것은 배부 자체가 없다는 뜻이므로 0 건으로 본다. 테이블이 있으면 종전과 같다.
+    const allocationTable = await db.prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'finance_project_allocations'",
+    ).first<{ name: string }>();
+    const projectAllocation = allocationTable
+      ? await db.prepare(`SELECT COUNT(*) AS count FROM finance_project_allocations
+          WHERE source_type = 'PAYROLL_RUN' AND source_id = ?`).bind(period).first<{ count: number }>()
+      : { count: 0 };
     if (Number(projectAllocation?.count ?? 0) > 0) return Response.json({ error: "프로젝트 원가에 배부된 급여월입니다. 재무 담당자가 배부를 먼저 정정해야 다시 열 수 있습니다." }, { status: 409 });
     const financeBefore = await db.prepare("SELECT * FROM finance_expense_requests WHERE id = ?").bind(payrollExpenseId).first<Record<string, unknown>>();
     if (financeBefore && (financeBefore.status === "PAID" || !["UNPOSTED", ""].includes(String(financeBefore.journal_status ?? "")))) {

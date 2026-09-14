@@ -1,0 +1,339 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "answer",
+    "cautions",
+    "nextSteps",
+    "proposedActions",
+    "interviewQuestions"
+  ],
+  "properties": {
+    "answer": {
+      "type": "string",
+      "description": "한국어로 된 간결한 답변"
+    },
+    "cautions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "확인 또는 주의가 필요한 사항"
+    },
+    "nextSteps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "사용자가 ERP 화면에서 수행할 다음 단계"
+    },
+    "proposedActions": {
+      "type": "array",
+      "description": "사용자 확인 뒤에만 적용할 제한된 ERP 변경안",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "title",
+          "summary",
+          "employeeId",
+          "values",
+          "period",
+          "applicant",
+          "interviewResult",
+          "offer"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "UPDATE_HR_COMPENSATION_DEFAULTS",
+              "CREATE_COMPENSATION_DRAFT",
+              "CREATE_RECRUITMENT_APPLICANT",
+              "RECORD_INTERVIEW_REJECTION",
+              "CREATE_RECRUITMENT_OFFER"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "employeeId": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "annualSalary",
+              "basePay",
+              "mealAllowance",
+              "childcareAllowance",
+              "vehicleAllowance"
+            ],
+            "properties": {
+              "annualSalary": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "basePay": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "mealAllowance": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "childcareAllowance": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "vehicleAllowance": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            }
+          },
+          "applicant": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "role",
+              "experience",
+              "email",
+              "phone",
+              "source",
+              "summary",
+              "ownerId",
+              "requisitionId",
+              "resumeFileName"
+            ],
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "experience": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "phone": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "summary": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "ownerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "requisitionId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "resumeFileName": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "interviewResult": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "applicantId",
+              "outcome",
+              "memo"
+            ],
+            "properties": {
+              "applicantId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outcome": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "enum": [
+                  "REJECT",
+                  "NO_SHOW",
+                  null
+                ]
+              },
+              "memo": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          "offer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": false,
+            "required": [
+              "applicantId",
+              "proposedTitle",
+              "department",
+              "employmentType",
+              "startDate",
+              "annualSalary",
+              "probationMonths",
+              "notes"
+            ],
+            "properties": {
+              "applicantId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "proposedTitle": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "department": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "employmentType": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startDate": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "annualSalary": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "probationMonths": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "interviewQuestions": {
+      "type": "array",
+      "description": "맞춤 면접 질문. 질문을 요청하지 않았으면 빈 배열.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "RESUME_CHECK",
+              "ROLE_SKILL",
+              "BUSINESS_SCENARIO",
+              "COLLABORATION",
+              "COUNTER_ROLE_SKILL",
+              "COUNTER_FIT"
+            ]
+          },
+          "question": {
+            "type": "string"
+          },
+          "checkpoint": {
+            "type": "string",
+            "description": "확인할 역량 또는 좋은 답변의 관찰 포인트"
+          }
+        },
+        "required": [
+          "category",
+          "question",
+          "checkpoint"
+        ]
+      }
+    }
+  }
+}
